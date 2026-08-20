@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Request Details{% endblock %}
+{% block content %}
+<section class="form-shell">
+    <div class="card">
+        <span class="tag">{{ task.get_status_display }}</span>
+        <h1 style="font-size: 40px;">{{ task.get_help_type_display }}</h1>
+        <p>{{ task.description }}</p>
+        <p><b data-i18n="detail.client">Client:</b> {{ task.client.username }}</p>
+        <p><b data-i18n="detail.volunteer">Volunteer:</b> {{ task.volunteer|default_if_none:"—" }}</p>
+        <p><b data-i18n="detail.address">Address:</b> {{ task.address }}</p>
+        <p><b data-i18n="detail.phone">Phone:</b> {{ task.phone }}</p>
+        {% if user.is_volunteer and task.status == "pending" %}<a class="button primary" href="{% url 'accept_task' task.id %}" data-i18n="task.accept">Accept</a>{% endif %}
+    </div>
+</section>
+{% endblock %}

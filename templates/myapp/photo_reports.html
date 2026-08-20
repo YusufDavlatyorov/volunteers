@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Photo Reports{% endblock %}
+{% block content %}
+<section class="section">
+    <div class="two-col">
+        <div>
+            <h1 data-i18n="photo.title">Photo Reports</h1>
+            <div class="grid">
+                {% for report in reports %}
+                    <div class="card reveal"><img class="report-img" src="{{ report.image.url }}" alt="{{ report.title }}"><h3>{{ report.title }}</h3><p>{{ report.description }}</p><span class="tag">{{ report.get_region_display }}</span></div>
+                {% empty %}
+                    <p data-i18n="photo.no_reports">No photo reports yet.</p>
+                {% endfor %}
+            </div>
+        </div>
+        <div class="card">
+            <h2 data-i18n="photo.add">Add Report</h2>
+            <form method="post" enctype="multipart/form-data">
+                {% csrf_token %}
+                {{ form.as_p }}
+                <button class="primary" type="submit" data-i18n="photo.publish">Publish</button>
+            </form>
+        </div>
+    </div>
+</section>
+{% endblock %}

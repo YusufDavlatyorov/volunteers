@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}About - Generation Connect{% endblock %}
+{% block content %}
+<section class="hero">
+    <div class="hero-content reveal">
+        <span class="eyebrow" data-i18n="hero.eyebrow">About Us</span>
+        <h1 data-i18n="hero.title">Generation Connect</h1>
+        <p data-i18n="hero.desc">The platform connects elderly people, volunteers, curators and administration in one clear system: request, acceptance, notifications, archive, rating and photo report.</p>
+        <a class="button primary" href="{% url 'register' %}" data-i18n="hero.join">Join Project</a>
+        <a class="button ghost" href="{% url 'login' %}" data-i18n="hero.login">Login</a>
+    </div>
+</section>
+<section class="section">
+    <div class="grid">
+        <div class="card reveal"><span class="metric">{{ stats.volunteers }}</span><h3 data-i18n="stat.volunteers">Volunteers</h3><p data-i18n="stat.vol_desc">Helpers see only free requests in their region and take one active request.</p></div>
+        <div class="card reveal"><span class="metric">{{ stats.clients }}</span><h3 data-i18n="stat.clients">Clients</h3><p data-i18n="stat.cli_desc">The client receives email and Telegram notification when a request is accepted or closed.</p></div>
+        <div class="card reveal"><span class="metric">{{ stats.completed }}</span><h3 data-i18n="stat.completed">Completed</h3><p data-i18n="stat.comp_desc">The archive saves the history of help, and the rating shows the contribution of volunteers.</p></div>
+        <div class="card reveal"><span class="metric">{{ stats.regions }}</span><h3 data-i18n="stat.regions">Regions</h3><p data-i18n="stat.reg_desc">Mailings can be sent to one region, several through repeated mailings, or all at once.</p></div>
+    </div>
+</section>
+<section class="section alt">
+    <div class="two-col">
+        <div>
+            <h2 data-i18n="section.why">Why We Are Stronger Than a Regular Chat</h2>
+            <div class="grid">
+                <div class="card reveal"><h3 data-i18n="card.roles">Roles Are Followed</h3><p data-i18n="card.roles_desc">Admin and curator manage, volunteer helps, client creates requests.</p></div>
+                <div class="card reveal"><h3 data-i18n="card.notif">Real Notifications</h3><p data-i18n="card.notif_desc">Email and Telegram reduce the chance of missing urgent help.</p></div>
+                <div class="card reveal"><h3 data-i18n="card.ai">AI Assistant</h3><p data-i18n="card.ai_desc">For the client it responds softly and simply, for the volunteer it gives working advice.</p></div>
+                <div class="card reveal"><h3 data-i18n="card.transp">Transparency</h3><p data-i18n="card.transp_desc">Photo reports, archive and rating show the real work of the team.</p></div>
+            </div>
+        </div>
+        <div class="map reveal"><span class="pin one"></span><span class="pin two"></span><span class="pin three"></span></div>
+    </div>
+</section>
+<section class="section">
+    <h2 data-i18n="section.photos">Photo Reports</h2>
+    <div class="grid">
+        {% for report in reports %}
+            <div class="card reveal"><img class="report-img" src="{{ report.image.url }}" alt="{{ report.title }}"><h3>{{ report.title }}</h3><p>{{ report.description|truncatechars:120 }}</p></div>
+        {% empty %}
+            <div class="card reveal"><h3 data-i18n="photo.empty">Reports coming soon</h3><p data-i18n="photo.empty_desc">After events and help, volunteers can add photos and description.</p></div>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}

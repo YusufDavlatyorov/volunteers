@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Requests{% endblock %}
+{% block content %}
+<section class="section">
+    <h1 data-i18n="task.title">Free Requests</h1>
+    {% if my_active %}
+        <h2 data-i18n="task.my_active">My Active Request</h2>
+        <div class="grid">
+        {% for task in my_active %}
+            <div class="card"><span class="tag">{{ task.get_status_display }}</span><h3>{{ task.get_help_type_display }}</h3><p>{{ task.description }}</p><a class="button secondary" href="{% url 'complete_task' task.id %}" data-i18n="task.complete">Complete</a></div>
+        {% endfor %}
+        </div>
+    {% endif %}
+    <form class="card" method="get">{{ filter_form.as_p }}<button class="ghost" type="submit" data-i18n="task.filter">Filter</button></form>
+    <div class="table-list">
+        {% for task in tasks %}
+            <div class="request-row reveal">
+                <div><span class="tag {% if task.is_urgent %}urgent{% endif %}">{{ task.get_status_display }}</span><h3>{{ task.get_help_type_display }}</h3><p>{{ task.description|truncatechars:150 }}</p><p>{{ task.get_region_display }} · {{ task.address }}</p></div>
+                <div><a class="button ghost" href="{% url 'task_detail' task.id %}" data-i18n="task.details">Details</a>{% if user.is_volunteer %}<a class="button primary" href="{% url 'accept_task' task.id %}" data-i18n="task.accept">Accept</a>{% endif %}</div>
+            </div>
+        {% empty %}
+            <p data-i18n="task.empty">No free requests at the moment.</p>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}

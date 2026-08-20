@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Admin Panel{% endblock %}
+{% block content %}
+<section class="section">
+    <h1 data-i18n="admin.title">Admin Panel</h1>
+    <p data-i18n="admin.desc" style="margin-bottom: 20px;">Here you can see free and busy requests. A busy request is visible only to the assigned volunteer, curator and admin.</p>
+    <div class="grid">
+        <a class="button primary" href="{% url 'broadcast' %}" data-i18n="admin.broadcast">Send Message to Volunteers</a>
+        <a class="button secondary" href="{% url 'create_event' %}" data-i18n="admin.create_event">Create Event</a>
+        <a class="button ghost" href="{% url 'completed_tasks' %}"><span data-i18n="admin.archive">Archive:</span> {{ archive_count }}</a>
+        <a class="button ghost" href="{% url 'rating' %}" data-i18n="admin.rating">Rating</a>
+        <a class="button ghost" href="{% url 'check_overdue' %}" data-i18n="admin.check">Check Overdue</a>
+        <a class="button ghost" href="{% url 'check_overdue' %}">New button</a>
+    </div>
+</section>
+<section class="section alt">
+    <h2 data-i18n="admin.free">Free Requests</h2>
+    <div class="table-list">
+        {% for task in free_requests %}
+            <div class="request-row reveal"><div><span class="tag {% if task.is_urgent %}urgent{% endif %}" data-i18n="tag.free">free</span><h3>{{ task.get_help_type_display }}</h3><p>{{ task.client.username }} · {{ task.get_region_display }} · {{ task.description|truncatechars:130 }}</p></div><a class="button ghost" href="{% url 'task_detail' task.id %}" data-i18n="btn.open">Open</a></div>
+        {% empty %}<p data-i18n="admin.no_free">No free requests.</p>{% endfor %}
+    </div>
+</section>
+<section class="section">
+    <h2 data-i18n="admin.busy">Busy Requests</h2>
+    <div class="table-list">
+        {% for task in busy_requests %}
+            <div class="request-row reveal"><div><span class="tag" data-i18n="tag.busy">busy</span><h3>{{ task.get_help_type_display }}</h3><p>{{ task.client.username }} → {{ task.volunteer.username }} · {{ task.accepted_at|date:"d.m.Y H:i" }}</p></div><a class="button ghost" href="{% url 'task_detail' task.id %}" data-i18n="btn.open">Open</a></div>
+        {% empty %}<p data-i18n="admin.no_busy">No busy requests.</p>{% endfor %}
+    </div>
+</section>
+{% endblock %}

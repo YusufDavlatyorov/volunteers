@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Register - Generation Connect{% endblock %}
+{% block content %}
+<section class="auth-shell">
+    <div class="auth-art">
+        <span class="eyebrow" data-i18n="reg.eyebrow">4 Roles</span>
+        <h1 data-i18n="reg.title">Register</h1>
+        <p data-i18n="reg.desc">Clients create requests, volunteers take one task, curators lead events, admin sees the whole system.</p>
+    </div>
+    <div class="auth-panel">
+        <h2 data-i18n="reg.heading">Registration</h2>
+        <form method="post" class="card">
+            {% csrf_token %}
+            {{ form.as_p }}
+            <button class="primary" type="submit" data-i18n="reg.btn">Create Account</button>
+        </form>
+        <p><a href="{% url 'login' %}" data-i18n="reg.has_account">Already have an account?</a></p>
+    </div>
+</section>
+{% endblock %}

@@ -1,0 +1,110 @@
+{% load static %}
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Generation Connect{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{% static 'css/style.css' %}">
+</head>
+<body>
+<nav class="topbar">
+    <a class="brand" href="{% url 'about' %}">
+        <span class="brand-mark">GC</span>
+        <span>Generation Connect</span>
+    </a>
+    <button class="menu-button" type="button" data-menu-toggle>☰</button>
+    <div class="nav-links" data-menu>
+        <a href="{% url 'about' %}" data-i18n="nav.about">About Us</a>
+        <a href="{% url 'rating' %}" data-i18n="nav.rating">Rating</a>
+        {% if user.is_authenticated %}
+            <a href="{% url 'profile' %}" data-i18n="nav.profile">Profile</a>
+            {% if user.is_superuser or user.is_curator %}
+                <a href="{% url 'admin_panel' %}" data-i18n="nav.admin">Admin Panel</a>
+            {% endif %}
+            {% if user.is_volunteer %}
+                <a href="{% url 'task_list' %}" data-i18n="nav.requests">Requests</a>
+            {% endif %}
+            {% if user.is_client %}
+                <a href="{% url 'create_request' %}" data-i18n="nav.new_request">New Request</a>
+            {% endif %}
+            <a href="{% url 'ai_assistant' %}" data-i18n="nav.ai">AI Assistant</a>
+            <a class="button ghost" href="{% url 'logout' %}" data-i18n="nav.logout">Logout</a>
+        {% else %}
+            <a href="{% url 'login' %}" data-i18n="nav.login">Login</a>
+            <a href="{% url 'forgot_password' %}" data-i18n="nav.forgot">Forgot Password</a>
+            <a class="button primary" href="{% url 'register' %}" data-i18n="nav.register">Register</a>
+        {% endif %}
+    </div>
+    <div class="toolbar">
+        <div class="lang-group">
+            <button class="lang-btn" data-lang="en" onclick="setLanguage('en')">EN</button>
+            <button class="lang-btn" data-lang="ru" onclick="setLanguage('ru')">RU</button>
+            <button class="lang-btn" data-lang="tj" onclick="setLanguage('tj')">TJ</button>
+        </div>
+        <button class="theme-toggle" id="themeToggle" title="Toggle theme">🌙</button>
+    </div>
+</nav>
+
+{% if messages %}
+<div class="toast-stack">
+    {% for message in messages %}
+        <div class="toast {{ message.tags }}">{{ message }}</div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<main>
+    {% block content %}{% endblock %}
+</main>
+
+<footer class="footer">
+    <span data-i18n="footer.copy">Generation Connect, 2026</span>
+    <span data-i18n="footer.desc">Care, regions, accountability, fast notifications.</span>
+</footer>
+
+<script src="{% static 'js/i18n.js' %}"></script>
+<script>
+/* ===== THEME TOGGLE ===== */
+(function() {
+    const html = document.documentElement;
+    const toggle = document.getElementById('themeToggle');
+    const saved = localStorage.getItem('gc-theme') || 'light';
+    html.setAttribute('data-theme', saved);
+    toggle.textContent = saved === 'dark' ? '☀️' : '🌙';
+
+    toggle.addEventListener('click', () => {
+        const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+        html.setAttribute('data-theme', next);
+        localStorage.setItem('gc-theme', next);
+        toggle.textContent = next === 'dark' ? '☀️' : '🌙';
+    });
+})();
+
+/* ===== MOBILE MENU ===== */
+document.querySelector('[data-menu-toggle]')?.addEventListener('click', () => {
+    document.querySelector('[data-menu]')?.classList.toggle('open');
+});
+
+/* ===== SCROLL REVEAL ===== */
+const revealObserver = new IntersectionObserver((entries) => {
+    entries.forEach((entry, i) => {
+        if (entry.isIntersecting) {
+            entry.target.style.transitionDelay = `${i * 0.06}s`;
+            entry.target.classList.add('visible');
+        }
+    });
+}, { threshold: 0.1 });
+document.querySelectorAll('.reveal').forEach((el) => revealObserver.observe(el));
+
+/* ===== AUTO-HIDE TOASTS ===== */
+document.querySelectorAll('.toast').forEach((t, i) => {
+    setTimeout(() => { t.style.opacity = '0'; t.style.transform = 'translateX(30px)'; setTimeout(() => t.remove(), 400); }, 4000 + i * 600);
+});
+</script>
+{% block extra_js %}{% endblock %}
+</body>
+</html>

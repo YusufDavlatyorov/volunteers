@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Rating{% endblock %}
+{% block content %}
+<section class="section">
+    <h1 data-i18n="rating.title">Rating</h1>
+    <p data-i18n="rating.desc">Rating grows when a volunteer completes a request. Urgent help gives more points.</p>
+    <div class="table-list">
+        {% for profile in volunteers %}
+            <div class="request-row reveal">
+                <div><span class="tag">#{{ forloop.counter }}</span><h3>{{ profile.full_name|default:profile.user.username }}</h3><p>{{ profile.user.get_region_display }} · {{ profile.bio|truncatechars:90 }}</p></div>
+                <div class="metric">{{ profile.rating }}</div>
+            </div>
+        {% empty %}
+            <p data-i18n="rating.empty">No volunteers in the rating yet.</p>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}

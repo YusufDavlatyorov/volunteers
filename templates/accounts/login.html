@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Login - Generation Connect{% endblock %}
+{% block content %}
+<section class="auth-shell">
+    <div class="auth-art">
+        <span class="eyebrow" data-i18n="login.eyebrow">Volunteer Platform</span>
+        <h1 data-i18n="login.title">Login</h1>
+        <p data-i18n="login.desc">Log into your profile to accept a request, create help, open AI assistant or view admin panel.</p>
+    </div>
+    <div class="auth-panel">
+        <h2 data-i18n="login.heading">Sign In</h2>
+        <form method="post" class="card">
+            {% csrf_token %}
+            {{ form.as_p }}
+            <button class="primary" type="submit" data-i18n="login.btn">Login</button>
+        </form>
+        <p><a href="{% url 'forgot_password' %}" data-i18n="login.forgot">Forgot Password</a> · <a href="{% url 'register' %}" data-i18n="login.register">Register</a></p>
+    </div>
+</section>
+{% endblock %}

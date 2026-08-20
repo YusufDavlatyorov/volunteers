@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Profile - Generation Connect{% endblock %}
+{% block content %}
+<section class="section">
+    <div class="two-col">
+        <div class="card reveal">
+            <div class="profile-head">
+                {% if profile.image %}
+                    <img class="avatar" src="{{ profile.image.url }}" alt="{{ user.username }}">
+                {% else %}
+                    <div class="avatar"></div>
+                {% endif %}
+                <div>
+                    <span class="tag">{{ user.role_display }}</span>
+                    <h2>{{ profile.full_name|default:user.username }}</h2>
+                    <p>{{ user.email }} · {{ user.get_region_display|default:"—" }}</p>
+                </div>
+            </div>
+            <p>{{ profile.bio|default:"—" }}</p>
+            <div class="grid">
+                <div><span class="metric">{{ profile.rating }}</span><p data-i18n="profile.rating_pts">rating points</p></div>
+                <div><span class="metric">{{ user.telegram_id|default:"—" }}</span><p data-i18n="profile.tg_id">telegram id</p></div>
+            </div>
+            <a class="button ghost" href="{% url 'edit_profile' %}" data-i18n="profile.edit">Edit Profile</a>
+        </div>
+        <div class="card reveal">
+            <h3 data-i18n="profile.quick">Quick Actions</h3>
+            <div class="grid">
+                {% if user.is_superuser or user.is_curator %}
+                    <a class="button primary" href="{% url 'admin_panel' %}" data-i18n="profile.admin">Admin Panel</a>
+                    <a class="button secondary" href="{% url 'broadcast' %}" data-i18n="profile.send_msg">Send Message</a>
+                    <a class="button ghost" href="{% url 'create_event' %}" data-i18n="profile.create_event">Create Event</a>
+                {% endif %}
+                {% if user.is_volunteer %}
+                    <a class="button primary" href="{% url 'task_list' %}" data-i18n="profile.open_req">Open Requests</a>
+                    <a class="button ghost" href="{% url 'photo_reports' %}" data-i18n="profile.photo_rep">Photo Reports</a>
+                {% endif %}
+                {% if user.is_client %}
+                    <a class="button primary" href="{% url 'create_request' %}" data-i18n="profile.create_req">Create Request</a>
+                {% endif %}
+                <a class="button ghost" href="{% url 'ai_assistant' %}" data-i18n="profile.ai">AI Assistant</a>
+                <a class="button ghost" href="{% url 'rating' %}" data-i18n="profile.rating">Rating</a>
+            </div>
+        </div>
+    </div>
+</section>
+<section class="section alt">
+    <h2 data-i18n="profile.my_records">My Records</h2>
+    <div class="grid">
+        {% for task in my_tasks %}
+            <div class="card"><span class="tag">{{ task.get_status_display }}</span><h3>{{ task.get_help_type_display }}</h3><p>{{ task.description|truncatechars:120 }}</p></div>
+        {% empty %}
+            {% for req in my_requests %}
+                <div class="card"><span class="tag">{{ req.get_status_display }}</span><h3>{{ req.get_help_type_display }}</h3><p>{{ req.description|truncatechars:120 }}</p></div>
+            {% empty %}
+                <p data-i18n="profile.no_records">No records yet.</p>
+            {% endfor %}
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}

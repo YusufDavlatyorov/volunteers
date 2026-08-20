@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}
+<section class="form-shell">
+    <div class="card">
+        <h3>{{ title }}</h3>
+        <form method="post" enctype="multipart/form-data">
+            {% csrf_token %}
+            {{ form.as_p }}
+            <button class="primary" type="submit" data-i18n="btn.save">Save</button>
+        </form>
+    </div>
+</section>
+{% endblock %}

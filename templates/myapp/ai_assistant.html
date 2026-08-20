@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}AI Assistant{% endblock %}
+{% block content %}
+<section class="section">
+    <div class="two-col">
+        <div>
+            <h1 data-i18n="ai.title">AI Assistant</h1>
+            {% if user.is_client %}
+                <p data-i18n="ai.client_mode">Client mode: simple answers, caring tone, careful advice for elderly people.</p>
+            {% else %}
+                <p data-i18n="ai.vol_mode">Volunteer mode: communication, safety, ethics of help and preparation for a visit.</p>
+            {% endif %}
+            <div class="chat-box" id="chatBox">
+                <div class="bubble" data-i18n="ai.greeting">Hello. How can I help?</div>
+            </div>
+            <form id="chatForm" class="card">
+                {% csrf_token %}
+                <textarea id="messageInput" rows="3" placeholder="Write a question" data-i18n-ph="ai.placeholder"></textarea>
+                <button class="primary" type="submit" data-i18n="ai.send">Send</button>
+            </form>
+        </div>
+        <div class="card">
+            <h3 data-i18n="ai.about">What it can do</h3>
+            <p data-i18n="ai.about_desc">AI works differently for clients and volunteers. Without API key, a local fallback response is used, so the page doesn't break.</p>
+        </div>
+    </div>
+</section>
+{% endblock %}
+{% block extra_js %}
+<script>
+const chatBox = document.getElementById('chatBox');
+const form = document.getElementById('chatForm');
+const input = document.getElementById('messageInput');
+function addBubble(text, me=false) {
+    const div = document.createElement('div');
+    div.className = 'bubble' + (me ? ' me' : '');
+    div.textContent = text;
+    chatBox.appendChild(div);
+    chatBox.scrollTop = chatBox.scrollHeight;
+}
+form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const message = input.value.trim();
+    if (!message) return;
+    addBubble(message, true);
+    input.value = '';
+    const res = await fetch("{% url 'ai_chat' %}", {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value},
+        body: JSON.stringify({message})
+    });
+    const data = await res.json();
+    addBubble(data.reply || data.error || 'Error');
+});
+</script>
+{% endblock %}

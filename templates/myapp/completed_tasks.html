@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Archive{% endblock %}
+{% block content %}
+<section class="section">
+    <h1 data-i18n="archive.title">Archive</h1>
+    <div class="table-list">
+        {% for task in tasks %}
+            <div class="request-row reveal"><div><span class="tag">{{ task.get_status_display }}</span><h3>{{ task.get_help_type_display }}</h3><p>{{ task.client }} → {{ task.volunteer }} · {{ task.completed_at|date:"d.m.Y H:i" }}</p></div><a class="button ghost" href="{% url 'task_detail' task.id %}" data-i18n="btn.open">Open</a></div>
+        {% empty %}
+            <p data-i18n="archive.empty">Archive is empty.</p>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}
