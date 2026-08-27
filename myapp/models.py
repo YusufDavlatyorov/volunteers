@@ -1,7 +1,15 @@
-from django.db import models
+from datetime import timedelta
+
+from django.db import models, transaction
 from django.utils import timezone
 
 from accounts.models import REGION_CHOICES, Users
+
+
+# Single source of truth for the "task in progress too long" threshold, reused by
+# check_overdue_view, the check_overdue_tasks management command, and this model's
+# is_overdue property so the number never drifts between them.
+OVERDUE_THRESHOLD = timedelta(hours=3)
 
 
 HELP_TYPE_CHOICES = [
@@ -44,6 +52,8 @@ class HelpRequest(models.Model):
     address = models.CharField(max_length=255)
     phone = models.CharField(max_length=30)
     region = models.CharField(max_length=100, choices=REGION_CHOICES, blank=True)
+    latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
     is_urgent = models.BooleanField(default=False)
     alarm_sent = models.BooleanField(default=False)
@@ -70,6 +80,14 @@ class HelpRequest(models.Model):
         self.status = "completed"
         self.completed_at = timezone.now()
         self.save()
+
+    @property
+    def has_location(self):
+        return self.latitude is not None and self.longitude is not None
+
+    @property
+    def is_overdue(self):
+        return self.status == "active" and bool(self.accepted_at) and timezone.now() - self.accepted_at > OVERDUE_THRESHOLD
 
 
 class Event(models.Model):
@@ -110,6 +128,69 @@ class Broadcast(models.Model):
 
     def __str__(self):
         return self.subject
+
+
+class VolunteerApplication(models.Model):
+    STATUS_PENDING = "pending"
+    STATUS_APPROVED = "approved"
+    STATUS_REJECTED = "rejected"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "На рассмотрении"),
+        (STATUS_APPROVED, "Одобрена"),
+        (STATUS_REJECTED, "Отклонена"),
+    ]
+
+    user = models.OneToOneField(Users, on_delete=models.CASCADE, related_name="volunteer_application")
+    region = models.CharField(max_length=100, choices=REGION_CHOICES, blank=True)
+    reason = models.TextField(blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    reviewed_by = models.ForeignKey(
+        Users,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="reviewed_volunteer_applications",
+    )
+
+    class Meta:
+        verbose_name = "Заявка волонтера"
+        verbose_name_plural = "Заявки волонтеров"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.user.username} — {self.get_status_display()}"
+
+    def approve(self, reviewer):
+        with transaction.atomic():
+            user = Users.objects.get(pk=self.user_id)
+            user.is_volunteer = True
+            user.is_client = False
+            user.save()
+            self.status = self.STATUS_APPROVED
+            self.reviewed_by = reviewer
+            self.reviewed_at = timezone.now()
+            self.save(update_fields=["status", "reviewed_by", "reviewed_at"])
+
+    def reject(self, reviewer):
+        with transaction.atomic():
+            user = Users.objects.get(pk=self.user_id)
+            user.is_volunteer = False
+            user.save()
+            self.status = self.STATUS_REJECTED
+            self.reviewed_by = reviewer
+            self.reviewed_at = timezone.now()
+            self.save(update_fields=["status", "reviewed_by", "reviewed_at"])
+
+    def reapply(self):
+        self.status = self.STATUS_PENDING
+        self.reviewed_by = None
+        self.reviewed_at = None
+        # auto_now_add only stamps created_at on the initial INSERT, so it is
+        # safe to set it manually here to reflect the new submission time.
+        self.created_at = timezone.now()
+        self.save(update_fields=["status", "reviewed_by", "reviewed_at", "created_at"])
 
 
 class PhotoReport(models.Model):

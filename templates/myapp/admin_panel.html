@@ -1,32 +1,199 @@
 {% extends "base.html" %}
-{% block title %}Admin Panel{% endblock %}
+{% block title %}Admin Panel - Generation Connect{% endblock %}
 {% block content %}
 <section class="section">
-    <h1 data-i18n="admin.title">Admin Panel</h1>
-    <p data-i18n="admin.desc" style="margin-bottom: 20px;">Here you can see free and busy requests. A busy request is visible only to the assigned volunteer, curator and admin.</p>
-    <div class="grid">
+    <div class="dash-greeting reveal">
+        <h1 data-i18n="admin.title">Admin Panel</h1>
+        <p data-i18n="admin.desc">Here you can see free and busy requests. A busy request is visible only to the assigned volunteer, curator and admin.</p>
+    </div>
+    <div class="metric-row">
+        <a class="card stat-card reveal" href="{% url 'people_list' 'volunteer' %}">
+            <span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="4"></circle><path d="M2 21v-2a5 5 0 0 1 5-5h4a5 5 0 0 1 5 5v2"></path><circle cx="17" cy="7" r="3"></circle></svg></span>
+            <span class="metric">{{ total_volunteers }}</span>
+            <p data-i18n="admin.stat_volunteers">Volunteers</p>
+        </a>
+        <a class="card stat-card reveal" href="{% url 'people_list' 'client' %}">
+            <span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 21v-2a8 8 0 0 1 16 0v2"></path></svg></span>
+            <span class="metric">{{ total_clients }}</span>
+            <p data-i18n="admin.stat_clients">Clients</p>
+        </a>
+        <a class="card stat-card reveal" href="#requests">
+            <span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"></path></svg></span>
+            <span class="metric">{{ total_requests }}</span>
+            <p data-i18n="admin.stat_requests">Active Requests</p>
+        </a>
+        {% if user.is_superuser %}
+            <a class="card stat-card reveal" href="{% url 'volunteer_applications' %}">
+                <span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 3"></path></svg></span>
+                <span class="metric">{{ pending_volunteer_applications }}</span>
+                <p data-i18n="va.pending_count">Pending Applications</p>
+            </a>
+        {% endif %}
+        <a class="card stat-card reveal" href="{% url 'completed_tasks' %}">
+            <span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="m8 12 3 3 5-6"></path></svg></span>
+            <span class="metric">{{ archive_count }}</span>
+            <p data-i18n="admin.stat_completed">Completed Requests</p>
+        </a>
+        <a class="card stat-card reveal" href="{% url 'event_list' %}">
+            <span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"></rect><path d="M16 2v4M8 2v4M3 10h18"></path></svg></span>
+            <span class="metric">{{ total_events }}</span>
+            <p data-i18n="admin.stat_events">Events</p>
+        </a>
+    </div>
+    <div class="button-row">
+        <a class="button primary" href="{% url 'crm_tasks' %}" data-i18n="crm.tasks_title">Task Management</a>
         <a class="button primary" href="{% url 'broadcast' %}" data-i18n="admin.broadcast">Send Message to Volunteers</a>
         <a class="button secondary" href="{% url 'create_event' %}" data-i18n="admin.create_event">Create Event</a>
-        <a class="button ghost" href="{% url 'completed_tasks' %}"><span data-i18n="admin.archive">Archive:</span> {{ archive_count }}</a>
+        <a class="button ghost" href="{% url 'photo_reports' %}" data-i18n="admin.photo_reports">Photo Reports</a>
         <a class="button ghost" href="{% url 'rating' %}" data-i18n="admin.rating">Rating</a>
         <a class="button ghost" href="{% url 'check_overdue' %}" data-i18n="admin.check">Check Overdue</a>
-        <a class="button ghost" href="{% url 'check_overdue' %}">New button</a>
+    </div>
+
+    <p class="kpi-group-label" data-i18n="crm.kpi_volunteers">Volunteers by availability</p>
+    <div class="kpi-row">
+        <a class="card stat-card reveal" href="{% url 'people_list' 'volunteer' %}?availability=available">
+            <span class="metric">{{ stats.volunteers_available }}</span>
+            <p data-i18n="crm.kpi_available">Available</p>
+        </a>
+        <a class="card stat-card reveal" href="{% url 'people_list' 'volunteer' %}?availability=busy">
+            <span class="metric">{{ stats.volunteers_busy }}</span>
+            <p data-i18n="crm.kpi_busy">Busy</p>
+        </a>
+        <a class="card stat-card reveal" href="{% url 'people_list' 'volunteer' %}?availability=offline">
+            <span class="metric">{{ stats.volunteers_offline }}</span>
+            <p data-i18n="crm.kpi_offline">Offline</p>
+        </a>
+        <a class="card stat-card reveal" href="{% url 'people_list' 'client' %}">
+            <span class="metric">{{ stats.clients_total }}</span>
+            <p data-i18n="admin.stat_clients">Clients</p>
+        </a>
+    </div>
+
+    <p class="kpi-group-label" data-i18n="crm.kpi_tasks">Tasks</p>
+    <div class="kpi-row">
+        <a class="card stat-card reveal" href="{% url 'crm_tasks' %}?status=pending">
+            <span class="metric">{{ stats.tasks_pending }}</span>
+            <p data-i18n="crm.kpi_pending">Pending</p>
+        </a>
+        <a class="card stat-card reveal" href="{% url 'crm_tasks' %}?status=active">
+            <span class="metric">{{ stats.tasks_active }}</span>
+            <p data-i18n="crm.kpi_active">Active</p>
+        </a>
+        <a class="card stat-card reveal" href="{% url 'crm_tasks' %}?overdue=1">
+            <span class="metric">{{ stats.tasks_overdue }}</span>
+            <p data-i18n="crm.kpi_overdue">Overdue</p>
+        </a>
+        <a class="card stat-card reveal" href="{% url 'crm_tasks' %}?is_urgent=on">
+            <span class="metric">{{ stats.tasks_urgent }}</span>
+            <p data-i18n="crm.kpi_urgent">Urgent</p>
+        </a>
+        <a class="card stat-card reveal" href="{% url 'completed_tasks' %}">
+            <span class="metric">{{ stats.tasks_completed_today }}</span>
+            <p data-i18n="crm.kpi_completed_today">Completed Today</p>
+        </a>
+        <a class="card stat-card reveal" href="{% url 'volunteer_applications' %}">
+            <span class="metric">{{ stats.pending_applications }}</span>
+            <p data-i18n="va.pending_count">Pending Applications</p>
+        </a>
     </div>
 </section>
 <section class="section alt">
-    <h2 data-i18n="admin.free">Free Requests</h2>
-    <div class="table-list">
-        {% for task in free_requests %}
-            <div class="request-row reveal"><div><span class="tag {% if task.is_urgent %}urgent{% endif %}" data-i18n="tag.free">free</span><h3>{{ task.get_help_type_display }}</h3><p>{{ task.client.username }} · {{ task.get_region_display }} · {{ task.description|truncatechars:130 }}</p></div><a class="button ghost" href="{% url 'task_detail' task.id %}" data-i18n="btn.open">Open</a></div>
-        {% empty %}<p data-i18n="admin.no_free">No free requests.</p>{% endfor %}
+    <div class="grid">
+        <div class="card reveal">
+            <div class="section-head"><h3 data-i18n="crm.activity_title">Recent Activity</h3></div>
+            {% if recent_activity %}
+                <div class="activity-feed">
+                    {% for event in recent_activity %}
+                        <a class="activity-item" href="{{ event.url }}">
+                            <span class="activity-dot {% if event.type == 'task_overdue' %}is-urgent{% elif event.type == 'task_completed' %}is-success{% endif %}"></span>
+                            <div class="activity-body">
+                                <p>{{ event.message }}</p>
+                                <span class="activity-time">{{ event.timestamp|timesince }} <span data-i18n="va.ago_suffix">ago</span></span>
+                            </div>
+                        </a>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p class="opportunity-desc" data-i18n="crm.no_activity">No recent activity yet.</p>
+            {% endif %}
+        </div>
+        {% if user.is_superuser %}
+            <div class="card reveal">
+                <div class="section-head"><h3 data-i18n="admin.recent_applications">Recent Volunteer Applications</h3><a class="button ghost" href="{% url 'volunteer_applications' %}" data-i18n="common.view_all">View all</a></div>
+                {% if recent_applications %}
+                    <div class="mini-list">
+                        {% for application in recent_applications %}
+                            <div class="mini-list-item">
+                                <h4>{{ application.user.username }} <span class="tag {% if application.status == 'rejected' %}urgent{% elif application.status == 'approved' %}success{% else %}accent{% endif %}" data-i18n="va.status_{{ application.status }}">{{ application.get_status_display }}</span></h4>
+                                <p>{{ application.get_region_display|default:"—" }} · {{ application.created_at|timesince }} <span data-i18n="va.ago_suffix">ago</span></p>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="opportunity-desc" data-i18n="va.no_pending">No pending applications</p>
+                {% endif %}
+            </div>
+        {% endif %}
+        <div class="card reveal">
+            <div class="section-head"><h3 data-i18n="events.upcoming">Upcoming Events</h3><a class="button ghost" href="{% url 'event_list' %}" data-i18n="common.view_all">View all</a></div>
+            {% if upcoming_events %}
+                <div class="mini-list">
+                    {% for event in upcoming_events %}
+                        <div class="mini-list-item">
+                            <h4>{{ event.title }}</h4>
+                            <p>{{ event.date|date:"d M, H:i" }} · {{ event.get_region_display }}</p>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p class="opportunity-desc" data-i18n="events.no_upcoming">No upcoming events.</p>
+            {% endif %}
+        </div>
+        <div class="card reveal">
+            <div class="section-head"><h3 data-i18n="broadcasts.title">Broadcasts</h3><a class="button ghost" href="{% url 'broadcast_list' %}" data-i18n="common.view_all">View all</a></div>
+            {% if recent_broadcasts %}
+                <div class="mini-list">
+                    {% for broadcast in recent_broadcasts %}
+                        <div class="mini-list-item">
+                            <h4>{{ broadcast.subject }}</h4>
+                            <p>{{ broadcast.created_at|date:"d M" }} · {{ broadcast.get_region_display }} · {{ broadcast.sent_count }} <span data-i18n="broadcasts.recipients">recipients</span></p>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p class="opportunity-desc" data-i18n="broadcasts.empty">No broadcasts sent yet.</p>
+            {% endif %}
+        </div>
     </div>
 </section>
-<section class="section">
-    <h2 data-i18n="admin.busy">Busy Requests</h2>
-    <div class="table-list">
-        {% for task in busy_requests %}
-            <div class="request-row reveal"><div><span class="tag" data-i18n="tag.busy">busy</span><h3>{{ task.get_help_type_display }}</h3><p>{{ task.client.username }} → {{ task.volunteer.username }} · {{ task.accepted_at|date:"d.m.Y H:i" }}</p></div><a class="button ghost" href="{% url 'task_detail' task.id %}" data-i18n="btn.open">Open</a></div>
-        {% empty %}<p data-i18n="admin.no_busy">No busy requests.</p>{% endfor %}
-    </div>
+<section class="section" id="requests">
+    <div class="section-head"><h2 data-i18n="admin.free">Free Requests</h2></div>
+    {% if free_requests %}
+        <div class="opportunity-grid">
+            {% for task in free_requests %}
+                {% include "myapp/_opportunity_card.html" with task=task mode="free" %}
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="empty-state">
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16l3 8v8H1v-8Z"></path><path d="M1 12h6l2 3h6l2-3h6"></path></svg>
+            <p data-i18n="admin.no_free">No free requests.</p>
+        </div>
+    {% endif %}
+</section>
+<section class="section alt">
+    <div class="section-head"><h2 data-i18n="admin.busy">Busy Requests</h2></div>
+    {% if busy_requests %}
+        <div class="opportunity-grid">
+            {% for task in busy_requests %}
+                {% include "myapp/_opportunity_card.html" with task=task mode="busy" %}
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="empty-state">
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16l3 8v8H1v-8Z"></path><path d="M1 12h6l2 3h6l2-3h6"></path></svg>
+            <p data-i18n="admin.no_busy">No busy requests.</p>
+        </div>
+    {% endif %}
 </section>
 {% endblock %}

@@ -44,7 +44,10 @@ class AccountsTests(TestCase):
             },
         )
         self.assertEqual(response.status_code, 302)
-        self.assertTrue(Users.objects.filter(username="newvolunteer", is_volunteer=True).exists())
+        # Choosing "volunteer" at registration no longer grants the role directly:
+        # it only creates a pending VolunteerApplication (see myapp.tests.VolunteerApplicationTests).
+        user = Users.objects.get(username="newvolunteer")
+        self.assertFalse(user.is_volunteer)
 
     def test_forgot_password_does_not_crash(self):
         # Regression: send_mail() was previously called with the wrong arguments,
@@ -57,3 +60,16 @@ class AccountsTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.client.login(username="volunteer_one", password="Volunteer2026!")
         self.assertEqual(self.client.get(reverse("profile")).status_code, 200)
+
+    def test_edit_profile_page_loads_and_saves_location(self):
+        self.client.login(username="volunteer_one", password="Volunteer2026!")
+        self.assertEqual(self.client.get(reverse("edit_profile")).status_code, 200)
+        response = self.client.post(reverse("edit_profile"), {
+            "email": self.user.email, "region": "dushanbe", "telegram_id": "",
+            "full_name": "Vol One", "bio": "", "latitude": "38.55", "longitude": "68.78",
+            "availability_status": "available",
+        })
+        self.assertRedirects(response, reverse("profile"))
+        self.user.profile.refresh_from_db()
+        self.assertAlmostEqual(float(self.user.profile.latitude), 38.55)
+        self.assertIsNotNone(self.user.profile.location_updated_at)

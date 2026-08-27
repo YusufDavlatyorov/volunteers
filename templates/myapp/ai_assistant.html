@@ -1,56 +1,166 @@
 {% extends "base.html" %}
 {% block title %}AI Assistant{% endblock %}
 {% block content %}
-<section class="section">
-    <div class="two-col">
-        <div>
-            <h1 data-i18n="ai.title">AI Assistant</h1>
-            {% if user.is_client %}
-                <p data-i18n="ai.client_mode">Client mode: simple answers, caring tone, careful advice for elderly people.</p>
-            {% else %}
-                <p data-i18n="ai.vol_mode">Volunteer mode: communication, safety, ethics of help and preparation for a visit.</p>
-            {% endif %}
-            <div class="chat-box" id="chatBox">
-                <div class="bubble" data-i18n="ai.greeting">Hello. How can I help?</div>
+<section class="section section-md">
+    <div class="ai-layout">
+        <div class="ai-chat-app">
+            <div class="ai-chat-header">
+                <span class="ai-avatar">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-8.9 8.4L3 21l1.1-4.5A8.4 8.4 0 1 1 21 11.5Z"></path><path d="M8 11.5h.01M12 11.5h.01M16 11.5h.01"></path></svg>
+                </span>
+                <div>
+                    <h2 data-i18n="ai.title">AI Assistant</h2>
+                    <p class="ai-chat-status"><span class="ai-status-dot"></span><span data-i18n="ai.status_online">Online</span></p>
+                </div>
             </div>
-            <form id="chatForm" class="card">
+
+            <div class="ai-chat-body" id="chatBox">
+                <div class="ai-empty-state" id="chatEmptyState">
+                    <span class="ai-empty-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-8.9 8.4L3 21l1.1-4.5A8.4 8.4 0 1 1 21 11.5Z"></path><path d="M8 11.5h.01M12 11.5h.01M16 11.5h.01"></path></svg>
+                    </span>
+                    <h3 data-i18n="ai.empty_title">How can I help you today?</h3>
+                    {% if user.is_client %}
+                        <p data-i18n="ai.client_mode">Client mode: simple answers, caring tone, careful advice for elderly people.</p>
+                    {% else %}
+                        <p data-i18n="ai.vol_mode">Volunteer mode: communication, safety, ethics of help and preparation for a visit.</p>
+                    {% endif %}
+                    <div class="ai-suggestions">
+                        {% if user.is_client %}
+                            <button type="button" class="ai-suggestion-chip" data-i18n="ai.suggest_client_1">How do I ask for a ride to the clinic?</button>
+                            <button type="button" class="ai-suggestion-chip" data-i18n="ai.suggest_client_2">I feel unwell, what should I do?</button>
+                            <button type="button" class="ai-suggestion-chip" data-i18n="ai.suggest_client_3">How does Generation Connect work?</button>
+                        {% else %}
+                            <button type="button" class="ai-suggestion-chip" data-i18n="ai.suggest_vol_1">Tips for a first home visit</button>
+                            <button type="button" class="ai-suggestion-chip" data-i18n="ai.suggest_vol_2">How do I handle an urgent request?</button>
+                            <button type="button" class="ai-suggestion-chip" data-i18n="ai.suggest_vol_3">What should I never do as a volunteer?</button>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="ai-messages" id="chatMessages"></div>
+            </div>
+
+            <form id="chatForm" class="ai-chat-input">
                 {% csrf_token %}
-                <textarea id="messageInput" rows="3" placeholder="Write a question" data-i18n-ph="ai.placeholder"></textarea>
-                <button class="primary" type="submit" data-i18n="ai.send">Send</button>
+                <textarea id="messageInput" rows="1" placeholder="Write a question" data-i18n-ph="ai.placeholder"></textarea>
+                <button type="submit" class="ai-send-btn" data-i18n-tooltip="ai.send" aria-label="Send" title="Send">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"></path><path d="M22 2 15 22l-4-9-9-4 20-7Z"></path></svg>
+                </button>
             </form>
         </div>
-        <div class="card">
-            <h3 data-i18n="ai.about">What it can do</h3>
-            <p data-i18n="ai.about_desc">AI works differently for clients and volunteers. Without API key, a local fallback response is used, so the page doesn't break.</p>
+
+        <div class="ai-side-panel">
+            <div class="card">
+                {% if user.is_client %}
+                    <span class="tag accent" data-i18n="ai.mode_client">Client mode</span>
+                {% else %}
+                    <span class="tag accent" data-i18n="ai.mode_volunteer">Volunteer mode</span>
+                {% endif %}
+                <h3 data-i18n="ai.about">What it can do</h3>
+                <p data-i18n="ai.about_desc">AI works differently for clients and volunteers. Without API key, a local fallback response is used, so the page doesn't break.</p>
+            </div>
         </div>
     </div>
 </section>
 {% endblock %}
 {% block extra_js %}
 <script>
-const chatBox = document.getElementById('chatBox');
-const form = document.getElementById('chatForm');
-const input = document.getElementById('messageInput');
-function addBubble(text, me=false) {
-    const div = document.createElement('div');
-    div.className = 'bubble' + (me ? ' me' : '');
-    div.textContent = text;
-    chatBox.appendChild(div);
-    chatBox.scrollTop = chatBox.scrollHeight;
-}
-form.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const message = input.value.trim();
-    if (!message) return;
-    addBubble(message, true);
-    input.value = '';
-    const res = await fetch("{% url 'ai_chat' %}", {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json', 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value},
-        body: JSON.stringify({message})
+(function() {
+    const chatBox = document.getElementById('chatBox');
+    const emptyState = document.getElementById('chatEmptyState');
+    const messages = document.getElementById('chatMessages');
+    const form = document.getElementById('chatForm');
+    const input = document.getElementById('messageInput');
+    const sendBtn = form.querySelector('.ai-send-btn');
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+
+    const aiAvatarSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-8.9 8.4L3 21l1.1-4.5A8.4 8.4 0 1 1 21 11.5Z"></path><path d="M8 11.5h.01M12 11.5h.01M16 11.5h.01"></path></svg>';
+
+    function scrollToBottom() {
+        chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    function addMessage(text, me) {
+        if (emptyState) emptyState.style.display = 'none';
+        const row = document.createElement('div');
+        row.className = 'ai-msg ' + (me ? 'ai-msg--user' : 'ai-msg--ai');
+        if (!me) {
+            const avatar = document.createElement('span');
+            avatar.className = 'ai-msg-avatar';
+            avatar.innerHTML = aiAvatarSvg;
+            row.appendChild(avatar);
+        }
+        const bubble = document.createElement('div');
+        bubble.className = 'ai-msg-bubble';
+        bubble.textContent = text;
+        row.appendChild(bubble);
+        messages.appendChild(row);
+        scrollToBottom();
+    }
+
+    function showTyping() {
+        const row = document.createElement('div');
+        row.className = 'ai-typing';
+        row.id = 'aiTypingRow';
+        row.innerHTML = '<span class="ai-msg-avatar">' + aiAvatarSvg + '</span><span class="ai-typing-dots"><span></span><span></span><span></span></span>';
+        messages.appendChild(row);
+        scrollToBottom();
+    }
+
+    function hideTyping() {
+        const row = document.getElementById('aiTypingRow');
+        if (row) row.remove();
+    }
+
+    function autoGrow() {
+        input.style.height = 'auto';
+        input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+    }
+    input.addEventListener('input', autoGrow);
+
+    input.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault();
+            form.requestSubmit();
+        }
     });
-    const data = await res.json();
-    addBubble(data.reply || data.error || 'Error');
-});
+
+    async function sendMessage(text) {
+        addMessage(text, true);
+        input.value = '';
+        autoGrow();
+        sendBtn.disabled = true;
+        input.disabled = true;
+        showTyping();
+        try {
+            const res = await fetch("{% url 'ai_chat' %}", {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
+                body: JSON.stringify({message: text})
+            });
+            const data = await res.json();
+            hideTyping();
+            addMessage(data.reply || data.error || 'Error', false);
+        } catch (err) {
+            hideTyping();
+            addMessage('Error', false);
+        } finally {
+            sendBtn.disabled = false;
+            input.disabled = false;
+            input.focus();
+        }
+    }
+
+    form.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const message = input.value.trim();
+        if (!message) return;
+        sendMessage(message);
+    });
+
+    document.querySelectorAll('.ai-suggestion-chip').forEach((chip) => {
+        chip.addEventListener('click', () => sendMessage(chip.textContent.trim()));
+    });
+})();
 </script>
 {% endblock %}

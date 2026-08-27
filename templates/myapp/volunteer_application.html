@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Volunteer Application - Generation Connect{% endblock %}
+{% block content %}
+<section class="section">
+    <div class="card status-panel reveal detail-card">
+        {% if application %}
+            {% if application.status == "pending" %}
+                <div class="status-icon is-pending">
+                    <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 3"></path></svg>
+                </div>
+                <span class="eyebrow" data-i18n="va.submitted_eyebrow">Application submitted</span>
+                <h1 data-i18n="va.thanks_title">Thank you for wanting to join Generation Connect</h1>
+                <span class="tag accent" data-i18n="va.status_pending">Pending</span>
+                <p class="status-message" data-i18n="va.msg_pending">Your application is currently being reviewed by an administrator.</p>
+            {% elif application.status == "approved" %}
+                <div class="status-icon is-approved">
+                    <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>
+                </div>
+                <h1 data-i18n="va.approved_title">You're in!</h1>
+                <span class="tag success" data-i18n="va.status_approved">Approved</span>
+                <p class="status-message" data-i18n="va.msg_approved">Congratulations! You are now a volunteer.</p>
+                <div class="button-row">
+                    <a class="button primary" href="{% url 'task_list' %}" data-i18n="profile.open_req">Open Requests</a>
+                </div>
+            {% elif application.status == "rejected" %}
+                <div class="status-icon is-rejected">
+                    <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"></path></svg>
+                </div>
+                <h1 data-i18n="va.rejected_title">Application update</h1>
+                <span class="tag urgent" data-i18n="va.status_rejected">Rejected</span>
+                <p class="status-message" data-i18n="va.msg_rejected">Your volunteer application was rejected.</p>
+                <div class="button-row">
+                    <form method="post" class="inline-form">
+                        {% csrf_token %}
+                        <button class="primary" type="submit" data-i18n="va.reapply">Apply Again</button>
+                    </form>
+                </div>
+            {% endif %}
+            <p class="status-meta"><span data-i18n="va.submitted">Submitted:</span> {{ application.created_at|date:"d F Y H:i" }}</p>
+        {% else %}
+            <div class="status-icon is-pending">
+                <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"></path><path d="M5 21a7 7 0 0 1 14 0"></path></svg>
+            </div>
+            <h1 data-i18n="va.no_application_title">No application yet</h1>
+            <p data-i18n="va.no_application">You have not submitted a volunteer application.</p>
+        {% endif %}
+        <div class="button-row">
+            <a class="button ghost" href="{% url 'profile' %}" data-i18n="va.back_profile">Back to Profile</a>
+        </div>
+    </div>
+</section>
+{% endblock %}

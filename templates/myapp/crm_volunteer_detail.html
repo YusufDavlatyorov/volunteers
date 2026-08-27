@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}{{ profile.full_name|default:volunteer.username }} - Generation Connect{% endblock %}
+{% block content %}
+<section class="section">
+    <div class="card detail-card reveal">
+        <div class="section-head">
+            {% if profile.image %}
+                <img class="avatar" src="{{ profile.image.url }}" alt="">
+            {% else %}
+                <div class="avatar avatar-fallback">{{ profile.full_name|default:volunteer.username|first|upper }}</div>
+            {% endif %}
+            <div>
+                <h1>{{ profile.full_name|default:volunteer.username }}</h1>
+                <p class="opportunity-desc">@{{ volunteer.username }} · {{ volunteer.get_region_display|default:"—" }}</p>
+            </div>
+        </div>
+
+        <div class="kpi-row">
+            <div class="card stat-card"><span class="metric">{{ profile.rating|default:0 }}</span><p data-i18n="people.rating_label">Rating</p></div>
+            <div class="card stat-card"><span class="metric">{{ completed_count }}</span><p data-i18n="crm.completed_tasks">Completed tasks</p></div>
+            <div class="card stat-card"><span class="metric">{{ active_count }}</span><p data-i18n="crm.active_tasks">Active tasks</p></div>
+        </div>
+
+        <div class="detail-meta">
+            <div><span class="meta-label" data-i18n="crm.availability">Availability</span><p>{{ profile.get_availability_status_display }}</p></div>
+            <div>
+                <span class="meta-label" data-i18n="crm.location_freshness">Location</span>
+                <p>
+                    {% if location_freshness == "fresh" %}<span data-i18n="crm.freshness_fresh">Just updated</span>
+                    {% elif location_freshness == "recent" %}<span data-i18n="crm.freshness_recent">Updated recently</span>
+                    {% elif location_freshness == "aging" %}<span data-i18n="crm.freshness_aging">Not updated in a while</span>
+                    {% elif location_freshness == "stale" %}<span data-i18n="crm.freshness_stale">Outdated</span>
+                    {% else %}<span data-i18n="crm.freshness_unknown">Not set</span>{% endif %}
+                </p>
+            </div>
+            <div>
+                <span class="meta-label" data-i18n="crm.last_activity">Last activity</span>
+                <p>{% if last_activity %}{{ last_activity|timesince }} <span data-i18n="va.ago_suffix">ago</span>{% else %}—{% endif %}</p>
+            </div>
+            <div><span class="meta-label" data-i18n="va.email">Email</span><p>{{ volunteer.email }}</p></div>
+        </div>
+
+        <div class="button-row">
+            <a class="button ghost" href="{% url 'crm_tasks' %}?volunteer={{ volunteer.username }}" data-i18n="crm.view_all_tasks">View all tasks</a>
+        </div>
+    </div>
+
+    <div class="section-head"><h2 data-i18n="crm.recent_tasks">Recent tasks</h2></div>
+    {% if recent_tasks %}
+        <div class="table-list">
+            {% for task in recent_tasks %}
+                <div class="card reveal applicant-row">
+                    <div class="applicant-body">
+                        {% include "myapp/_task_status_tag.html" with status=task.status status_display=task.get_status_display %}
+                        <h3>{{ task.get_help_type_display }}</h3>
+                        <p class="opportunity-location">{{ task.client.username }} · {{ task.created_at|date:"d M" }}</p>
+                    </div>
+                    <div class="button-row">
+                        <a class="button ghost" href="{% url 'task_detail' task.id %}" data-i18n="task.details">Details</a>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="empty-state">
+            <p data-i18n="crm.no_tasks_yet">No tasks yet.</p>
+        </div>
+    {% endif %}
+</section>
+{% endblock %}

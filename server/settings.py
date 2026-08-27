@@ -182,5 +182,9 @@ GROQ_MODEL = os.getenv('GROQ_MODEL', 'llama-3.1-8b-instant')
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', '')
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
 
+# Maps / routing (Leaflet + OpenStreetMap tiles, no key needed for the map itself).
+OSRM_BASE_URL = os.getenv('OSRM_BASE_URL', 'https://router.project-osrm.org').rstrip('/')
+NOMINATIM_USER_AGENT = os.getenv('NOMINATIM_USER_AGENT', 'generation-connect-dev')
+
 LOGIN_REDIRECT_URL = 'profile'
 

@@ -1,16 +1,357 @@
 {% extends "base.html" %}
-{% block title %}Request Details{% endblock %}
+{% load static %}
+{% block title %}{{ task.get_help_type_display }} - Generation Connect{% endblock %}
+{% block extra_css %}
+{% if show_route or show_location_map %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+{% endif %}
+{% endblock %}
 {% block content %}
-<section class="form-shell">
-    <div class="card">
-        <span class="tag">{{ task.get_status_display }}</span>
-        <h1 style="font-size: 40px;">{{ task.get_help_type_display }}</h1>
-        <p>{{ task.description }}</p>
-        <p><b data-i18n="detail.client">Client:</b> {{ task.client.username }}</p>
-        <p><b data-i18n="detail.volunteer">Volunteer:</b> {{ task.volunteer|default_if_none:"—" }}</p>
-        <p><b data-i18n="detail.address">Address:</b> {{ task.address }}</p>
-        <p><b data-i18n="detail.phone">Phone:</b> {{ task.phone }}</p>
-        {% if user.is_volunteer and task.status == "pending" %}<a class="button primary" href="{% url 'accept_task' task.id %}" data-i18n="task.accept">Accept</a>{% endif %}
+<section class="section">
+    <div class="opportunity-card detail-card">
+        <div class="opportunity-media opportunity-media--lg media-{{ task.help_type }}">
+            {% include "myapp/_help_type_icon.html" with help_type=task.help_type %}
+            {% if task.is_urgent %}<span class="tag urgent" data-i18n="task.urgent_badge">Urgent</span>{% endif %}
+        </div>
+        <div class="opportunity-body">
+            {% include "myapp/_task_status_tag.html" with status=task.status status_display=task.get_status_display %}
+            <h1>{{ task.get_help_type_display }}</h1>
+            <p class="opportunity-location">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+                {{ task.get_region_display|default:"—" }}
+            </p>
+            <p>{{ task.description }}</p>
+            <div class="detail-meta">
+                <div><span class="meta-label" data-i18n="detail.client">Client</span><p>{{ task.client.username }}</p></div>
+                <div><span class="meta-label" data-i18n="detail.volunteer">Volunteer</span><p>{{ task.volunteer|default_if_none:"—" }}</p></div>
+                <div><span class="meta-label" data-i18n="detail.address">Address</span><p>{{ task.address }}</p></div>
+                <div><span class="meta-label" data-i18n="detail.phone">Phone</span><p>{{ task.phone }}</p></div>
+            </div>
+            {% if user.is_volunteer and task.status == "pending" %}
+                <div class="button-row">
+                    <form method="post" action="{% url 'accept_task' task.id %}" class="inline-form">
+                        {% csrf_token %}
+                        <button type="submit" class="button primary" data-i18n="task.accept">Accept</button>
+                    </form>
+                </div>
+            {% elif user == task.volunteer and task.status == "active" %}
+                <div class="button-row">
+                    <form method="post" action="{% url 'complete_task' task.id %}" class="inline-form">
+                        {% csrf_token %}
+                        <button type="submit" class="button secondary" data-i18n="task.complete">Complete</button>
+                    </form>
+                </div>
+            {% endif %}
+        </div>
     </div>
+
+    {% if show_location_map %}
+    <div class="card reveal" id="locationMapCard" data-lat="{{ task.latitude }}" data-lng="{{ task.longitude }}">
+        <div class="section-head"><h2 data-i18n="crm.task_location">Task location</h2></div>
+        <div id="locationMap" class="map-mini"></div>
+    </div>
+    {% endif %}
+
+    {% if show_history %}
+    <div class="card reveal">
+        <div class="section-head"><h2 data-i18n="crm.task_history">Task history</h2></div>
+        <div class="mini-list">
+            <div class="mini-list-item">
+                <h4 data-i18n="crm.history_created">Created</h4>
+                <p>{{ task.created_at|date:"d M Y, H:i" }}</p>
+            </div>
+            {% if task.accepted_at %}
+            <div class="mini-list-item">
+                <h4 data-i18n="crm.history_accepted">Accepted</h4>
+                <p>{{ task.accepted_at|date:"d M Y, H:i" }}{% if task.volunteer %} · {{ task.volunteer.username }}{% endif %}</p>
+            </div>
+            {% endif %}
+            {% if task.completed_at %}
+            <div class="mini-list-item">
+                <h4 data-i18n="crm.history_completed">Completed</h4>
+                <p>{{ task.completed_at|date:"d M Y, H:i" }}</p>
+            </div>
+            {% endif %}
+            {% if task.is_overdue %}
+            <div class="mini-list-item">
+                <h4 data-i18n="crm.history_overdue">Overdue</h4>
+                <p data-i18n="crm.history_overdue_desc">In progress for more than 3 hours.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {% if show_recommendations %}
+    <div class="card recommend-card reveal" id="recommendCard"
+         data-recommend-url="{% url 'task_recommendations' task.id %}"
+         data-notify-url-template="{% url 'task_notify_volunteer' task.id 999999 %}">
+        {% csrf_token %}
+        <div class="section-head">
+            <div>
+                <h2 data-i18n="rec.title">Smart Volunteer Matching</h2>
+                <p class="field-hint" data-i18n="rec.subtitle">Recommended volunteers — you choose who to notify.</p>
+            </div>
+        </div>
+        <p class="field-hint" id="recommendStatus" data-i18n="rec.loading">Finding nearby volunteers…</p>
+        <div id="recommendList" class="table-list" hidden></div>
+        <div id="recommendEmpty" class="empty-state" hidden>
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.3-4.3"></path></svg>
+            <strong id="recommendEmptyText" data-i18n="rec.empty_title">No suitable volunteers found nearby.</strong>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if show_route %}
+    <div class="card route-card reveal" id="routeCard"
+         data-route-url="{% url 'task_route' task.id %}"
+         data-is-volunteer="{% if user == task.volunteer %}1{% else %}0{% endif %}">
+        {% csrf_token %}
+        <div class="section-head">
+            <h2 data-i18n="route.title">Route to client</h2>
+            {% if user == task.volunteer %}
+            <button type="button" class="button ghost" id="routeLocateBtn" data-i18n="map.use_my_location" data-error-text="Не удалось определить местоположение">Use my location</button>
+            {% endif %}
+        </div>
+        <p class="field-hint" id="routeStatus" data-i18n="route.loading">Calculating route…</p>
+        <div class="map-route-meta" id="routeMetrics" hidden>
+            <div class="metric"><span class="meta-label" data-i18n="route.distance">Distance</span><strong id="routeDistance">—</strong></div>
+            <div class="metric"><span class="meta-label" data-i18n="route.eta">Estimated time</span><strong id="routeEta">—</strong></div>
+            <div class="metric"><span class="meta-label" data-i18n="route.source">Your location</span><strong id="routeSource">—</strong></div>
+        </div>
+        <div id="routeMap" class="map-mini" hidden></div>
+        <div id="routeEmpty" class="empty-state" hidden>
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0Z"></path><path d="M9.5 9.5l5 5m0-5l-5 5"></path></svg>
+            <strong data-i18n="route.unavailable_title">Location unavailable</strong>
+            <p id="routeEmptyText" data-i18n="route.unavailable_desc">We don't have enough location data to draw a route yet.</p>
+        </div>
+    </div>
+    {% endif %}
 </section>
+{% endblock %}
+{% block extra_js %}
+{% if show_recommendations %}
+<script>
+(function () {
+    const card = document.getElementById('recommendCard');
+    if (!card) return;
+
+    const recommendUrl = card.dataset.recommendUrl;
+    const notifyUrlTemplate = card.dataset.notifyUrlTemplate;
+    const statusEl = document.getElementById('recommendStatus');
+    const listEl = document.getElementById('recommendList');
+    const emptyEl = document.getElementById('recommendEmpty');
+    const emptyTextEl = document.getElementById('recommendEmptyText');
+    const csrfToken = card.querySelector('[name=csrfmiddlewaretoken]');
+
+    const freshnessLabel = {
+        fresh: 'обновлено только что', recent: 'обновлено недавно',
+        aging: 'координаты давно не обновлялись', stale: 'координаты устарели',
+        unknown: 'координаты никогда не обновлялись',
+    };
+
+    function showEmpty(text) {
+        statusEl.hidden = true;
+        listEl.hidden = true;
+        emptyEl.hidden = false;
+        if (text) emptyTextEl.textContent = text;
+    }
+
+    function renderCard(item, rank) {
+        const initial = (item.full_name || item.username || '?').trim().charAt(0).toUpperCase();
+        const availabilityTag = item.availability === 'available' ? 'success' : 'muted';
+        const reasons = item.reasons.map((r) => `<li>${r}</li>`).join('');
+        const row = document.createElement('div');
+        row.className = 'card reveal applicant-row';
+        row.innerHTML = `
+            <div class="avatar avatar-fallback avatar-sm">${initial}</div>
+            <div class="applicant-body">
+                <span class="tag ${availabilityTag}">${item.availability_display}</span>
+                <span class="tag accent rec-score-tag">#${rank} · ${item.score}</span>
+                ${item.same_region ? '<span class="tag muted">' + item.region + '</span>' : ''}
+                <h3>${item.full_name}</h3>
+                <p class="opportunity-location">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+                    ${item.distance_km} km · ~${Math.round(item.estimated_minutes)} min ·
+                    ${item.active_task_count} active · ${freshnessLabel[item.location_freshness] || ''}
+                </p>
+                <ul class="rec-reasons">${reasons}</ul>
+            </div>
+            <div class="button-row">
+                <button type="button" class="button primary rec-notify-btn" data-i18n="rec.notify">Notify</button>
+            </div>`;
+
+        const notifyBtn = row.querySelector('.rec-notify-btn');
+        notifyBtn.addEventListener('click', () => {
+            notifyBtn.disabled = true;
+            const url = notifyUrlTemplate.replace('999999', item.volunteer_id);
+            fetch(url, {
+                method: 'POST',
+                headers: { 'X-CSRFToken': csrfToken ? csrfToken.value : '' },
+            })
+                .then((r) => r.json())
+                .then((data) => {
+                    if (data.success) {
+                        notifyBtn.textContent = 'Уведомлён ✓';
+                    } else {
+                        notifyBtn.disabled = false;
+                        alert('Не удалось отправить уведомление (возможно, запрос уже не свободен).');
+                    }
+                })
+                .catch(() => { notifyBtn.disabled = false; });
+        });
+
+        return row;
+    }
+
+    fetch(recommendUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then((r) => r.json())
+        .then((data) => {
+            if (!data.task_has_location) {
+                showEmpty('У этого запроса пока нет точки на карте — подобрать волонтёров по расстоянию нельзя.');
+                return;
+            }
+            if (!data.recommendations.length) {
+                showEmpty();
+                return;
+            }
+            statusEl.hidden = true;
+            listEl.hidden = false;
+            data.recommendations.forEach((item, index) => listEl.appendChild(renderCard(item, index + 1)));
+        })
+        .catch(() => showEmpty());
+})();
+</script>
+{% endif %}
+{% if show_location_map %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="{% static 'js/map.js' %}"></script>
+<script>
+(function () {
+    const card = document.getElementById('locationMapCard');
+    if (!card || typeof L === 'undefined') return;
+    const lat = parseFloat(card.dataset.lat);
+    const lng = parseFloat(card.dataset.lng);
+    if (Number.isNaN(lat) || Number.isNaN(lng)) return;
+    const map = L.map('locationMap').setView([lat, lng], 14);
+    GCMap.tileLayer(map);
+    L.marker([lat, lng], { icon: GCMap.pinIcon('--accent', 'C') }).addTo(map);
+    setTimeout(() => map.invalidateSize(), 50);
+})();
+</script>
+{% endif %}
+{% if show_route %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="{% static 'js/map.js' %}"></script>
+<script>
+(function () {
+    const card = document.getElementById('routeCard');
+    if (!card || typeof L === 'undefined') return;
+
+    const routeUrl = card.dataset.routeUrl;
+    const statusEl = document.getElementById('routeStatus');
+    const metricsEl = document.getElementById('routeMetrics');
+    const mapEl = document.getElementById('routeMap');
+    const emptyEl = document.getElementById('routeEmpty');
+    const emptyTextEl = document.getElementById('routeEmptyText');
+    const distanceEl = document.getElementById('routeDistance');
+    const etaEl = document.getElementById('routeEta');
+    const sourceEl = document.getElementById('routeSource');
+    const locateBtn = document.getElementById('routeLocateBtn');
+    let map = null;
+
+    const reasonText = {
+        no_task_location: 'У этого запроса ещё нет точки на карте.',
+        no_volunteer_assigned: 'Волонтер ещё не назначен.',
+        no_volunteer_location: 'Волонтер ещё не указал своё местоположение.',
+        forbidden: 'Недостаточно прав для просмотра маршрута.',
+    };
+
+    function showEmpty(reason) {
+        statusEl.hidden = true;
+        metricsEl.hidden = true;
+        mapEl.hidden = true;
+        emptyEl.hidden = false;
+        if (reason && reasonText[reason]) emptyTextEl.textContent = reasonText[reason];
+    }
+
+    function renderRoute(data) {
+        statusEl.hidden = true;
+        emptyEl.hidden = true;
+        metricsEl.hidden = false;
+        mapEl.hidden = false;
+
+        distanceEl.textContent = data.distance_km != null ? `${data.distance_km} km` : '—';
+        etaEl.textContent = data.duration_min != null ? `${Math.round(data.duration_min)} min` : '—';
+        sourceEl.textContent = data.origin.source === 'live' ? 'GPS' : 'Saved';
+
+        if (!map) {
+            map = L.map('routeMap');
+            GCMap.tileLayer(map);
+        } else {
+            map.eachLayer((layer) => { if (!(layer instanceof L.TileLayer)) map.removeLayer(layer); });
+        }
+
+        L.marker([data.origin.lat, data.origin.lng], { icon: GCMap.pinIcon('--primary-2', 'V') }).addTo(map);
+        L.marker([data.destination.lat, data.destination.lng], { icon: GCMap.pinIcon('--accent', 'C') }).addTo(map);
+        const bounds = L.latLngBounds([[data.origin.lat, data.origin.lng], [data.destination.lat, data.destination.lng]]);
+
+        if (data.success && data.geometry && data.geometry.length) {
+            GCMap.drawRoute(map, data.geometry, '--primary');
+            data.geometry.forEach((point) => bounds.extend(point));
+        }
+        map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
+        setTimeout(() => map.invalidateSize(), 50);
+    }
+
+    function loadRoute(lat, lng) {
+        statusEl.hidden = false;
+        metricsEl.hidden = true;
+        mapEl.hidden = true;
+        emptyEl.hidden = true;
+
+        let url = routeUrl;
+        if (lat != null && lng != null) url += `?lat=${lat}&lng=${lng}`;
+
+        fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then((r) => r.json())
+            .then((data) => {
+                if (!data.origin || !data.destination) {
+                    showEmpty(data.reason);
+                    return;
+                }
+                renderRoute(data);
+            })
+            .catch(() => showEmpty(null));
+    }
+
+    loadRoute();
+
+    if (locateBtn) {
+        if (!navigator.geolocation) {
+            locateBtn.disabled = true;
+        } else {
+            locateBtn.addEventListener('click', () => {
+                locateBtn.disabled = true;
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                        loadRoute(pos.coords.latitude, pos.coords.longitude);
+                        const token = card.querySelector('[name=csrfmiddlewaretoken]');
+                        fetch("{% url 'update_location' %}", {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': token ? token.value : '' },
+                            body: JSON.stringify({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
+                        }).finally(() => { locateBtn.disabled = false; });
+                    },
+                    () => {
+                        locateBtn.disabled = false;
+                        alert(locateBtn.dataset.errorText || 'Could not determine your location.');
+                    },
+                );
+            });
+        }
+    }
+})();
+</script>
+{% endif %}
 {% endblock %}

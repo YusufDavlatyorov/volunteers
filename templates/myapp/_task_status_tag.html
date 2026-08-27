@@ -1,0 +1,4 @@
+{% if status == "completed" %}<span class="tag success">{{ status_display }}</span>
+{% elif status == "active" %}<span class="tag accent">{{ status_display }}</span>
+{% elif status == "cancelled" %}<span class="tag urgent">{{ status_display }}</span>
+{% else %}<span class="tag">{{ status_display }}</span>{% endif %}

@@ -5,9 +5,12 @@ from django.contrib.auth.decorators import login_required
 from django.core.mail import send_mail
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
+from django.utils import timezone
 
 from .forms import ForgotPasswordForm, LoginForm, ProfileForm, RegistrationForm, ResetPasswordForm, UserUpdateForm
 from .models import Profile, Users
+from myapp.models import VolunteerApplication
+from myapp.notifications import notify_users
 
 
 def register_view(request):
@@ -25,8 +28,24 @@ def register_view(request):
             [user.email],
             fail_silently=True,
         )
+        if form.cleaned_data["role"] == "volunteer":
+            VolunteerApplication.objects.get_or_create(
+                user=user,
+                defaults={
+                    "region": user.region,
+                    "reason": form.cleaned_data.get("motivation", ""),
+                },
+            )
+            admins = Users.objects.filter(is_superuser=True, is_active=True)
+            notify_users(
+                admins,
+                "Новая заявка волонтера",
+                f"Пользователь {user.username} подал заявку на волонтерство в регионе {user.get_region_display() or '—'}.",
+            )
+            messages.success(request, "Аккаунт создан. Заявка на волонтерство отправлена на рассмотрение администратору.")
+        else:
+            messages.success(request, "Аккаунт создан. Проверьте email для подтверждения.")
         login(request, user)
-        messages.success(request, "Аккаунт создан. Проверьте email для подтверждения.")
         return redirect("profile")
     return render(request, "accounts/register.html", {"form": form})
 
@@ -39,9 +58,13 @@ def login_view(request):
         user = authenticate(request, username=form.cleaned_data["username"], password=form.cleaned_data["password"])
         if user and user.is_active:
             login(request, user)
+            if form.cleaned_data.get("remember_me"):
+                request.session.set_expiry(settings.SESSION_COOKIE_AGE)
+            else:
+                request.session.set_expiry(0)
             messages.success(request, f"Добро пожаловать, {user.username}!")
             return redirect("profile")
-        messages.error(request, "Неверный username или пароль")
+        form.add_error(None, "Неверный username или пароль")
     return render(request, "accounts/login.html", {"form": form})
 
 
@@ -54,11 +77,16 @@ def logout_view(request):
 @login_required
 def profile_view(request):
     profile, _ = Profile.objects.get_or_create(user=request.user)
-    context = {"profile": profile}
+    hour = timezone.localtime().hour
+    greeting = "morning" if hour < 12 else "afternoon" if hour < 18 else "evening"
+    context = {"profile": profile, "greeting": greeting}
     if request.user.is_volunteer:
         context["my_tasks"] = request.user.volunteer_tasks.all()[:5]
+        context["active_task"] = request.user.volunteer_tasks.filter(status="active").first()
+        context["completed_count"] = request.user.volunteer_tasks.filter(status="completed").count()
     if request.user.is_client:
         context["my_requests"] = request.user.client_requests.all()[:5]
+    context["volunteer_application"] = VolunteerApplication.objects.filter(user=request.user).first()
     return render(request, "accounts/profile.html", context)
 
 

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}{{ block.super }} - Map{% endblock %}
+{% block extra_css %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+{% endblock %}
+{% block content %}
+<section class="section">
+    <div class="section-head">
+        <div>
+            <h1 data-i18n="map.title">Map</h1>
+            <p class="lede" data-i18n="map.desc">Volunteers, requests and their locations at a glance.</p>
+        </div>
+    </div>
+    <div class="map-legend">
+        {% if user.is_superuser or user.is_curator %}
+            <span class="map-legend-item"><span class="map-legend-dot" style="background:var(--accent)"></span><span data-i18n="map.legend_task_pending">Free request</span></span>
+            <span class="map-legend-item"><span class="map-legend-dot" style="background:var(--primary)"></span><span data-i18n="map.legend_task_active">In progress</span></span>
+            <span class="map-legend-item"><span class="map-legend-dot" style="background:var(--danger)"></span><span data-i18n="map.legend_task_urgent">Urgent</span></span>
+            <span class="map-legend-item"><span class="map-legend-dot" style="background:var(--ok)"></span><span data-i18n="map.legend_volunteer_available">Volunteer available</span></span>
+            <span class="map-legend-item"><span class="map-legend-dot" style="background:var(--accent)"></span><span data-i18n="map.legend_volunteer_busy">Volunteer busy</span></span>
+            <span class="map-legend-item"><span class="map-legend-dot" style="background:var(--muted)"></span><span data-i18n="map.legend_volunteer_offline">Volunteer offline</span></span>
+        {% else %}
+            <span class="map-legend-item"><span class="map-legend-dot" style="background:var(--accent)"></span><span data-i18n="map.legend_task_pending">Free request</span></span>
+            <span class="map-legend-item"><span class="map-legend-dot" style="background:var(--danger)"></span><span data-i18n="map.legend_task_urgent">Urgent</span></span>
+        {% endif %}
+        <span class="map-legend-item"><span class="map-legend-dot" style="background:var(--primary-2)"></span><span data-i18n="map.legend_me">You</span></span>
+    </div>
+    <div id="mainMap" class="map-page-container"></div>
+</section>
+{% endblock %}
+{% block extra_js %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="{% static 'js/map.js' %}"></script>
+<script>
+GCMap.initMarkersMap('mainMap', "{% url 'map_data' %}");
+</script>
+{% endblock %}

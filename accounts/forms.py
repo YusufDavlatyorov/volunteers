@@ -1,6 +1,7 @@
 from django import forms
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
+from django.utils import timezone
 
 from .models import REGION_CHOICES, Profile, Users
 
@@ -12,8 +13,17 @@ class RegistrationForm(forms.ModelForm):
     ]
 
     role = forms.ChoiceField(choices=ROLE_CHOICES, widget=forms.RadioSelect)
+    motivation = forms.CharField(
+        required=False,
+        label="Почему вы хотите стать волонтером",
+        widget=forms.Textarea(attrs={"rows": 3, "placeholder": "Необязательно, только для волонтеров"}),
+    )
     password = forms.CharField(widget=forms.PasswordInput(attrs={"placeholder": "Минимум 8 символов"}))
     confirm_password = forms.CharField(widget=forms.PasswordInput(attrs={"placeholder": "Повторите пароль"}))
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("label_suffix", "")
+        super().__init__(*args, **kwargs)
 
     class Meta:
         model = Users
@@ -57,16 +67,32 @@ class RegistrationForm(forms.ModelForm):
         user = super().save(commit=False)
         user.email = user.email.lower()
         user.set_password(self.cleaned_data["password"])
-        user.is_volunteer = self.cleaned_data["role"] == "volunteer"
         user.is_client = self.cleaned_data["role"] == "client"
+        # is_volunteer is intentionally NOT set here: a "volunteer" role choice
+        # only creates a pending VolunteerApplication (see accounts.views.register_view).
+        # The role is granted only after admin approval.
         if commit:
             user.save()
         return user
 
 
 class LoginForm(forms.Form):
-    username = forms.CharField(widget=forms.TextInput(attrs={"placeholder": "Username"}))
-    password = forms.CharField(widget=forms.PasswordInput(attrs={"placeholder": "Пароль"}))
+    username = forms.CharField(widget=forms.TextInput(attrs={
+        "placeholder": "Username",
+        "autocomplete": "username",
+        "autofocus": True,
+        "aria-describedby": "id_username_error",
+    }))
+    password = forms.CharField(widget=forms.PasswordInput(attrs={
+        "placeholder": "Password",
+        "autocomplete": "current-password",
+        "aria-describedby": "id_password_error",
+    }))
+    remember_me = forms.BooleanField(
+        required=False,
+        initial=True,
+        widget=forms.CheckboxInput(attrs={"class": "checkbox-input"}),
+    )
 
 
 class ForgotPasswordForm(forms.Form):
@@ -90,12 +116,23 @@ class ResetPasswordForm(forms.Form):
 class ProfileForm(forms.ModelForm):
     class Meta:
         model = Profile
-        fields = ["full_name", "age", "image", "bio"]
+        fields = ["full_name", "age", "image", "bio", "availability_status", "latitude", "longitude"]
         widgets = {
             "full_name": forms.TextInput(attrs={"placeholder": "Полное имя"}),
             "age": forms.NumberInput(attrs={"min": 1, "max": 120}),
             "bio": forms.Textarea(attrs={"rows": 4, "placeholder": "О себе, навыки, удобное время"}),
+            "availability_status": forms.Select(attrs={"class": "control"}),
+            "latitude": forms.HiddenInput(),
+            "longitude": forms.HiddenInput(),
         }
+
+    def save(self, commit=True):
+        profile = super().save(commit=False)
+        if "latitude" in self.changed_data or "longitude" in self.changed_data:
+            profile.location_updated_at = timezone.now()
+        if commit:
+            profile.save()
+        return profile
 
 
 class UserUpdateForm(forms.ModelForm):

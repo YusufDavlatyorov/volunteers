@@ -4,13 +4,25 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script>
+    /* Applied before first paint so dark-theme visitors don't see a flash
+       of the light theme (and its color/background transition) on load. */
+    (function() {
+        try {
+            var saved = localStorage.getItem('gc-theme');
+            if (saved === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+        } catch (e) {}
+    })();
+    </script>
     <title>{% block title %}Generation Connect{% endblock %}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{% static 'css/style.css' %}">
+    {% block extra_css %}{% endblock %}
 </head>
 <body>
+<a class="skip-link" href="#main-content" data-i18n="a11y.skip">Skip to content</a>
 <nav class="topbar">
     <a class="brand" href="{% url 'about' %}">
         <span class="brand-mark">GC</span>
@@ -19,24 +31,30 @@
     <button class="menu-button" type="button" data-menu-toggle>☰</button>
     <div class="nav-links" data-menu>
         <a href="{% url 'about' %}" data-i18n="nav.about">About Us</a>
-        <a href="{% url 'rating' %}" data-i18n="nav.rating">Rating</a>
         {% if user.is_authenticated %}
-            <a href="{% url 'profile' %}" data-i18n="nav.profile">Profile</a>
+            <a href="{% url 'profile' %}" data-i18n="nav.dashboard">Dashboard</a>
+            <a href="{% url 'map' %}" data-i18n="nav.map">Map</a>
             {% if user.is_superuser or user.is_curator %}
                 <a href="{% url 'admin_panel' %}" data-i18n="nav.admin">Admin Panel</a>
             {% endif %}
+            {% if user.is_superuser %}
+                <a href="{% url 'volunteer_applications' %}" data-i18n="nav.volunteer_apps">Volunteer Requests</a>
+            {% endif %}
             {% if user.is_volunteer %}
-                <a href="{% url 'task_list' %}" data-i18n="nav.requests">Requests</a>
+                <a href="{% url 'task_list' %}" data-i18n="nav.requests">Find Tasks</a>
             {% endif %}
             {% if user.is_client %}
-                <a href="{% url 'create_request' %}" data-i18n="nav.new_request">New Request</a>
+                <a href="{% url 'create_request' %}" data-i18n="nav.new_request">Request Help</a>
             {% endif %}
-            <a href="{% url 'ai_assistant' %}" data-i18n="nav.ai">AI Assistant</a>
+            {% if not user.is_volunteer and not user.is_client and not user.is_superuser and not user.is_curator %}
+                <a href="{% url 'volunteer_application' %}" data-i18n="nav.my_application">My Application</a>
+            {% endif %}
+            <a href="{% url 'rating' %}" data-i18n="nav.rating">Rating</a>
             <a class="button ghost" href="{% url 'logout' %}" data-i18n="nav.logout">Logout</a>
         {% else %}
+            <a href="{% url 'rating' %}" data-i18n="nav.rating">Rating</a>
             <a href="{% url 'login' %}" data-i18n="nav.login">Login</a>
-            <a href="{% url 'forgot_password' %}" data-i18n="nav.forgot">Forgot Password</a>
-            <a class="button primary" href="{% url 'register' %}" data-i18n="nav.register">Register</a>
+            <a class="nav-cta" href="{% url 'register' %}" data-i18n="nav.register">Become a Volunteer</a>
         {% endif %}
     </div>
     <div class="toolbar">
@@ -57,12 +75,21 @@
 </div>
 {% endif %}
 
-<main>
+<main id="main-content" tabindex="-1">
     {% block content %}{% endblock %}
 </main>
 
+{% if user.is_authenticated and request.resolver_match.url_name != "ai_assistant" %}
+    <a class="ai-fab" href="{% url 'ai_assistant' %}" data-i18n-tooltip="ai.fab_tooltip" data-tooltip="AI Assistant" aria-label="AI Assistant">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-8.9 8.4L3 21l1.1-4.5A8.4 8.4 0 1 1 21 11.5Z"></path><path d="M8 11.5h.01M12 11.5h.01M16 11.5h.01"></path></svg>
+    </a>
+{% endif %}
+
 <footer class="footer">
-    <span data-i18n="footer.copy">Generation Connect, 2026</span>
+    <div class="footer-mark">
+        {% include "_peaks_mark.html" %}
+        <span data-i18n="footer.copy">Generation Connect, 2026</span>
+    </div>
     <span data-i18n="footer.desc">Care, regions, accountability, fast notifications.</span>
 </footer>
 

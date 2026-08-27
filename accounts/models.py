@@ -145,12 +145,36 @@ class Users(AbstractBaseUser, PermissionsMixin):
 
 
 class Profile(models.Model):
+    AVAILABILITY_AVAILABLE = "available"
+    AVAILABILITY_BUSY = "busy"
+    AVAILABILITY_OFFLINE = "offline"
+    AVAILABILITY_CHOICES = [
+        (AVAILABILITY_AVAILABLE, "Доступен"),
+        (AVAILABILITY_BUSY, "Занят"),
+        (AVAILABILITY_OFFLINE, "Не в сети"),
+    ]
+
     user = models.OneToOneField(Users, on_delete=models.CASCADE, related_name="profile")
     full_name = models.CharField(max_length=255, blank=True)
     age = models.PositiveIntegerField(null=True, blank=True)
     image = models.ImageField(upload_to="avatars/", blank=True)
     bio = models.TextField(blank=True)
     rating = models.PositiveIntegerField(default=0)
+
+    # Current/home location (volunteers and clients). Populated via a map picker
+    # on the edit-profile form or the browser geolocation API; both are optional
+    # so existing accounts keep working without a location set.
+    latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    location_updated_at = models.DateTimeField(null=True, blank=True)
+
+    # Volunteer availability for task matching/dispatch. Meaningless for clients
+    # but kept on the shared Profile model rather than a volunteer-only table to
+    # avoid a second 1:1 model for what is otherwise identical "extra user data".
+    availability_status = models.CharField(
+        max_length=20, choices=AVAILABILITY_CHOICES, default=AVAILABILITY_AVAILABLE
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -164,3 +188,13 @@ class Profile(models.Model):
     def add_points(self, points=3):
         self.rating += points
         self.save(update_fields=["rating", "updated_at"])
+
+    @property
+    def has_location(self):
+        return self.latitude is not None and self.longitude is not None
+
+    def set_location(self, latitude, longitude):
+        self.latitude = latitude
+        self.longitude = longitude
+        self.location_updated_at = timezone.now()
+        self.save(update_fields=["latitude", "longitude", "location_updated_at", "updated_at"])

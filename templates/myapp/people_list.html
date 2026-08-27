@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}{% if role == "volunteer" %}Volunteers{% elif role == "client" %}Clients{% else %}Curators{% endif %} - Generation Connect{% endblock %}
+{% block content %}
+<section class="section">
+    <div class="section-head">
+        <h1>
+            {% if role == "volunteer" %}<span data-i18n="people.volunteers_title">Volunteers</span>
+            {% elif role == "client" %}<span data-i18n="people.clients_title">Clients</span>
+            {% else %}<span data-i18n="people.curators_title">Curators</span>{% endif %}
+        </h1>
+    </div>
+
+    <div class="button-row">
+        <a class="button {% if role == 'volunteer' %}primary{% else %}ghost{% endif %}" href="{% url 'people_list' 'volunteer' %}">
+            <span data-i18n="people.volunteers_title">Volunteers</span> · {{ volunteer_count }}
+        </a>
+        <a class="button {% if role == 'client' %}primary{% else %}ghost{% endif %}" href="{% url 'people_list' 'client' %}">
+            <span data-i18n="people.clients_title">Clients</span> · {{ client_count }}
+        </a>
+        {% if user.is_superuser %}
+            <a class="button {% if role == 'curator' %}primary{% else %}ghost{% endif %}" href="{% url 'people_list' 'curator' %}">
+                <span data-i18n="people.curators_title">Curators</span> · {{ curator_count }}
+            </a>
+        {% endif %}
+    </div>
+
+    <form method="get" class="card filter-bar">
+        <div class="field-group">
+            <label for="peopleSearch" data-i18n="va.search_label">Search by username or email</label>
+            <input type="text" id="peopleSearch" name="q" value="{{ search_query }}" placeholder="john, john@example.com" data-i18n-ph="va.search_placeholder">
+        </div>
+        <div class="field-group">
+            <label for="peopleRegion" data-i18n="va.region_label">Region</label>
+            <select id="peopleRegion" name="region" class="control">
+                <option value="" data-i18n="va.all_regions">All regions</option>
+                {% for value, label in region_choices %}
+                    <option value="{{ value }}" {% if region_filter == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        {% if role == "volunteer" %}
+        <div class="field-group">
+            <label for="peopleAvailability" data-i18n="crm.availability">Availability</label>
+            <select id="peopleAvailability" name="availability" class="control">
+                <option value="" data-i18n="crm.all_availability">Any availability</option>
+                {% for value, label in availability_choices %}
+                    <option value="{{ value }}" {% if availability_filter == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        {% endif %}
+        <button class="button ghost" type="submit" data-i18n="task.filter">Filter</button>
+    </form>
+
+    {% if people %}
+        <div class="table-list">
+            {% for person in people %}
+                <div class="card reveal applicant-row">
+                    {% if person.profile.image %}
+                        <img class="avatar avatar-sm" src="{{ person.profile.image.url }}" alt="">
+                    {% else %}
+                        <div class="avatar avatar-fallback avatar-sm">{{ person.profile.full_name|default:person.username|first|upper }}</div>
+                    {% endif %}
+                    <div class="applicant-body">
+                        <span class="tag accent">{{ person.role_display }}</span>
+                        {% if role == "volunteer" %}
+                            <span class="tag {% if person.profile.availability_status == 'available' %}success{% elif person.profile.availability_status == 'busy' %}accent{% else %}muted{% endif %}">{{ person.profile.get_availability_status_display }}</span>
+                        {% endif %}
+                        {% if role == "volunteer" %}
+                            <h3><a href="{% url 'crm_volunteer_detail' person.pk %}">{{ person.profile.full_name|default:person.username }}</a></h3>
+                        {% else %}
+                            <h3>{{ person.profile.full_name|default:person.username }}</h3>
+                        {% endif %}
+                        <p class="opportunity-location">
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+                            {{ person.get_region_display|default:"—" }}
+                            <span>· {{ person.email }}</span>
+                        </p>
+                        {% if role == "volunteer" %}
+                            <p class="opportunity-desc">{{ person.completed_task_count }} <span data-i18n="crm.completed_tasks_short">completed</span> · {{ person.active_task_count }} <span data-i18n="crm.active_tasks_short">active</span></p>
+                        {% elif role == "client" %}
+                            <p class="opportunity-desc">{{ person.request_count }} <span data-i18n="crm.requests_short">requests</span> · {{ person.completed_request_count }} <span data-i18n="crm.completed_tasks_short">completed</span></p>
+                        {% endif %}
+                    </div>
+                    {% if role == "volunteer" %}
+                        <div class="button-row">
+                            <div>
+                                <span class="meta-label" data-i18n="people.rating_label">Rating</span>
+                                <p>{{ person.profile.rating|default:0 }}</p>
+                            </div>
+                            <a class="button ghost" href="{% url 'crm_volunteer_detail' person.pk %}" data-i18n="crm.view_profile">Profile</a>
+                        </div>
+                    {% endif %}
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="empty-state">
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="4"></circle><path d="M2 21v-2a5 5 0 0 1 5-5h4a5 5 0 0 1 5 5v2"></path><circle cx="17" cy="7" r="3"></circle></svg>
+            <p data-i18n="people.empty">No one found.</p>
+        </div>
+    {% endif %}
+</section>
+{% endblock %}

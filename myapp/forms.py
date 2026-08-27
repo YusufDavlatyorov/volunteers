@@ -1,7 +1,7 @@
 from django import forms
 
 from accounts.models import REGION_CHOICES
-from .models import Broadcast, Event, HELP_TYPE_CHOICES, HelpRequest, PhotoReport
+from .models import Broadcast, Event, HELP_TYPE_CHOICES, HelpRequest, PhotoReport, STATUS_CHOICES
 
 
 FIELD_CLASS = {
@@ -12,13 +12,15 @@ FIELD_CLASS = {
 class HelpRequestForm(forms.ModelForm):
     class Meta:
         model = HelpRequest
-        fields = ["help_type", "description", "address", "phone", "is_urgent"]
+        fields = ["help_type", "description", "address", "phone", "is_urgent", "latitude", "longitude"]
         widgets = {
             "help_type": forms.Select(attrs=FIELD_CLASS),
             "description": forms.Textarea(attrs={**FIELD_CLASS, "rows": 5, "placeholder": "Что нужно сделать и когда удобно прийти"}),
             "address": forms.TextInput(attrs={**FIELD_CLASS, "placeholder": "Адрес"}),
             "phone": forms.TextInput(attrs={**FIELD_CLASS, "placeholder": "+992 ..."}),
             "is_urgent": forms.CheckboxInput(),
+            "latitude": forms.HiddenInput(),
+            "longitude": forms.HiddenInput(),
         }
 
 
@@ -62,3 +64,24 @@ class HelpRequestFilterForm(forms.Form):
     help_type = forms.ChoiceField(choices=[("", "Все виды")] + HELP_TYPE_CHOICES, required=False, widget=forms.Select(attrs=FIELD_CLASS))
     region = forms.ChoiceField(choices=[("", "Все регионы")] + REGION_CHOICES, required=False, widget=forms.Select(attrs=FIELD_CLASS))
     is_urgent = forms.BooleanField(required=False, label="Только срочные")
+
+
+class TaskManagementFilterForm(forms.Form):
+    """Full filter set for the CRM task-management list — a superset of
+    HelpRequestFilterForm's filters, kept separate so the volunteer-facing
+    task list (which uses HelpRequestFilterForm) is unaffected."""
+
+    status = forms.ChoiceField(choices=[("", "Все статусы")] + STATUS_CHOICES, required=False, widget=forms.Select(attrs=FIELD_CLASS))
+    help_type = forms.ChoiceField(choices=[("", "Все виды")] + HELP_TYPE_CHOICES, required=False, widget=forms.Select(attrs=FIELD_CLASS))
+    region = forms.ChoiceField(choices=[("", "Все регионы")] + REGION_CHOICES, required=False, widget=forms.Select(attrs=FIELD_CLASS))
+    is_urgent = forms.BooleanField(required=False, label="Только срочные")
+    volunteer = forms.CharField(
+        required=False, widget=forms.TextInput(attrs={**FIELD_CLASS, "placeholder": "Имя волонтёра"})
+    )
+    date_from = forms.DateField(required=False, widget=forms.DateInput(attrs={**FIELD_CLASS, "type": "date"}))
+    date_to = forms.DateField(required=False, widget=forms.DateInput(attrs={**FIELD_CLASS, "type": "date"}))
+    q = forms.CharField(
+        required=False,
+        label="Поиск",
+        widget=forms.TextInput(attrs={**FIELD_CLASS, "placeholder": "Описание, адрес, клиент, телефон"}),
+    )

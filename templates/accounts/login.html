@@ -2,19 +2,86 @@
 {% block title %}Login - Generation Connect{% endblock %}
 {% block content %}
 <section class="auth-shell">
-    <div class="auth-art">
+    <div class="auth-card reveal">
+        <div class="auth-brand">
+            <span class="brand-mark">GC</span>
+        </div>
         <span class="eyebrow" data-i18n="login.eyebrow">Volunteer Platform</span>
-        <h1 data-i18n="login.title">Login</h1>
-        <p data-i18n="login.desc">Log into your profile to accept a request, create help, open AI assistant or view admin panel.</p>
-    </div>
-    <div class="auth-panel">
-        <h2 data-i18n="login.heading">Sign In</h2>
-        <form method="post" class="card">
+        <h1 class="auth-title" data-i18n="login.heading">Sign In</h1>
+        <p class="auth-subtitle" data-i18n="login.desc">Log into your profile to accept a request, create help, open AI assistant or view admin panel.</p>
+
+        <form method="post" class="auth-form">
             {% csrf_token %}
-            {{ form.as_p }}
-            <button class="primary" type="submit" data-i18n="login.btn">Login</button>
+            {% if form.non_field_errors %}
+                <div class="auth-alert" role="alert">{{ form.non_field_errors.0 }}</div>
+            {% endif %}
+
+            <div class="field-group">
+                <label for="{{ form.username.id_for_label }}" data-i18n="field.username">Username</label>
+                {{ form.username }}
+                <span class="field-error" id="id_username_error" role="alert">{{ form.username.errors.0 }}</span>
+            </div>
+
+            <div class="field-group">
+                <div class="field-label-row">
+                    <label for="{{ form.password.id_for_label }}" data-i18n="field.password">Password</label>
+                    <a class="field-hint-link" href="{% url 'forgot_password' %}" data-i18n="login.forgot">Forgot password?</a>
+                </div>
+                <div class="password-field">
+                    {{ form.password }}
+                    <button type="button" class="password-toggle" data-password-toggle aria-label="Show password" aria-pressed="false">
+                        <svg data-icon-show viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                        <svg data-icon-hide viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" hidden><path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a21.6 21.6 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 7 11 7a21.6 21.6 0 0 1-2.68 3.79M14.12 14.12a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/></svg>
+                    </button>
+                </div>
+                <span class="field-error" id="id_password_error" role="alert">{{ form.password.errors.0 }}</span>
+            </div>
+
+            <div class="auth-row">
+                <label class="checkbox-row">
+                    {{ form.remember_me }}
+                    <span data-i18n="login.remember">Remember me</span>
+                </label>
+            </div>
+
+            <button class="primary auth-submit" type="submit" data-submit-btn>
+                <span class="btn-label" data-i18n="login.btn">Login</span>
+                <span class="btn-spinner" aria-hidden="true"></span>
+            </button>
         </form>
-        <p><a href="{% url 'forgot_password' %}" data-i18n="login.forgot">Forgot Password</a> · <a href="{% url 'register' %}" data-i18n="login.register">Register</a></p>
+
+        <p class="auth-footer-text">
+            <span data-i18n="login.no_account">Don't have an account?</span>
+            <a href="{% url 'register' %}" data-i18n="login.register">Register</a>
+        </p>
     </div>
 </section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+    var toggle = document.querySelector('[data-password-toggle]');
+    var input = document.getElementById('{{ form.password.id_for_label }}');
+    if (toggle && input) {
+        toggle.addEventListener('click', function() {
+            var showing = input.type === 'text';
+            input.type = showing ? 'password' : 'text';
+            toggle.setAttribute('aria-pressed', String(!showing));
+            toggle.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
+            toggle.querySelector('[data-icon-show]').hidden = !showing;
+            toggle.querySelector('[data-icon-hide]').hidden = showing;
+        });
+    }
+
+    var form = document.querySelector('.auth-form');
+    var submitBtn = document.querySelector('[data-submit-btn]');
+    if (form && submitBtn) {
+        form.addEventListener('submit', function() {
+            submitBtn.classList.add('is-loading');
+            submitBtn.disabled = true;
+        });
+    }
+})();
+</script>
 {% endblock %}

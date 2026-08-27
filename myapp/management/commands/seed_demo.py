@@ -1,3 +1,4 @@
+import shutil
 from datetime import timedelta
 from pathlib import Path
 
@@ -50,14 +51,27 @@ CURATORS = [
     ("curator_lola", "Лола Мирсаидова", "khatlon"),
 ]
 
+# Real, licensed photographs bundled under static/images/ (see static/images/CREDITS.md).
+# Reused across the demo photo reports below instead of generating fake placeholder art.
+REPORT_PHOTOS = [
+    "volunteers/aid-delivery-elderly.jpg",
+    "volunteers/community-registration.jpg",
+    "volunteers/aid-distribution.jpg",
+    "community/elderly-man-dushanbe.jpg",
+    "volunteers/youth-community-activity.jpg",
+    "community/elderly-portrait.jpg",
+    "community/family-ishkashim.jpg",
+    "volunteers/aid-delivery-elderly.jpg",
+]
+
 
 class Command(BaseCommand):
     help = "Заполняет проект демонстрационными пользователями, акциями, запросами и фотоотчетами."
 
     def handle(self, *args, **options):
         settings.EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
-        self.media_root = Path("media")
-        (self.media_root / "avatars").mkdir(parents=True, exist_ok=True)
+        self.media_root = Path(settings.MEDIA_ROOT)
+        self.static_images_root = Path(settings.BASE_DIR) / "static" / "images"
         (self.media_root / "reports").mkdir(parents=True, exist_ok=True)
 
         admin = self._upsert_user("admin_demo", "Админ Generation", "admin@gc.local", "dushanbe", is_superuser=True)
@@ -101,14 +115,17 @@ class Command(BaseCommand):
         user.set_password(PASSWORD)
         user.save()
 
-        avatar_name = f"avatars/{username}.svg"
-        self._write_svg(self.media_root / avatar_name, full_name, region, "avatar")
+        # No avatar image is generated here: demo users show the same initials
+        # fallback (see .avatar-fallback in style.css) that real users without an
+        # uploaded photo get. This avoids fake generated "person" avatars. Explicitly
+        # clear the field too, so re-running this command on an existing dev database
+        # drops any stale reference to the old generated SVG avatars.
         profile, _ = Profile.objects.get_or_create(user=user)
         profile.full_name = full_name
         profile.age = age or 30
         profile.bio = bio or "Участник Generation Connect. Готов помогать по своему региону и быстро отвечать на запросы."
         profile.rating = self._rating_for(username, is_volunteer)
-        profile.image = avatar_name
+        profile.image = ""
         profile.save()
         return user
 
@@ -205,8 +222,9 @@ class Command(BaseCommand):
             ("Акция региона", "Куратор собрал отчет по помощи пожилым людям.", "khatlon"),
         ]
         for idx, (title, description, region) in enumerate(data):
-            image_name = f"reports/report_{idx + 1}.svg"
-            self._write_svg(self.media_root / image_name, title, region, "report")
+            source = self.static_images_root / REPORT_PHOTOS[idx % len(REPORT_PHOTOS)]
+            image_name = f"reports/report_{idx + 1}{source.suffix}"
+            shutil.copyfile(source, self.media_root / image_name)
             PhotoReport.objects.update_or_create(
                 title=title,
                 defaults={
@@ -218,32 +236,3 @@ class Command(BaseCommand):
                     "help_request": requests[idx % len(requests)],
                 },
             )
-
-    def _write_svg(self, path, title, region, kind):
-        colors = {
-            "dushanbe": ("#2563eb", "#0f766e"),
-            "sogd": ("#0f766e", "#f59e0b"),
-            "khatlon": ("#dc2626", "#2563eb"),
-            "gbao": ("#7c3aed", "#0f766e"),
-            "rrp": ("#f59e0b", "#14213d"),
-            "all": ("#2563eb", "#dc2626"),
-        }
-        c1, c2 = colors.get(region, ("#2563eb", "#0f766e"))
-        initials = "".join(part[0] for part in title.split()[:2]).upper()
-        label = "PHOTO REPORT" if kind == "report" else "PROFILE"
-        path.write_text(
-            f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800">
-<defs>
-<linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="{c1}"/><stop offset="1" stop-color="{c2}"/></linearGradient>
-</defs>
-<rect width="1200" height="800" fill="url(#g)"/>
-<circle cx="1010" cy="150" r="180" fill="rgba(255,255,255,.18)"/>
-<circle cx="190" cy="680" r="240" fill="rgba(255,255,255,.14)"/>
-<rect x="80" y="90" width="1040" height="620" rx="34" fill="rgba(255,255,255,.86)"/>
-<text x="120" y="170" font-family="Arial" font-size="34" font-weight="700" fill="#607085">{label}</text>
-<text x="120" y="390" font-family="Arial" font-size="170" font-weight="900" fill="{c1}">{initials}</text>
-<text x="120" y="505" font-family="Arial" font-size="54" font-weight="800" fill="#14213d">{title}</text>
-<text x="120" y="580" font-family="Arial" font-size="32" font-weight="700" fill="#607085">Generation Connect · {region}</text>
-</svg>""",
-            encoding="utf-8",
-        )

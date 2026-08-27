@@ -1,31 +1,75 @@
 {% extends "base.html" %}
-{% block title %}Profile - Generation Connect{% endblock %}
+{% block title %}Dashboard - Generation Connect{% endblock %}
 {% block content %}
 <section class="section">
+    <div class="dash-greeting reveal">
+        {% if greeting == "morning" %}
+            <h1><span data-i18n="dash.morning">Good morning</span>, {{ profile.full_name|default:user.username }}</h1>
+        {% elif greeting == "afternoon" %}
+            <h1><span data-i18n="dash.afternoon">Good afternoon</span>, {{ profile.full_name|default:user.username }}</h1>
+        {% else %}
+            <h1><span data-i18n="dash.evening">Good evening</span>, {{ profile.full_name|default:user.username }}</h1>
+        {% endif %}
+        {% if user.is_volunteer %}
+            <p data-i18n="dash.volunteer_sub">Ready to make a difference?</p>
+        {% elif user.is_client %}
+            <p data-i18n="dash.client_sub">Need a little help today?</p>
+        {% elif user.is_superuser or user.is_curator %}
+            <p data-i18n="dash.admin_sub">Here's what's happening across the platform.</p>
+        {% else %}
+            <p data-i18n="dash.guest_sub">Welcome back to Generation Connect.</p>
+        {% endif %}
+    </div>
+
     <div class="two-col">
-        <div class="card reveal">
-            <div class="profile-head">
-                {% if profile.image %}
-                    <img class="avatar" src="{{ profile.image.url }}" alt="{{ user.username }}">
-                {% else %}
-                    <div class="avatar"></div>
+        <div class="stack">
+            {% if user.is_volunteer %}
+                <div class="metric-row reveal">
+                    <div class="card stat-card"><span class="metric">{{ completed_count }}</span><p data-i18n="dash.tasks_completed">Tasks completed</p></div>
+                    <div class="card stat-card"><span class="metric">{{ profile.rating }}</span><p data-i18n="profile.rating_pts">rating points</p></div>
+                </div>
+                {% if active_task %}
+                    <div class="card reveal">
+                        <h3 data-i18n="dash.active_task">Active task</h3>
+                        <p>{{ active_task.get_help_type_display }} · {{ active_task.get_region_display|default:"—" }}</p>
+                        <div class="button-row">
+                            <a class="button primary" href="{% url 'task_detail' active_task.id %}" data-i18n="dash.view_task">View Task</a>
+                        </div>
+                    </div>
                 {% endif %}
-                <div>
-                    <span class="tag">{{ user.role_display }}</span>
-                    <h2>{{ profile.full_name|default:user.username }}</h2>
-                    <p>{{ user.email }} · {{ user.get_region_display|default:"—" }}</p>
+            {% endif %}
+
+            {% if user.is_client %}
+                <div class="card reveal">
+                    <h3 data-i18n="dash.need_help">Need a little help?</h3>
+                    <div class="button-row">
+                        <a class="button primary" href="{% url 'create_request' %}" data-i18n="profile.create_req">Create Request</a>
+                    </div>
+                </div>
+            {% endif %}
+
+            <div class="card reveal">
+                <div class="profile-head">
+                    {% if profile.image %}
+                        <img class="avatar" src="{{ profile.image.url }}" alt="{{ user.username }}">
+                    {% else %}
+                        <div class="avatar avatar-fallback">{{ profile.full_name|default:user.username|first|upper }}</div>
+                    {% endif %}
+                    <div>
+                        <span class="tag">{{ user.role_display }}</span>
+                        <h2>{{ profile.full_name|default:user.username }}</h2>
+                        <p>{{ user.email }} · {{ user.get_region_display|default:"—" }}</p>
+                    </div>
+                </div>
+                <p>{{ profile.bio|default:"—" }}</p>
+                <div class="button-row">
+                    <a class="button ghost" href="{% url 'edit_profile' %}" data-i18n="profile.edit">Edit Profile</a>
                 </div>
             </div>
-            <p>{{ profile.bio|default:"—" }}</p>
-            <div class="grid">
-                <div><span class="metric">{{ profile.rating }}</span><p data-i18n="profile.rating_pts">rating points</p></div>
-                <div><span class="metric">{{ user.telegram_id|default:"—" }}</span><p data-i18n="profile.tg_id">telegram id</p></div>
-            </div>
-            <a class="button ghost" href="{% url 'edit_profile' %}" data-i18n="profile.edit">Edit Profile</a>
         </div>
         <div class="card reveal">
             <h3 data-i18n="profile.quick">Quick Actions</h3>
-            <div class="grid">
+            <div class="grid grid-narrow">
                 {% if user.is_superuser or user.is_curator %}
                     <a class="button primary" href="{% url 'admin_panel' %}" data-i18n="profile.admin">Admin Panel</a>
                     <a class="button secondary" href="{% url 'broadcast' %}" data-i18n="profile.send_msg">Send Message</a>
@@ -44,18 +88,44 @@
         </div>
     </div>
 </section>
+
+{% if volunteer_application %}
 <section class="section alt">
-    <h2 data-i18n="profile.my_records">My Records</h2>
-    <div class="grid">
-        {% for task in my_tasks %}
-            <div class="card"><span class="tag">{{ task.get_status_display }}</span><h3>{{ task.get_help_type_display }}</h3><p>{{ task.description|truncatechars:120 }}</p></div>
-        {% empty %}
-            {% for req in my_requests %}
-                <div class="card"><span class="tag">{{ req.get_status_display }}</span><h3>{{ req.get_help_type_display }}</h3><p>{{ req.description|truncatechars:120 }}</p></div>
-            {% empty %}
-                <p data-i18n="profile.no_records">No records yet.</p>
-            {% endfor %}
-        {% endfor %}
+    <div class="card reveal detail-card">
+        <h3 data-i18n="va.title">Volunteer Application</h3>
+        <span class="tag {% if volunteer_application.status == 'rejected' %}urgent{% elif volunteer_application.status == 'approved' %}success{% else %}accent{% endif %}" data-i18n="va.status_{{ volunteer_application.status }}">{{ volunteer_application.get_status_display }}</span>
+        {% if volunteer_application.status == "pending" %}
+            <p class="status-message" data-i18n="va.msg_pending">Your application is currently being reviewed by an administrator.</p>
+        {% elif volunteer_application.status == "approved" %}
+            <p class="status-message" data-i18n="va.msg_approved">Congratulations! You are now a volunteer.</p>
+        {% elif volunteer_application.status == "rejected" %}
+            <p class="status-message" data-i18n="va.msg_rejected">Your volunteer application was rejected.</p>
+        {% endif %}
+        <p class="status-meta"><span data-i18n="va.submitted">Submitted:</span> {{ volunteer_application.created_at|date:"d.m.Y H:i" }}</p>
+        <div class="button-row">
+            <a class="button ghost" href="{% url 'volunteer_application' %}" data-i18n="va.view_status">View Application Status</a>
+        </div>
     </div>
+</section>
+{% endif %}
+
+<section class="section alt">
+    <div class="section-head"><h2 data-i18n="profile.my_records">My Records</h2></div>
+    {% if my_tasks or my_requests %}
+        <div class="grid">
+            {% for task in my_tasks %}
+                <div class="card">{% include "myapp/_task_status_tag.html" with status=task.status status_display=task.get_status_display %}<h3>{{ task.get_help_type_display }}</h3><p>{{ task.description|truncatechars:120 }}</p></div>
+            {% empty %}
+                {% for req in my_requests %}
+                    <div class="card">{% include "myapp/_task_status_tag.html" with status=req.status status_display=req.get_status_display %}<h3>{{ req.get_help_type_display }}</h3><p>{{ req.description|truncatechars:120 }}</p></div>
+                {% endfor %}
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="empty-state">
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16l3 8v8H1v-8Z"></path><path d="M1 12h6l2 3h6l2-3h6"></path></svg>
+            <p data-i18n="profile.no_records">No records yet.</p>
+        </div>
+    {% endif %}
 </section>
 {% endblock %}

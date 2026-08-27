@@ -1,20 +1,32 @@
 import json
 import os
-from datetime import timedelta
 
 import requests
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.db.models import Count, Q
-from django.http import JsonResponse
+from django.core.paginator import Paginator
+from django.db.models import Count, Max, Q
+from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
+from django.views.decorators.http import require_GET, require_POST
 
-from accounts.models import Profile, Users
-from .forms import BroadcastForm, EventForm, HelpRequestFilterForm, HelpRequestForm, PhotoReportForm
-from .models import Broadcast, Event, HelpRequest, PhotoReport
+from accounts.models import Profile, REGION_CHOICES, Users
+from .forms import (
+    BroadcastForm,
+    EventForm,
+    HelpRequestFilterForm,
+    HelpRequestForm,
+    PhotoReportForm,
+    TaskManagementFilterForm,
+)
+from .models import Broadcast, Event, HelpRequest, OVERDUE_THRESHOLD, PhotoReport, VolunteerApplication
 from .notifications import notify_users, volunteer_queryset_for_region
+from .services import analytics
+from .services.geo import get_route, is_valid_coordinate
+from .services.matching import location_freshness_label, recommend_volunteers
 
 
 def role_required(*roles):
@@ -52,6 +64,8 @@ def dashboard_view(request):
         return redirect("create_request")
     if user.is_volunteer:
         return redirect("task_list")
+    if VolunteerApplication.objects.filter(user=user).exists():
+        return redirect("volunteer_application")
     return redirect("admin_panel")
 
 
@@ -67,15 +81,180 @@ def admin_panel_view(request):
         if filter_form.cleaned_data.get("is_urgent"):
             requests_qs = requests_qs.filter(is_urgent=True)
 
+    now = timezone.now()
     context = {
         "filter_form": filter_form,
         "free_requests": requests_qs.filter(status="pending"),
         "busy_requests": requests_qs.filter(status="active"),
         "archive_count": HelpRequest.objects.filter(status="completed").count(),
-        "broadcasts": Broadcast.objects.select_related("sender")[:5],
-        "events": Event.objects.select_related("curator")[:5],
+        "upcoming_events": Event.objects.select_related("curator").filter(date__gte=now).order_by("date")[:5],
+        "recent_broadcasts": Broadcast.objects.select_related("sender")[:5],
+        "pending_volunteer_applications": VolunteerApplication.objects.filter(status=VolunteerApplication.STATUS_PENDING).count(),
+        "total_requests": HelpRequest.objects.filter(status__in=["pending", "active"]).count(),
+        "total_volunteers": Users.objects.filter(is_volunteer=True, is_active=True).count(),
+        "total_clients": Users.objects.filter(is_client=True, is_active=True).count(),
+        "total_events": Event.objects.count(),
+        # CRM dashboard: real aggregate stats + a unified recent-activity feed,
+        # both computed in myapp.services.analytics so this view stays thin.
+        "stats": analytics.dashboard_stats(),
+        "recent_activity": analytics.recent_activity(limit=8),
     }
+    if request.user.is_superuser:
+        context["recent_applications"] = VolunteerApplication.objects.select_related("user").order_by("-created_at")[:5]
     return render(request, "myapp/admin_panel.html", context)
+
+
+PEOPLE_ROLE_FIELDS = {
+    "volunteer": "is_volunteer",
+    "client": "is_client",
+    "curator": "is_curator",
+}
+
+
+@role_required("admin", "curator")
+def people_list_view(request, role):
+    if role not in PEOPLE_ROLE_FIELDS:
+        raise Http404
+    if role == "curator" and not request.user.is_superuser:
+        messages.error(request, "У вас нет доступа к этой странице")
+        return redirect("admin_panel")
+
+    region_filter = request.GET.get("region", "")
+    search_query = request.GET.get("q", "").strip()
+    availability_filter = request.GET.get("availability", "") if role == "volunteer" else ""
+
+    people = Users.objects.filter(**{PEOPLE_ROLE_FIELDS[role]: True}, is_active=True).select_related("profile").order_by("-date_joined")
+    if region_filter:
+        people = people.filter(region=region_filter)
+    if search_query:
+        people = people.filter(Q(username__icontains=search_query) | Q(email__icontains=search_query))
+
+    if role == "volunteer":
+        if availability_filter:
+            people = people.filter(profile__availability_status=availability_filter)
+        # Per-row task counts via annotation, not a query per row (avoids N+1).
+        people = people.annotate(
+            completed_task_count=Count("volunteer_tasks", filter=Q(volunteer_tasks__status="completed"), distinct=True),
+            active_task_count=Count("volunteer_tasks", filter=Q(volunteer_tasks__status="active"), distinct=True),
+        )
+    elif role == "client":
+        people = people.annotate(
+            request_count=Count("client_requests", distinct=True),
+            completed_request_count=Count("client_requests", filter=Q(client_requests__status="completed"), distinct=True),
+        )
+
+    context = {
+        "people": people,
+        "role": role,
+        "region_filter": region_filter,
+        "search_query": search_query,
+        "availability_filter": availability_filter,
+        "availability_choices": Profile.AVAILABILITY_CHOICES,
+        "region_choices": REGION_CHOICES,
+        "volunteer_count": Users.objects.filter(is_volunteer=True, is_active=True).count(),
+        "client_count": Users.objects.filter(is_client=True, is_active=True).count(),
+        "curator_count": Users.objects.filter(is_curator=True, is_active=True).count(),
+    }
+    return render(request, "myapp/people_list.html", context)
+
+
+@role_required("admin", "curator")
+def crm_tasks_view(request):
+    """CRM task management: the full filterable, searchable, paginated task
+    list — a superset of the free/busy grids on the dashboard itself."""
+    filter_form = TaskManagementFilterForm(request.GET)
+    tasks = HelpRequest.objects.select_related("client", "volunteer").order_by("-created_at")
+
+    if filter_form.is_valid():
+        cleaned = filter_form.cleaned_data
+        if cleaned.get("status"):
+            tasks = tasks.filter(status=cleaned["status"])
+        if cleaned.get("help_type"):
+            tasks = tasks.filter(help_type=cleaned["help_type"])
+        if cleaned.get("region"):
+            tasks = tasks.filter(region=cleaned["region"])
+        if cleaned.get("is_urgent"):
+            tasks = tasks.filter(is_urgent=True)
+        if cleaned.get("volunteer"):
+            tasks = tasks.filter(volunteer__username__icontains=cleaned["volunteer"])
+        if cleaned.get("date_from"):
+            tasks = tasks.filter(created_at__date__gte=cleaned["date_from"])
+        if cleaned.get("date_to"):
+            tasks = tasks.filter(created_at__date__lte=cleaned["date_to"])
+        if cleaned.get("q"):
+            query = cleaned["q"]
+            tasks = tasks.filter(
+                Q(description__icontains=query)
+                | Q(address__icontains=query)
+                | Q(phone__icontains=query)
+                | Q(client__username__icontains=query)
+            )
+
+    overdue_only = request.GET.get("overdue") == "1"
+    if overdue_only:
+        tasks = tasks.filter(status="active", accepted_at__lt=timezone.now() - OVERDUE_THRESHOLD)
+
+    paginator = Paginator(tasks, 20)
+    page_obj = paginator.get_page(request.GET.get("page"))
+
+    querystring = request.GET.copy()
+    querystring.pop("page", None)
+
+    context = {
+        "filter_form": filter_form,
+        "page_obj": page_obj,
+        "overdue_only": overdue_only,
+        "querystring": querystring.urlencode(),
+        "stats": analytics.dashboard_stats(),
+    }
+    return render(request, "myapp/crm_tasks.html", context)
+
+
+@role_required("admin", "curator")
+def crm_volunteer_detail_view(request, pk):
+    """Volunteer profile as seen from the CRM: availability, workload,
+    rating, location freshness, last activity, and their task history."""
+    volunteer = get_object_or_404(
+        Users.objects.select_related("profile").filter(is_volunteer=True), pk=pk
+    )
+    profile = volunteer.profile
+    tasks = HelpRequest.objects.filter(volunteer=volunteer).select_related("client").order_by("-created_at")
+    stats = tasks.aggregate(
+        completed=Count("id", filter=Q(status="completed")),
+        active=Count("id", filter=Q(status="active")),
+        last_accepted=Max("accepted_at"),
+        last_completed=Max("completed_at"),
+    )
+    activity_candidates = [profile.location_updated_at, stats["last_accepted"], stats["last_completed"]]
+    last_activity = max((moment for moment in activity_candidates if moment), default=None)
+
+    context = {
+        "volunteer": volunteer,
+        "profile": profile,
+        "recent_tasks": tasks[:10],
+        "completed_count": stats["completed"],
+        "active_count": stats["active"],
+        "location_freshness": location_freshness_label(profile.location_updated_at) if profile.has_location else None,
+        "last_activity": last_activity,
+    }
+    return render(request, "myapp/crm_volunteer_detail.html", context)
+
+
+@role_required("admin", "curator")
+def event_list_view(request):
+    now = timezone.now()
+    events = Event.objects.select_related("curator")
+    context = {
+        "upcoming_events": events.filter(date__gte=now).order_by("date"),
+        "past_events": events.filter(date__lt=now).order_by("-date"),
+    }
+    return render(request, "myapp/event_list.html", context)
+
+
+@role_required("admin", "curator")
+def broadcast_list_view(request):
+    broadcasts = Broadcast.objects.select_related("sender")
+    return render(request, "myapp/broadcast_list.html", {"broadcasts": broadcasts})
 
 
 @role_required("volunteer", "admin", "curator")
@@ -98,6 +277,12 @@ def task_list_view(request):
     return render(request, "myapp/task_list.html", {"tasks": tasks, "filter_form": filter_form, "my_active": my_active})
 
 
+def _route_permission(user, task):
+    """Who may see the volunteer<->client route for a task: the two parties
+    involved plus staff — never an unrelated volunteer/client."""
+    return user.is_superuser or user.is_curator or task.client_id == user.id or task.volunteer_id == user.id
+
+
 @login_required
 def task_detail_view(request, pk):
     task = get_object_or_404(HelpRequest.objects.select_related("client", "volunteer"), pk=pk)
@@ -106,10 +291,29 @@ def task_detail_view(request, pk):
     if not allowed:
         messages.error(request, "Этот запрос уже закреплен за другим волонтером")
         return redirect("profile")
-    return render(request, "myapp/task_detail.html", {"task": task})
+    show_route = task.status == "active" and bool(task.volunteer_id) and _route_permission(user, task)
+    is_crm_staff = user.is_superuser or user.is_curator
+    show_recommendations = task.status == "pending" and is_crm_staff
+    # The route card already shows a map with the destination pin once a
+    # volunteer is assigned; for every other state, a simple location-only
+    # pin is still useful context and needs no extra endpoint (lat/lng are
+    # already on the task).
+    show_location_map = task.has_location and not show_route
+    return render(
+        request,
+        "myapp/task_detail.html",
+        {
+            "task": task,
+            "show_route": show_route,
+            "show_recommendations": show_recommendations,
+            "show_location_map": show_location_map,
+            "show_history": is_crm_staff,
+        },
+    )
 
 
 @role_required("volunteer")
+@require_POST
 def accept_task_view(request, pk):
     task = get_object_or_404(HelpRequest, pk=pk, status="pending")
     active_exists = HelpRequest.objects.filter(volunteer=request.user, status="active").exists()
@@ -131,6 +335,7 @@ def accept_task_view(request, pk):
 
 
 @role_required("volunteer")
+@require_POST
 def complete_task_view(request, pk):
     task = get_object_or_404(HelpRequest, pk=pk, volunteer=request.user, status="active")
     task.complete()
@@ -287,10 +492,96 @@ def photo_reports_view(request):
     return render(request, "myapp/photo_reports.html", {"reports": reports, "form": form})
 
 
+@login_required
+def volunteer_application_view(request):
+    application = VolunteerApplication.objects.filter(user=request.user).select_related("reviewed_by").first()
+    if request.method == "POST":
+        if not application or application.status != VolunteerApplication.STATUS_REJECTED:
+            messages.error(request, "Повторную заявку можно подать только после отклонения.")
+            return redirect("volunteer_application")
+        application.reapply()
+        admins = Users.objects.filter(is_superuser=True, is_active=True)
+        notify_users(admins, "Повторная заявка волонтера", f"Пользователь {request.user.username} подал заявку на волонтерство повторно.")
+        messages.success(request, "Заявка отправлена повторно.")
+        return redirect("volunteer_application")
+    return render(request, "myapp/volunteer_application.html", {"application": application})
+
+
+@role_required("admin")
+def volunteer_applications_view(request):
+    status_filter = request.GET.get("status", VolunteerApplication.STATUS_PENDING)
+    region_filter = request.GET.get("region", "")
+    search_query = request.GET.get("q", "").strip()
+
+    applications = VolunteerApplication.objects.select_related("user", "reviewed_by")
+    valid_statuses = {VolunteerApplication.STATUS_PENDING, VolunteerApplication.STATUS_APPROVED, VolunteerApplication.STATUS_REJECTED}
+    if status_filter not in valid_statuses:
+        status_filter = "all"
+    else:
+        applications = applications.filter(status=status_filter)
+    if region_filter:
+        applications = applications.filter(region=region_filter)
+    if search_query:
+        applications = applications.filter(Q(user__username__icontains=search_query) | Q(user__email__icontains=search_query))
+
+    all_applications = VolunteerApplication.objects.all()
+    context = {
+        "applications": applications,
+        "status_filter": status_filter,
+        "region_filter": region_filter,
+        "search_query": search_query,
+        "region_choices": REGION_CHOICES,
+        "pending_count": all_applications.filter(status=VolunteerApplication.STATUS_PENDING).count(),
+        "approved_count": all_applications.filter(status=VolunteerApplication.STATUS_APPROVED).count(),
+        "rejected_count": all_applications.filter(status=VolunteerApplication.STATUS_REJECTED).count(),
+    }
+    return render(request, "myapp/volunteer_applications.html", context)
+
+
+@role_required("admin")
+def volunteer_application_detail_view(request, pk):
+    application = get_object_or_404(VolunteerApplication.objects.select_related("user", "reviewed_by"), pk=pk)
+    return render(request, "myapp/volunteer_application_detail.html", {"application": application})
+
+
+@role_required("admin")
+@require_POST
+def volunteer_application_approve_view(request, pk):
+    application = get_object_or_404(VolunteerApplication.objects.select_related("user"), pk=pk)
+    if application.status == VolunteerApplication.STATUS_APPROVED:
+        messages.info(request, "Заявка уже одобрена.")
+        return redirect("volunteer_applications")
+    application.approve(request.user)
+    notify_users(
+        [application.user],
+        "Заявка на волонтерство одобрена",
+        "Поздравляем! Ваша заявка на волонтерство одобрена. Теперь вам доступен список запросов.",
+    )
+    messages.success(request, f"Заявка пользователя {application.user.username} одобрена.")
+    return redirect("volunteer_applications")
+
+
+@role_required("admin")
+@require_POST
+def volunteer_application_reject_view(request, pk):
+    application = get_object_or_404(VolunteerApplication.objects.select_related("user"), pk=pk)
+    if application.status == VolunteerApplication.STATUS_REJECTED:
+        messages.info(request, "Заявка уже отклонена.")
+        return redirect("volunteer_applications")
+    application.reject(request.user)
+    notify_users(
+        [application.user],
+        "Заявка на волонтерство отклонена",
+        "Ваша заявка на волонтерство отклонена администратором.",
+    )
+    messages.success(request, f"Заявка пользователя {application.user.username} отклонена.")
+    return redirect("volunteer_applications")
+
+
 @role_required("admin", "curator")
 def check_overdue_view(request):
     overdue = list(
-        HelpRequest.objects.filter(status="active", alarm_sent=False, accepted_at__lt=timezone.now() - timedelta(hours=3))
+        HelpRequest.objects.filter(status="active", alarm_sent=False, accepted_at__lt=timezone.now() - OVERDUE_THRESHOLD)
     )
     curators = Users.objects.filter(Q(is_curator=True) | Q(is_superuser=True), is_active=True)
     for task in overdue:
@@ -299,3 +590,204 @@ def check_overdue_view(request):
         task.save(update_fields=["alarm_sent"])
     messages.info(request, f"Проверено. Просроченных запросов: {len(overdue)}.")
     return redirect("admin_panel")
+
+
+@login_required
+def map_view(request):
+    return render(request, "myapp/map.html")
+
+
+def _task_point(task, subtitle_extra=""):
+    color = "--danger" if task.is_urgent else ("--accent" if task.status == "pending" else "--primary")
+    subtitle = task.get_region_display() or ""
+    if subtitle_extra:
+        subtitle = f"{subtitle} · {subtitle_extra}" if subtitle else subtitle_extra
+    return {
+        "lat": float(task.latitude),
+        "lng": float(task.longitude),
+        "title": task.get_help_type_display(),
+        "subtitle": subtitle,
+        "color": color,
+        "glyph": "!" if task.is_urgent else "",
+        "url": reverse("task_detail", args=[task.pk]),
+    }
+
+
+@login_required
+def map_data_view(request):
+    user = request.user
+    points = []
+
+    if user.is_superuser or user.is_curator:
+        tasks = (
+            HelpRequest.objects.filter(status__in=["pending", "active"])
+            .exclude(latitude__isnull=True)
+            .select_related("client", "volunteer")
+        )
+        for task in tasks:
+            points.append(_task_point(task, task.volunteer.username if task.volunteer else ""))
+
+        volunteers = Users.objects.filter(
+            is_volunteer=True, is_active=True, profile__latitude__isnull=False
+        ).select_related("profile")
+        availability_colors = {
+            "available": "--ok",
+            "busy": "--accent",
+            "offline": "--muted",
+        }
+        for volunteer in volunteers:
+            profile = volunteer.profile
+            points.append({
+                "lat": float(profile.latitude),
+                "lng": float(profile.longitude),
+                "title": volunteer.username,
+                "subtitle": f"{volunteer.get_region_display() or '—'} · {profile.get_availability_status_display()}",
+                "color": availability_colors.get(profile.availability_status, "--muted"),
+                "glyph": "V",
+            })
+    elif user.is_volunteer:
+        tasks = HelpRequest.objects.filter(status="pending").exclude(latitude__isnull=True).select_related("client")
+        if user.region:
+            tasks = tasks.filter(Q(region=user.region) | Q(region=""))
+        for task in tasks:
+            points.append(_task_point(task))
+
+        my_active = HelpRequest.objects.filter(volunteer=user, status="active").exclude(latitude__isnull=True)
+        for task in my_active:
+            points.append(_task_point(task, "Моя задача"))
+    elif user.is_client:
+        tasks = HelpRequest.objects.filter(client=user).exclude(latitude__isnull=True)
+        for task in tasks:
+            points.append(_task_point(task))
+
+    profile = getattr(user, "profile", None)
+    if profile and profile.has_location:
+        points.append({
+            "lat": float(profile.latitude),
+            "lng": float(profile.longitude),
+            "title": "Я",
+            "subtitle": "",
+            "color": "--primary-2",
+            "glyph": "•",
+        })
+
+    return JsonResponse({"points": points})
+
+
+@login_required
+@require_POST
+def update_location_view(request):
+    try:
+        data = json.loads(request.body or "{}")
+        latitude, longitude = data["latitude"], data["longitude"]
+    except (KeyError, TypeError, json.JSONDecodeError):
+        return JsonResponse({"error": "latitude/longitude required"}, status=400)
+
+    if not is_valid_coordinate(latitude, longitude):
+        return JsonResponse({"error": "invalid latitude/longitude"}, status=400)
+
+    profile, _ = Profile.objects.get_or_create(user=request.user)
+    profile.set_location(float(latitude), float(longitude))
+    return JsonResponse({
+        "success": True,
+        "location_updated_at": profile.location_updated_at.isoformat(),
+    })
+
+
+@login_required
+@require_GET
+def task_route_view(request, pk):
+    """Volunteer -> client navigation data for one task: an OSRM route (or a
+    graceful fallback) between the volunteer's current position and the
+    task's location. Read-only; never assigns or changes anything."""
+    task = get_object_or_404(
+        HelpRequest.objects.select_related("client", "volunteer", "volunteer__profile"), pk=pk
+    )
+    if not _route_permission(request.user, task):
+        return JsonResponse({"success": False, "reason": "forbidden"}, status=403)
+
+    if not task.has_location:
+        return JsonResponse({"success": False, "reason": "no_task_location"})
+
+    volunteer = task.volunteer
+    if not volunteer:
+        return JsonResponse({"success": False, "reason": "no_volunteer_assigned"})
+
+    origin_lat = origin_lng = None
+    origin_source = "saved"
+    # Only the assigned volunteer's own browser can supply a live GPS fix for
+    # "origin" — a client or curator/admin viewing the same task always sees
+    # the volunteer's last saved position, never their own location as origin.
+    if request.user.id == volunteer.id:
+        raw_lat, raw_lng = request.GET.get("lat"), request.GET.get("lng")
+        if raw_lat is not None or raw_lng is not None:
+            if raw_lat is None or raw_lng is None or not is_valid_coordinate(raw_lat, raw_lng):
+                return JsonResponse({"success": False, "reason": "invalid_coordinates"}, status=400)
+            origin_lat, origin_lng, origin_source = float(raw_lat), float(raw_lng), "live"
+
+    if origin_lat is None:
+        profile = getattr(volunteer, "profile", None)
+        if not profile or not profile.has_location:
+            return JsonResponse({"success": False, "reason": "no_volunteer_location"})
+        origin_lat, origin_lng = float(profile.latitude), float(profile.longitude)
+
+    destination = (float(task.latitude), float(task.longitude))
+    result = get_route((origin_lat, origin_lng), destination)
+    result["origin"] = {"lat": origin_lat, "lng": origin_lng, "source": origin_source}
+    result["destination"] = {"lat": destination[0], "lng": destination[1]}
+    return JsonResponse(result)
+
+
+@role_required("admin", "curator")
+def task_recommendations_view(request, pk):
+    """Smart Volunteer Matching — a ranked, explainable shortlist of nearby
+    available volunteers for a pending task. Read-only: recommends, never
+    assigns. Admin/curator only — this walks the volunteer directory, which
+    a client or ordinary volunteer must not be able to query."""
+    task = get_object_or_404(HelpRequest, pk=pk)
+    ranked = recommend_volunteers(task, limit=5)
+
+    def _serialize(item):
+        volunteer = item["volunteer"]
+        profile = volunteer.profile
+        return {
+            "volunteer_id": volunteer.id,
+            "username": volunteer.username,
+            "full_name": profile.full_name or volunteer.username,
+            "region": volunteer.get_region_display() or "",
+            "distance_km": item["distance_km"],
+            "estimated_minutes": item["estimated_minutes"],
+            "score": item["score"],
+            "availability": item["availability"],
+            "availability_display": profile.get_availability_status_display(),
+            "active_task_count": item["active_task_count"],
+            "same_region": item["same_region"],
+            "location_freshness": item["location_freshness"],
+            "reasons": item["reasons"],
+        }
+
+    return JsonResponse({
+        "task_has_location": task.has_location,
+        "recommendations": [_serialize(item) for item in ranked],
+    })
+
+
+@role_required("admin", "curator")
+@require_POST
+def task_notify_volunteer_view(request, pk, volunteer_id):
+    """Sends a targeted notification about a pending task to one recommended
+    volunteer. This is explicitly NOT an assignment — the task stays pending
+    until the volunteer accepts it themselves through the normal flow."""
+    task = get_object_or_404(HelpRequest, pk=pk)
+    if task.status != "pending":
+        return JsonResponse({"success": False, "reason": "task_not_pending"})
+
+    volunteer = get_object_or_404(Users, pk=volunteer_id, is_volunteer=True, is_active=True)
+    subject = "Рекомендованный запрос помощи"
+    message = (
+        f"Куратор рекомендует вам запрос #{task.id} ({task.get_help_type_display()}) "
+        f"в регионе {task.get_region_display() or '—'}.\n"
+        f"Это рекомендация, а не назначение — запрос остаётся свободным, пока вы сами его не примете."
+    )
+    notify_users([volunteer], subject, message)
+    return JsonResponse({"success": True})

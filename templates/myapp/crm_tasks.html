@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}{% if overdue_only %}Overdue Tasks{% else %}Task Management{% endif %} - Generation Connect{% endblock %}
+{% block content %}
+<section class="section">
+    <div class="section-head">
+        <div>
+            <h1 data-i18n="crm.tasks_title">Task Management</h1>
+            <p class="lede" data-i18n="crm.tasks_desc">Every request in the system — filter, search, and open any task.</p>
+        </div>
+        <a class="button ghost" href="{% url 'admin_panel' %}" data-i18n="crm.back_dashboard">Back to dashboard</a>
+    </div>
+
+    <div class="kpi-row">
+        <div class="card stat-card"><span class="metric">{{ stats.tasks_pending }}</span><p data-i18n="crm.kpi_pending">Pending</p></div>
+        <div class="card stat-card"><span class="metric">{{ stats.tasks_active }}</span><p data-i18n="crm.kpi_active">Active</p></div>
+        <div class="card stat-card"><span class="metric">{{ stats.tasks_overdue }}</span><p data-i18n="crm.kpi_overdue">Overdue</p></div>
+        <div class="card stat-card"><span class="metric">{{ stats.tasks_urgent }}</span><p data-i18n="crm.kpi_urgent">Urgent</p></div>
+    </div>
+
+    <form method="get" class="card filter-bar">
+        {{ filter_form.as_p }}
+        <button class="button ghost" type="submit" data-i18n="task.filter">Filter</button>
+        <a class="button ghost" href="{% url 'crm_tasks' %}" data-i18n="crm.clear_filters">Clear</a>
+        <a class="button {% if overdue_only %}primary{% else %}ghost{% endif %}" href="{% url 'crm_tasks' %}?overdue=1" data-i18n="crm.overdue_only">Overdue only</a>
+    </form>
+
+    {% if page_obj.object_list %}
+        <div class="table-list">
+            {% for task in page_obj %}
+                <div class="card reveal applicant-row">
+                    <div class="applicant-body">
+                        {% include "myapp/_task_status_tag.html" with status=task.status status_display=task.get_status_display %}
+                        {% if task.is_urgent %}<span class="tag urgent" data-i18n="task.urgent_badge">Urgent</span>{% endif %}
+                        {% if task.is_overdue %}<span class="tag urgent" data-i18n="crm.overdue_badge">Overdue</span>{% endif %}
+                        <h3>#{{ task.id }} · {{ task.get_help_type_display }}</h3>
+                        <p class="opportunity-location">
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+                            {{ task.get_region_display|default:"—" }}
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 3"></path></svg>
+                            {{ task.created_at|date:"d M, H:i" }}
+                        </p>
+                        <div class="detail-meta">
+                            <div><span class="meta-label" data-i18n="detail.client">Client</span><p>{{ task.client.username }}</p></div>
+                            <div><span class="meta-label" data-i18n="detail.volunteer">Volunteer</span><p>{{ task.volunteer|default_if_none:"—" }}</p></div>
+                            <div><span class="meta-label" data-i18n="crm.accepted_at">Accepted</span><p>{{ task.accepted_at|date:"d M, H:i"|default:"—" }}</p></div>
+                            <div><span class="meta-label" data-i18n="crm.completed_at">Completed</span><p>{{ task.completed_at|date:"d M, H:i"|default:"—" }}</p></div>
+                        </div>
+                    </div>
+                    <div class="button-row">
+                        <a class="button ghost" href="{% url 'task_detail' task.id %}" data-i18n="task.details">Details</a>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+        {% include "myapp/_pagination.html" with page_obj=page_obj querystring=querystring %}
+    {% else %}
+        <div class="empty-state">
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16l3 8v8H1v-8Z"></path><path d="M1 12h6l2 3h6l2-3h6"></path></svg>
+            <p data-i18n="crm.no_tasks">No tasks match these filters.</p>
+        </div>
+    {% endif %}
+</section>
+{% endblock %}

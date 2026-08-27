@@ -1,18 +1,35 @@
 {% extends "base.html" %}
-{% block title %}Rating{% endblock %}
+{% block title %}Rating - Generation Connect{% endblock %}
 {% block content %}
 <section class="section">
-    <h1 data-i18n="rating.title">Rating</h1>
-    <p data-i18n="rating.desc">Rating grows when a volunteer completes a request. Urgent help gives more points.</p>
-    <div class="table-list">
-        {% for profile in volunteers %}
-            <div class="request-row reveal">
-                <div><span class="tag">#{{ forloop.counter }}</span><h3>{{ profile.full_name|default:profile.user.username }}</h3><p>{{ profile.user.get_region_display }} · {{ profile.bio|truncatechars:90 }}</p></div>
-                <div class="metric">{{ profile.rating }}</div>
-            </div>
-        {% empty %}
+    <div class="section-head"><h1 data-i18n="rating.title">Rating</h1></div>
+    <p class="lede" data-i18n="rating.desc">Rating grows when a volunteer completes a request. Urgent help gives more points.</p>
+    {% if volunteers %}
+        <div class="table-list" style="margin-top:1.4rem;">
+            {% for profile in volunteers %}
+                <div class="request-row reveal {% if forloop.counter == 1 %}request-row--first{% endif %}">
+                    <div class="row-rank">
+                        <span class="rank-num">{{ forloop.counter }}</span>
+                        {% if profile.image %}
+                            <img class="avatar avatar-sm" src="{{ profile.image.url }}" alt="">
+                        {% else %}
+                            <div class="avatar avatar-fallback avatar-sm">{{ profile.full_name|default:profile.user.username|first|upper }}</div>
+                        {% endif %}
+                        <div>
+                            <span class="tag {% if forloop.counter == 1 %}rank-1{% elif forloop.counter <= 3 %}rank-2{% endif %}">{{ profile.user.get_region_display|default:"—" }}</span>
+                            <h3>{{ profile.full_name|default:profile.user.username }}</h3>
+                            <p>{{ profile.bio|truncatechars:90 }}</p>
+                        </div>
+                    </div>
+                    <div class="metric">{{ profile.rating }}</div>
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="empty-state">
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="5"></circle><path d="M8.5 13 6 22l6-3 6 3-2.5-9"></path></svg>
             <p data-i18n="rating.empty">No volunteers in the rating yet.</p>
-        {% endfor %}
-    </div>
+        </div>
+    {% endif %}
 </section>
 {% endblock %}

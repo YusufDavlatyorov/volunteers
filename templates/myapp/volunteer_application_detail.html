@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Volunteer Application - Generation Connect{% endblock %}
+{% block content %}
+<section class="section">
+    <div class="card reveal detail-card">
+        <div class="section-head">
+            <h1 data-i18n="va.detail_title">Volunteer Application</h1>
+            <span class="tag {% if application.status == 'rejected' %}urgent{% elif application.status == 'approved' %}success{% else %}accent{% endif %}" data-i18n="va.status_{{ application.status }}">{{ application.get_status_display }}</span>
+        </div>
+        <div class="detail-meta">
+            <div>
+                <span class="meta-label" data-i18n="va.applicant">Applicant</span>
+                <p>{{ application.user.profile.full_name|default:application.user.username }}</p>
+            </div>
+            <div>
+                <span class="meta-label" data-i18n="va.username">Username</span>
+                <p>{{ application.user.username }}</p>
+            </div>
+            <div>
+                <span class="meta-label" data-i18n="va.email">Email</span>
+                <p>{{ application.user.email }}</p>
+            </div>
+            <div>
+                <span class="meta-label" data-i18n="va.region_label">Region</span>
+                <p>{{ application.get_region_display|default:"—" }}</p>
+            </div>
+        </div>
+
+        <span class="meta-label" data-i18n="va.motivation">Motivation</span>
+        <p>{{ application.reason|default:"—" }}</p>
+
+        <p class="status-meta">
+            <span data-i18n="va.submitted">Submitted:</span> {{ application.created_at|date:"d F Y H:i" }}
+        </p>
+        {% if application.reviewed_by %}
+            <p class="status-meta">
+                <span data-i18n="va.reviewed_by">Reviewed by:</span> {{ application.reviewed_by.username }}
+                &middot; <span data-i18n="va.reviewed_at">Reviewed at:</span> {{ application.reviewed_at|date:"d.m.Y H:i" }}
+            </p>
+        {% endif %}
+
+        <div class="button-row">
+            {% if application.status != "approved" %}
+                <form method="post" action="{% url 'volunteer_application_approve' application.pk %}" class="inline-form">
+                    {% csrf_token %}
+                    <button class="primary" type="submit" data-i18n="va.approve_btn_full">Approve Application</button>
+                </form>
+            {% endif %}
+            {% if application.status != "rejected" %}
+                <form method="post" action="{% url 'volunteer_application_reject' application.pk %}" class="inline-form" onsubmit="return confirm('Вы уверены, что хотите отклонить эту заявку?');">
+                    {% csrf_token %}
+                    <button class="danger" type="submit" data-i18n="va.reject_btn_full">Reject Application</button>
+                </form>
+            {% endif %}
+            <a class="button ghost" href="{% url 'volunteer_applications' %}" data-i18n="va.back_list">Back to List</a>
+        </div>
+    </div>
+</section>
+{% endblock %}

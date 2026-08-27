@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Broadcasts - Generation Connect{% endblock %}
+{% block content %}
+<section class="section">
+    <div class="section-head">
+        <h1 data-i18n="broadcasts.title">Broadcasts</h1>
+        <a class="button primary" href="{% url 'broadcast' %}" data-i18n="admin.broadcast">Send Message to Volunteers</a>
+    </div>
+    {% if broadcasts %}
+        <div class="table-list">
+            {% for broadcast in broadcasts %}
+                <div class="request-row reveal">
+                    <div>
+                        <span class="tag">{{ broadcast.get_region_display }}</span>
+                        <h3>{{ broadcast.subject }}</h3>
+                        <p>{{ broadcast.message|truncatechars:160 }}</p>
+                        <p class="opportunity-desc">{{ broadcast.created_at|date:"d M Y, H:i" }} · {{ broadcast.sender.username }} · <span data-i18n="broadcasts.recipients">recipients</span>: {{ broadcast.sent_count }}</p>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="empty-state">
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"></path><path d="M22 2 15 22l-4-9-9-4 20-7Z"></path></svg>
+            <p data-i18n="broadcasts.empty">No broadcasts sent yet.</p>
+        </div>
+    {% endif %}
+</section>
+{% endblock %}

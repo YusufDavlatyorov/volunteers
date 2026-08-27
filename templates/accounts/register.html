@@ -1,20 +1,145 @@
 {% extends "base.html" %}
-{% block title %}Register - Generation Connect{% endblock %}
+{% block title %}Join Generation Connect{% endblock %}
 {% block content %}
 <section class="auth-shell">
-    <div class="auth-art">
-        <span class="eyebrow" data-i18n="reg.eyebrow">4 Roles</span>
-        <h1 data-i18n="reg.title">Register</h1>
-        <p data-i18n="reg.desc">Clients create requests, volunteers take one task, curators lead events, admin sees the whole system.</p>
-    </div>
-    <div class="auth-panel">
-        <h2 data-i18n="reg.heading">Registration</h2>
-        <form method="post" class="card">
+    <div class="auth-card auth-card--wide reveal">
+        <div class="auth-brand">
+            <span class="brand-mark">GC</span>
+        </div>
+        <span class="eyebrow" data-i18n="reg.eyebrow">Two ways to help</span>
+        <h1 class="auth-title" data-i18n="reg.heading">Join Generation Connect</h1>
+        <p class="auth-subtitle" data-i18n="reg.desc">Help people. Build your community. Make an impact — or ask for a hand when you need one.</p>
+
+        {% if form.non_field_errors %}
+            <div class="auth-alert" role="alert">{{ form.non_field_errors.0 }}</div>
+        {% endif %}
+
+        <form method="post" class="auth-form" id="registerForm">
             {% csrf_token %}
-            {{ form.as_p }}
-            <button class="primary" type="submit" data-i18n="reg.btn">Create Account</button>
+
+            <div class="role-picker">
+                <label class="role-option">
+                    <input type="radio" name="role" value="volunteer" data-role-input {% if form.role.value == "volunteer" %}checked{% endif %}>
+                    <span class="role-option-card">
+                        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.8 1-1a5.5 5.5 0 0 0 0-7.6Z"></path></svg>
+                        <strong data-i18n="reg.role_volunteer_title">I want to volunteer</strong>
+                        <span class="role-desc" data-i18n="reg.role_volunteer_desc">Help elderly people in your region. Your application is reviewed by our team.</span>
+                    </span>
+                </label>
+                <label class="role-option">
+                    <input type="radio" name="role" value="client" data-role-input {% if form.role.value == "client" %}checked{% endif %}>
+                    <span class="role-option-card">
+                        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 12h4a2 2 0 1 0 0-4h-3l-3.5-2A3 3 0 0 0 4 8.6V12"></path><path d="M2 12h2v7H2zM6 12l3 2h5a2 2 0 1 1 0 4H8"></path></svg>
+                        <strong data-i18n="reg.role_client_title">I need help</strong>
+                        <span class="role-desc" data-i18n="reg.role_client_desc">Request assistance from a volunteer near you.</span>
+                    </span>
+                </label>
+            </div>
+            <span class="field-error">{{ form.role.errors.0 }}</span>
+
+            <div class="field-group">
+                <label for="{{ form.username.id_for_label }}" data-i18n="field.username">Username</label>
+                {{ form.username }}
+                <span class="field-error">{{ form.username.errors.0 }}</span>
+            </div>
+
+            <div class="field-group">
+                <label for="{{ form.email.id_for_label }}" data-i18n="field.email">Email</label>
+                {{ form.email }}
+                <span class="field-error">{{ form.email.errors.0 }}</span>
+            </div>
+
+            <div class="field-row">
+                <div class="field-group">
+                    <label for="{{ form.region.id_for_label }}" data-i18n="field.region">Region</label>
+                    {{ form.region }}
+                    <span class="field-error">{{ form.region.errors.0 }}</span>
+                </div>
+                <div class="field-group">
+                    <label for="{{ form.telegram_id.id_for_label }}" data-i18n="field.telegram">Telegram ID (optional)</label>
+                    {{ form.telegram_id }}
+                    <span class="field-error">{{ form.telegram_id.errors.0 }}</span>
+                </div>
+            </div>
+
+            <div class="field-group" data-motivation-group>
+                <label for="{{ form.motivation.id_for_label }}" data-i18n="reg.motivation_label">Why do you want to volunteer?</label>
+                {{ form.motivation }}
+                <span class="field-hint" data-i18n="reg.motivation_hint">Tell us a little about yourself — this is only reviewed if you apply as a volunteer.</span>
+                <span class="field-error">{{ form.motivation.errors.0 }}</span>
+            </div>
+
+            <div class="field-row">
+                <div class="field-group">
+                    <label for="{{ form.password.id_for_label }}" data-i18n="field.password">Password</label>
+                    <div class="password-field">
+                        {{ form.password }}
+                        <button type="button" class="password-toggle" data-password-toggle aria-label="Show password" aria-pressed="false">
+                            <svg data-icon-show viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                            <svg data-icon-hide viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" hidden><path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a21.6 21.6 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 7 11 7a21.6 21.6 0 0 1-2.68 3.79M14.12 14.12a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/></svg>
+                        </button>
+                    </div>
+                    <span class="field-error">{{ form.password.errors.0 }}</span>
+                </div>
+                <div class="field-group">
+                    <label for="{{ form.confirm_password.id_for_label }}" data-i18n="field.confirm_password">Confirm password</label>
+                    <div class="password-field">
+                        {{ form.confirm_password }}
+                        <button type="button" class="password-toggle" data-password-toggle aria-label="Show password" aria-pressed="false">
+                            <svg data-icon-show viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                            <svg data-icon-hide viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" hidden><path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a21.6 21.6 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 7 11 7a21.6 21.6 0 0 1-2.68 3.79M14.12 14.12a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/></svg>
+                        </button>
+                    </div>
+                    <span class="field-error">{{ form.confirm_password.errors.0 }}</span>
+                </div>
+            </div>
+
+            <button class="primary auth-submit" type="submit" data-submit-btn>
+                <span class="btn-label" data-i18n="reg.btn">Submit Application</span>
+                <span class="btn-spinner" aria-hidden="true"></span>
+            </button>
         </form>
-        <p><a href="{% url 'login' %}" data-i18n="reg.has_account">Already have an account?</a></p>
+
+        <p class="auth-footer-text">
+            <span data-i18n="reg.has_account">Already have an account?</span>
+            <a href="{% url 'login' %}" data-i18n="login.btn">Login</a>
+        </p>
     </div>
 </section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+    document.querySelectorAll('[data-password-toggle]').forEach(function(toggle) {
+        toggle.addEventListener('click', function() {
+            var input = toggle.closest('.password-field').querySelector('input');
+            var showing = input.type === 'text';
+            input.type = showing ? 'password' : 'text';
+            toggle.setAttribute('aria-pressed', String(!showing));
+            toggle.querySelector('[data-icon-show]').hidden = !showing;
+            toggle.querySelector('[data-icon-hide]').hidden = showing;
+        });
+    });
+
+    var motivationGroup = document.querySelector('[data-motivation-group]');
+    var roleInputs = document.querySelectorAll('[data-role-input]');
+    function syncMotivation() {
+        var checked = document.querySelector('[data-role-input]:checked');
+        if (!motivationGroup) return;
+        motivationGroup.style.display = (checked && checked.value === 'client') ? 'none' : 'block';
+    }
+    roleInputs.forEach(function(input) { input.addEventListener('change', syncMotivation); });
+    syncMotivation();
+
+    var form = document.getElementById('registerForm');
+    var submitBtn = document.querySelector('[data-submit-btn]');
+    if (form && submitBtn) {
+        form.addEventListener('submit', function() {
+            submitBtn.classList.add('is-loading');
+            submitBtn.disabled = true;
+        });
+    }
+})();
+</script>
 {% endblock %}

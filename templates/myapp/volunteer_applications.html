@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Volunteer Applications - Generation Connect{% endblock %}
+{% block content %}
+<section class="section">
+    <div class="section-head"><h1 data-i18n="va.list_title">Volunteer Applications</h1></div>
+
+    <div class="metric-row reveal">
+        <div class="card stat-card"><span class="metric">{{ pending_count }}</span><p data-i18n="va.filter_pending">Pending</p></div>
+        <div class="card stat-card"><span class="metric">{{ approved_count }}</span><p data-i18n="va.filter_approved">Approved</p></div>
+        <div class="card stat-card"><span class="metric">{{ rejected_count }}</span><p data-i18n="va.filter_rejected">Rejected</p></div>
+    </div>
+
+    <div class="button-row">
+        <a class="button {% if status_filter == 'pending' %}primary{% else %}ghost{% endif %}"
+           href="?status=pending{% if region_filter %}&region={{ region_filter }}{% endif %}{% if search_query %}&q={{ search_query }}{% endif %}"
+           data-i18n="va.filter_pending">Pending</a>
+        <a class="button {% if status_filter == 'approved' %}primary{% else %}ghost{% endif %}"
+           href="?status=approved{% if region_filter %}&region={{ region_filter }}{% endif %}{% if search_query %}&q={{ search_query }}{% endif %}"
+           data-i18n="va.filter_approved">Approved</a>
+        <a class="button {% if status_filter == 'rejected' %}primary{% else %}ghost{% endif %}"
+           href="?status=rejected{% if region_filter %}&region={{ region_filter }}{% endif %}{% if search_query %}&q={{ search_query }}{% endif %}"
+           data-i18n="va.filter_rejected">Rejected</a>
+        <a class="button {% if status_filter == 'all' %}primary{% else %}ghost{% endif %}"
+           href="?status=all{% if region_filter %}&region={{ region_filter }}{% endif %}{% if search_query %}&q={{ search_query }}{% endif %}"
+           data-i18n="va.filter_all">All</a>
+    </div>
+
+    <form method="get" class="card filter-bar">
+        <input type="hidden" name="status" value="{{ status_filter }}">
+        <div class="field-group">
+            <label for="appSearch" data-i18n="va.search_label">Search by username or email</label>
+            <input type="text" id="appSearch" name="q" value="{{ search_query }}" placeholder="john, john@example.com" data-i18n-ph="va.search_placeholder">
+        </div>
+        <div class="field-group">
+            <label for="appRegion" data-i18n="va.region_label">Region</label>
+            <select id="appRegion" name="region" class="control">
+                <option value="" data-i18n="va.all_regions">All regions</option>
+                {% for value, label in region_choices %}
+                    <option value="{{ value }}" {% if region_filter == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <button class="button ghost" type="submit" data-i18n="task.filter">Filter</button>
+    </form>
+
+    {% if applications %}
+        <div class="table-list">
+            {% for application in applications %}
+                <div class="card reveal applicant-row">
+                    <div class="avatar avatar-fallback avatar-sm">{{ application.user.username|slice:":1"|upper }}</div>
+                    <div class="applicant-body">
+                        <span class="tag {% if application.status == 'rejected' %}urgent{% elif application.status == 'approved' %}success{% else %}accent{% endif %}" data-i18n="va.status_{{ application.status }}">{{ application.get_status_display }}</span>
+                        <h3>{{ application.user.username }}</h3>
+                        <p class="opportunity-location">
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+                            {{ application.get_region_display|default:"—" }}
+                            <span>· {{ application.user.email }}</span>
+                        </p>
+                        <p class="opportunity-desc">
+                            <span data-i18n="va.applied_prefix">Applied</span>
+                            {{ application.created_at|timesince }}
+                            <span data-i18n="va.ago_suffix">ago</span>
+                        </p>
+                        {% if application.reason %}
+                            <p class="applicant-quote">&ldquo;{{ application.reason|truncatechars:140 }}&rdquo;</p>
+                        {% endif %}
+                    </div>
+                    <div class="button-row">
+                        <a class="button ghost" href="{% url 'volunteer_application_detail' application.pk %}" data-i18n="va.view_btn">View</a>
+                        {% if application.status != "approved" %}
+                            <form method="post" action="{% url 'volunteer_application_approve' application.pk %}" class="inline-form">
+                                {% csrf_token %}
+                                <button class="primary" type="submit" data-i18n="va.approve_btn">Approve</button>
+                            </form>
+                        {% endif %}
+                        {% if application.status != "rejected" %}
+                            <form method="post" action="{% url 'volunteer_application_reject' application.pk %}" class="inline-form" onsubmit="return confirm('Вы уверены, что хотите отклонить эту заявку?');">
+                                {% csrf_token %}
+                                <button class="danger" type="submit" data-i18n="va.reject_btn">Reject</button>
+                            </form>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="empty-state">
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16l3 8v8H1v-8Z"></path><path d="M1 12h6l2 3h6l2-3h6"></path></svg>
+            <strong data-i18n="va.empty_title">Nothing here</strong>
+            <p data-i18n="va.empty_list">No applications found.</p>
+        </div>
+    {% endif %}
+</section>
+{% endblock %}

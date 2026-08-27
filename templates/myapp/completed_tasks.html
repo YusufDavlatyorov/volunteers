@@ -1,14 +1,19 @@
 {% extends "base.html" %}
-{% block title %}Archive{% endblock %}
+{% block title %}Archive - Generation Connect{% endblock %}
 {% block content %}
 <section class="section">
-    <h1 data-i18n="archive.title">Archive</h1>
-    <div class="table-list">
-        {% for task in tasks %}
-            <div class="request-row reveal"><div><span class="tag">{{ task.get_status_display }}</span><h3>{{ task.get_help_type_display }}</h3><p>{{ task.client }} → {{ task.volunteer }} · {{ task.completed_at|date:"d.m.Y H:i" }}</p></div><a class="button ghost" href="{% url 'task_detail' task.id %}" data-i18n="btn.open">Open</a></div>
-        {% empty %}
+    <div class="section-head"><h1 data-i18n="archive.title">Archive</h1></div>
+    {% if tasks %}
+        <div class="table-list">
+            {% for task in tasks %}
+                <div class="request-row reveal"><div><span class="tag success">{{ task.get_status_display }}</span><h3>{{ task.get_help_type_display }}</h3><p>{{ task.client }} → {{ task.volunteer }} · {{ task.completed_at|date:"d.m.Y H:i" }}</p></div><a class="button ghost" href="{% url 'task_detail' task.id %}" data-i18n="btn.open">Open</a></div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="empty-state">
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16l3 8v8H1v-8Z"></path><path d="M1 12h6l2 3h6l2-3h6"></path></svg>
             <p data-i18n="archive.empty">Archive is empty.</p>
-        {% endfor %}
-    </div>
+        </div>
+    {% endif %}
 </section>
 {% endblock %}
