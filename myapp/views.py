@@ -5,6 +5,7 @@ import requests
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.cache import cache
 from django.core.paginator import Paginator
 from django.db.models import Count, Max, Q
 from django.http import Http404, JsonResponse
@@ -22,7 +23,17 @@ from .forms import (
     PhotoReportForm,
     TaskManagementFilterForm,
 )
-from .models import Broadcast, Event, HelpRequest, OVERDUE_THRESHOLD, PhotoReport, VolunteerApplication
+from .models import (
+    Broadcast,
+    Event,
+    HELP_TYPE_CHOICES,
+    HelpRequest,
+    OVERDUE_THRESHOLD,
+    PhotoReport,
+    PRIORITY_CHOICES,
+    STATUS_CHOICES,
+    VolunteerApplication,
+)
 from .notifications import notify_users, volunteer_queryset_for_region
 from .services import analytics
 from .services.geo import get_route, is_valid_coordinate
@@ -78,6 +89,8 @@ def admin_panel_view(request):
             requests_qs = requests_qs.filter(help_type=filter_form.cleaned_data["help_type"])
         if filter_form.cleaned_data.get("region"):
             requests_qs = requests_qs.filter(region=filter_form.cleaned_data["region"])
+        if filter_form.cleaned_data.get("priority"):
+            requests_qs = requests_qs.filter(priority=filter_form.cleaned_data["priority"])
         if filter_form.cleaned_data.get("is_urgent"):
             requests_qs = requests_qs.filter(is_urgent=True)
 
@@ -173,6 +186,8 @@ def crm_tasks_view(request):
             tasks = tasks.filter(help_type=cleaned["help_type"])
         if cleaned.get("region"):
             tasks = tasks.filter(region=cleaned["region"])
+        if cleaned.get("priority"):
+            tasks = tasks.filter(priority=cleaned["priority"])
         if cleaned.get("is_urgent"):
             tasks = tasks.filter(is_urgent=True)
         if cleaned.get("volunteer"):
@@ -270,6 +285,8 @@ def task_list_view(request):
             tasks = tasks.filter(help_type=filter_form.cleaned_data["help_type"])
         if filter_form.cleaned_data.get("region"):
             tasks = tasks.filter(region=filter_form.cleaned_data["region"])
+        if filter_form.cleaned_data.get("priority"):
+            tasks = tasks.filter(priority=filter_form.cleaned_data["priority"])
         if filter_form.cleaned_data.get("is_urgent"):
             tasks = tasks.filter(is_urgent=True)
 
@@ -283,13 +300,37 @@ def _route_permission(user, task):
     return user.is_superuser or user.is_curator or task.client_id == user.id or task.volunteer_id == user.id
 
 
+def _can_view_task(user, task):
+    """Who may open a task's detail page.
+
+    Staff (admin/curator) always can. A client only ever sees their own
+    requests. A volunteer sees a task they are already assigned to, or a
+    still-pending task that would actually appear in their task_list (same
+    region, or no region filter set) — never an arbitrary other client's
+    pending request just because its status happens to be "pending", and
+    never another volunteer's already-accepted task.
+    """
+    if user.is_superuser or user.is_curator:
+        return True
+    if user.is_client:
+        return task.client_id == user.id
+    if user.is_volunteer:
+        if task.volunteer_id == user.id:
+            return True
+        if task.status == "pending":
+            if not user.region:
+                return True
+            return not task.region or task.region == user.region
+        return False
+    return False
+
+
 @login_required
 def task_detail_view(request, pk):
     task = get_object_or_404(HelpRequest.objects.select_related("client", "volunteer"), pk=pk)
     user = request.user
-    allowed = user.is_superuser or user.is_curator or task.client == user or task.volunteer == user or task.status == "pending"
-    if not allowed:
-        messages.error(request, "Этот запрос уже закреплен за другим волонтером")
+    if not _can_view_task(user, task):
+        messages.error(request, "У вас нет доступа к этой странице")
         return redirect("profile")
     show_route = task.status == "active" and bool(task.volunteer_id) and _route_permission(user, task)
     is_crm_staff = user.is_superuser or user.is_curator
@@ -312,16 +353,53 @@ def task_detail_view(request, pk):
     )
 
 
+# accept_task_view's per-volunteer critical section. A HelpRequest-level DB
+# constraint was deliberately ruled out here: CRM/admin flows and the
+# matching algorithm's workload scoring (myapp.services.matching) legitimately
+# model a volunteer holding more than one "active" row at once (see e.g.
+# MatchingAlgorithmTests, CrmTasksViewTests) — the "one active task" rule is a
+# self-service-accept-flow rule, not a fact about the data model as a whole,
+# so it must not be baked into schema-level uniqueness.
+ACCEPT_TASK_LOCK_TIMEOUT_SECONDS = 10
+
+
 @role_required("volunteer")
 @require_POST
 def accept_task_view(request, pk):
-    task = get_object_or_404(HelpRequest, pk=pk, status="pending")
-    active_exists = HelpRequest.objects.filter(volunteer=request.user, status="active").exists()
-    if active_exists:
+    task = get_object_or_404(HelpRequest.objects.select_related("client"), pk=pk)
+
+    # cache.add() only succeeds if the key is absent, which is atomic in
+    # Django's cache backends — so of two concurrent accept_task_view calls
+    # for the *same* volunteer (two different tasks, or the same one), only
+    # one gets past this line at a time; the other is turned away immediately
+    # instead of racing the "do I already have an active task" check below.
+    lock_key = f"accept_task_lock:{request.user.pk}"
+    if not cache.add(lock_key, "1", ACCEPT_TASK_LOCK_TIMEOUT_SECONDS):
         messages.warning(request, "Сначала завершите текущий запрос. Один волонтер работает с одним запросом.")
         return redirect("task_list")
 
-    task.accept(request.user)
+    try:
+        if HelpRequest.objects.filter(volunteer=request.user, status="active").exists():
+            messages.warning(request, "Сначала завершите текущий запрос. Один волонтер работает с одним запросом.")
+            return redirect("task_list")
+
+        # Conditional UPDATE, not fetch-then-save: the WHERE clause is
+        # evaluated by the database as part of one atomic statement, so if
+        # two *different* volunteers click "accept" on this same task at the
+        # same time, only the first UPDATE can still see status="pending" —
+        # the second affects zero rows instead of silently overwriting the
+        # first volunteer's acceptance.
+        updated = HelpRequest.objects.filter(pk=task.pk, status="pending").update(
+            volunteer=request.user, status="active", accepted_at=timezone.now()
+        )
+    finally:
+        cache.delete(lock_key)
+
+    if not updated:
+        messages.warning(request, "Этот запрос уже принят другим волонтером.")
+        return redirect("task_list")
+
+    task.refresh_from_db()
     subject = "Запрос принят волонтером"
     message = (
         f"Запрос #{task.id} принят.\n"
@@ -477,7 +555,11 @@ def broadcast_view(request):
 @login_required
 def photo_reports_view(request):
     reports = PhotoReport.objects.select_related("author", "event", "help_request")
+    can_create = request.user.is_superuser or request.user.is_curator or request.user.is_volunteer
     if request.method == "POST":
+        if not can_create:
+            messages.error(request, "Фотоотчеты может публиковать только волонтер, куратор или админ.")
+            return redirect("photo_reports")
         form = PhotoReportForm(request.POST, request.FILES)
         if form.is_valid():
             report = form.save(commit=False)
@@ -489,7 +571,7 @@ def photo_reports_view(request):
             return redirect("photo_reports")
     else:
         form = PhotoReportForm()
-    return render(request, "myapp/photo_reports.html", {"reports": reports, "form": form})
+    return render(request, "myapp/photo_reports.html", {"reports": reports, "form": form, "can_create": can_create})
 
 
 @login_required
@@ -579,6 +661,7 @@ def volunteer_application_reject_view(request, pk):
 
 
 @role_required("admin", "curator")
+@require_POST
 def check_overdue_view(request):
     overdue = list(
         HelpRequest.objects.filter(status="active", alarm_sent=False, accepted_at__lt=timezone.now() - OVERDUE_THRESHOLD)
@@ -594,19 +677,40 @@ def check_overdue_view(request):
 
 @login_required
 def map_view(request):
-    return render(request, "myapp/map.html")
+    is_staff = request.user.is_superuser or request.user.is_curator
+    my_active_task_id = None
+    if request.user.is_volunteer:
+        active = HelpRequest.objects.filter(volunteer=request.user, status="active").values_list("id", flat=True).first()
+        my_active_task_id = active
+    return render(request, "myapp/map.html", {
+        "is_ops_staff": is_staff,
+        "my_active_task_id": my_active_task_id,
+        "help_type_choices": HELP_TYPE_CHOICES,
+        "region_choices": REGION_CHOICES,
+        "priority_choices": PRIORITY_CHOICES,
+        "status_choices": STATUS_CHOICES,
+    })
 
 
 def _task_point(task, subtitle_extra=""):
+    # `color`/`glyph` are a legacy fallback; the ops map derives its own marker
+    # style from kind + priority + is_overdue + status.
     color = "--danger" if task.is_urgent else ("--accent" if task.status == "pending" else "--primary")
     subtitle = task.get_region_display() or ""
     if subtitle_extra:
         subtitle = f"{subtitle} · {subtitle_extra}" if subtitle else subtitle_extra
     return {
+        "id": task.pk,
+        "kind": "task",
         "lat": float(task.latitude),
         "lng": float(task.longitude),
         "title": task.get_help_type_display(),
         "subtitle": subtitle,
+        "status": task.status,
+        "priority": task.priority,
+        "help_type": task.help_type,
+        "region": task.region,
+        "is_overdue": task.is_overdue,
         "color": color,
         "glyph": "!" if task.is_urgent else "",
         "url": reverse("task_detail", args=[task.pk]),
@@ -638,10 +742,14 @@ def map_data_view(request):
         for volunteer in volunteers:
             profile = volunteer.profile
             points.append({
+                "id": volunteer.pk,
+                "kind": "volunteer",
                 "lat": float(profile.latitude),
                 "lng": float(profile.longitude),
                 "title": volunteer.username,
                 "subtitle": f"{volunteer.get_region_display() or '—'} · {profile.get_availability_status_display()}",
+                "status": profile.availability_status,
+                "region": volunteer.region,
                 "color": availability_colors.get(profile.availability_status, "--muted"),
                 "glyph": "V",
             })
@@ -663,6 +771,7 @@ def map_data_view(request):
     profile = getattr(user, "profile", None)
     if profile and profile.has_location:
         points.append({
+            "kind": "me",
             "lat": float(profile.latitude),
             "lng": float(profile.longitude),
             "title": "Я",

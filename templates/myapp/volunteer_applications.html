@@ -1,29 +1,23 @@
 {% extends "base.html" %}
 {% block title %}Volunteer Applications - Generation Connect{% endblock %}
 {% block content %}
-<section class="section">
-    <div class="section-head"><h1 data-i18n="va.list_title">Volunteer Applications</h1></div>
+<section class="section section-xl">
+    {% include "partials/_page_header.html" with title="Volunteer Applications" title_i18n="va.list_title" lede="Review and decide on people applying to volunteer." %}
 
-    <div class="metric-row reveal">
-        <div class="card stat-card"><span class="metric">{{ pending_count }}</span><p data-i18n="va.filter_pending">Pending</p></div>
-        <div class="card stat-card"><span class="metric">{{ approved_count }}</span><p data-i18n="va.filter_approved">Approved</p></div>
-        <div class="card stat-card"><span class="metric">{{ rejected_count }}</span><p data-i18n="va.filter_rejected">Rejected</p></div>
+    {% with qs_region=region_filter|default:"" qs_q=search_query|default:"" %}
+    <div class="tab-bar">
+        <a href="?status=pending{% if qs_region %}&region={{ qs_region }}{% endif %}{% if qs_q %}&q={{ qs_q }}{% endif %}" {% if status_filter == 'pending' %}aria-current="page"{% endif %}>
+            <span data-i18n="va.filter_pending">Pending</span> <span class="tab-count">{{ pending_count }}</span>
+        </a>
+        <a href="?status=approved{% if qs_region %}&region={{ qs_region }}{% endif %}{% if qs_q %}&q={{ qs_q }}{% endif %}" {% if status_filter == 'approved' %}aria-current="page"{% endif %}>
+            <span data-i18n="va.filter_approved">Approved</span> <span class="tab-count">{{ approved_count }}</span>
+        </a>
+        <a href="?status=rejected{% if qs_region %}&region={{ qs_region }}{% endif %}{% if qs_q %}&q={{ qs_q }}{% endif %}" {% if status_filter == 'rejected' %}aria-current="page"{% endif %}>
+            <span data-i18n="va.filter_rejected">Rejected</span> <span class="tab-count">{{ rejected_count }}</span>
+        </a>
+        <a href="?status=all{% if qs_region %}&region={{ qs_region }}{% endif %}{% if qs_q %}&q={{ qs_q }}{% endif %}" {% if status_filter == 'all' %}aria-current="page"{% endif %} data-i18n="va.filter_all">All</a>
     </div>
-
-    <div class="button-row">
-        <a class="button {% if status_filter == 'pending' %}primary{% else %}ghost{% endif %}"
-           href="?status=pending{% if region_filter %}&region={{ region_filter }}{% endif %}{% if search_query %}&q={{ search_query }}{% endif %}"
-           data-i18n="va.filter_pending">Pending</a>
-        <a class="button {% if status_filter == 'approved' %}primary{% else %}ghost{% endif %}"
-           href="?status=approved{% if region_filter %}&region={{ region_filter }}{% endif %}{% if search_query %}&q={{ search_query }}{% endif %}"
-           data-i18n="va.filter_approved">Approved</a>
-        <a class="button {% if status_filter == 'rejected' %}primary{% else %}ghost{% endif %}"
-           href="?status=rejected{% if region_filter %}&region={{ region_filter }}{% endif %}{% if search_query %}&q={{ search_query }}{% endif %}"
-           data-i18n="va.filter_rejected">Rejected</a>
-        <a class="button {% if status_filter == 'all' %}primary{% else %}ghost{% endif %}"
-           href="?status=all{% if region_filter %}&region={{ region_filter }}{% endif %}{% if search_query %}&q={{ search_query }}{% endif %}"
-           data-i18n="va.filter_all">All</a>
-    </div>
+    {% endwith %}
 
     <form method="get" class="card filter-bar">
         <input type="hidden" name="status" value="{{ status_filter }}">
@@ -40,48 +34,53 @@
                 {% endfor %}
             </select>
         </div>
-        <button class="button ghost" type="submit" data-i18n="task.filter">Filter</button>
+        <button class="button primary" type="submit" data-i18n="task.filter">Filter</button>
     </form>
 
     {% if applications %}
-        <div class="table-list">
-            {% for application in applications %}
-                <div class="card reveal applicant-row">
-                    <div class="avatar avatar-fallback avatar-sm">{{ application.user.username|slice:":1"|upper }}</div>
-                    <div class="applicant-body">
-                        <span class="tag {% if application.status == 'rejected' %}urgent{% elif application.status == 'approved' %}success{% else %}accent{% endif %}" data-i18n="va.status_{{ application.status }}">{{ application.get_status_display }}</span>
-                        <h3>{{ application.user.username }}</h3>
-                        <p class="opportunity-location">
-                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg>
-                            {{ application.get_region_display|default:"—" }}
-                            <span>· {{ application.user.email }}</span>
-                        </p>
-                        <p class="opportunity-desc">
-                            <span data-i18n="va.applied_prefix">Applied</span>
-                            {{ application.created_at|timesince }}
-                            <span data-i18n="va.ago_suffix">ago</span>
-                        </p>
-                        {% if application.reason %}
-                            <p class="applicant-quote">&ldquo;{{ application.reason|truncatechars:140 }}&rdquo;</p>
-                        {% endif %}
-                    </div>
-                    <div class="button-row">
-                        <a class="button ghost" href="{% url 'volunteer_application_detail' application.pk %}" data-i18n="va.view_btn">View</a>
-                        {% if application.status != "approved" %}
-                            <form method="post" action="{% url 'volunteer_application_approve' application.pk %}" class="inline-form">
-                                {% csrf_token %}
-                                <button class="primary" type="submit" data-i18n="va.approve_btn">Approve</button>
-                            </form>
-                        {% endif %}
-                        {% if application.status != "rejected" %}
-                            <form method="post" action="{% url 'volunteer_application_reject' application.pk %}" class="inline-form" onsubmit="return confirm('Вы уверены, что хотите отклонить эту заявку?');">
-                                {% csrf_token %}
-                                <button class="danger" type="submit" data-i18n="va.reject_btn">Reject</button>
-                            </form>
-                        {% endif %}
-                    </div>
-                </div>
-            {% endfor %}
+        <div class="table-scroll">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th data-i18n="tbl.applicant">Applicant</th>
+                        <th data-i18n="tbl.region">Region</th>
+                        <th data-i18n="tbl.applied">Applied</th>
+                        <th data-i18n="tbl.status">Status</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for application in applications %}
+                    <tr>
+                        <td data-label="Applicant">
+                            <span class="cell-title">{{ application.user.username }}</span>
+                            <span class="cell-sub">{{ application.user.email }}</span>
+                            {% if application.reason %}<span class="cell-sub applicant-quote">&ldquo;{{ application.reason|truncatechars:120 }}&rdquo;</span>{% endif %}
+                        </td>
+                        <td data-label="Region">{{ application.get_region_display|default:"—" }}</td>
+                        <td data-label="Applied">{{ application.created_at|timesince }} <span data-i18n="va.ago_suffix">ago</span></td>
+                        <td data-label="Status">
+                            <span class="tag {% if application.status == 'rejected' %}urgent{% elif application.status == 'approved' %}success{% else %}accent{% endif %}" data-i18n="va.status_{{ application.status }}">{{ application.get_status_display }}</span>
+                        </td>
+                        <td data-label="" class="col-actions col-actions--stack">
+                            <a class="button ghost" href="{% url 'volunteer_application_detail' application.pk %}" data-i18n="va.view_btn">View</a>
+                            {% if application.status != "approved" %}
+                                <form method="post" action="{% url 'volunteer_application_approve' application.pk %}">
+                                    {% csrf_token %}
+                                    <button class="button primary" type="submit" data-i18n="va.approve_btn">Approve</button>
+                                </form>
+                            {% endif %}
+                            {% if application.status != "rejected" %}
+                                <form method="post" action="{% url 'volunteer_application_reject' application.pk %}" onsubmit="return confirm('Вы уверены, что хотите отклонить эту заявку?');">
+                                    {% csrf_token %}
+                                    <button class="button danger" type="submit" data-i18n="va.reject_btn">Reject</button>
+                                </form>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
     {% else %}
         <div class="empty-state">

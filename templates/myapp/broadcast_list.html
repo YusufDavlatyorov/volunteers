@@ -1,23 +1,37 @@
 {% extends "base.html" %}
 {% block title %}Broadcasts - Generation Connect{% endblock %}
 {% block content %}
-<section class="section">
-    <div class="section-head">
-        <h1 data-i18n="broadcasts.title">Broadcasts</h1>
-        <a class="button primary" href="{% url 'broadcast' %}" data-i18n="admin.broadcast">Send Message to Volunteers</a>
-    </div>
+<section class="section section-xl">
+    {% url 'broadcast' as broadcast_url %}
+    {% include "partials/_page_header.html" with title="Broadcasts" title_i18n="broadcasts.title" lede="Messages sent out to volunteers by region." action_url=broadcast_url action_label="Send Message to Volunteers" action_i18n="admin.broadcast" %}
+
     {% if broadcasts %}
-        <div class="table-list">
-            {% for broadcast in broadcasts %}
-                <div class="request-row reveal">
-                    <div>
-                        <span class="tag">{{ broadcast.get_region_display }}</span>
-                        <h3>{{ broadcast.subject }}</h3>
-                        <p>{{ broadcast.message|truncatechars:160 }}</p>
-                        <p class="opportunity-desc">{{ broadcast.created_at|date:"d M Y, H:i" }} · {{ broadcast.sender.username }} · <span data-i18n="broadcasts.recipients">recipients</span>: {{ broadcast.sent_count }}</p>
-                    </div>
-                </div>
-            {% endfor %}
+        <div class="table-scroll">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th data-i18n="tbl.subject">Subject</th>
+                        <th data-i18n="tbl.region">Region</th>
+                        <th data-i18n="tbl.sent_by">Sent by</th>
+                        <th data-i18n="tbl.date">Date</th>
+                        <th data-i18n="tbl.recipients">Recipients</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for broadcast in broadcasts %}
+                    <tr>
+                        <td data-label="Subject">
+                            <span class="cell-title">{{ broadcast.subject }}</span>
+                            <span class="cell-sub">{{ broadcast.message|truncatechars:120 }}</span>
+                        </td>
+                        <td data-label="Region"><span class="tag muted">{{ broadcast.get_region_display }}</span></td>
+                        <td data-label="Sent by">{{ broadcast.sender.username }}</td>
+                        <td data-label="Date" class="col-num">{{ broadcast.created_at|date:"d M Y, H:i" }}</td>
+                        <td data-label="Recipients" class="col-num">{{ broadcast.sent_count }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
     {% else %}
         <div class="empty-state">

@@ -4,11 +4,22 @@ import requests
 from django.conf import settings
 from django.core.management.base import BaseCommand
 
-from accounts.models import Users
+from myapp.services.telegram_link import redeem_link_code
+
+
+HELP_TEXT = (
+    "Generation Connect\n\n"
+    "Команды:\n"
+    "/link <код> — привязать этот Telegram к вашему аккаунту.\n"
+    "   Одноразовый код можно получить на сайте: войдите в аккаунт →\n"
+    "   Профиль → «Привязать Telegram».\n"
+    "/id — показать chat id этого чата\n"
+    "/help — показать эту справку"
+)
 
 
 class Command(BaseCommand):
-    help = "Запускает простого Telegram-бота для привязки chat id и просмотра запросов"
+    help = "Long-polling Telegram bot: secure account linking and chat-id lookup"
 
     def handle(self, *args, **options):
         if not settings.TELEGRAM_BOT_TOKEN:
@@ -18,16 +29,14 @@ class Command(BaseCommand):
         offset = None
         self.stdout.write(self.style.SUCCESS("Telegram bot started"))
         while True:
-            updates = self._get_updates(offset)
-            for update in updates:
+            for update in self._get_updates(offset):
                 offset = update["update_id"] + 1
                 message = update.get("message") or {}
                 chat = message.get("chat") or {}
                 text = (message.get("text") or "").strip()
                 chat_id = chat.get("id")
-                if not chat_id:
-                    continue
-                self._handle_message(chat_id, text)
+                if chat_id:
+                    self._handle_message(chat_id, text)
             time.sleep(1)
 
     def _api(self, method, **payload):
@@ -46,30 +55,37 @@ class Command(BaseCommand):
         self._api("sendMessage", chat_id=chat_id, text=text)
 
     def _handle_message(self, chat_id, text):
-        if text.startswith("/start"):
-            self._send(
-                chat_id,
-                "Generation Connect\n\n"
-                "Команды:\n"
-                "/link username - привязать Telegram к аккаунту\n"
-                "/id - показать ваш chat id\n"
-                "/help - помощь",
-            )
+        # First whitespace-delimited word, without a "@BotName" suffix (Telegram
+        # appends it to commands sent in group chats).
+        command = text.split(maxsplit=1)[0].split("@", 1)[0].lower() if text else ""
+
+        if command in ("/start", "/help"):
+            self._send(chat_id, HELP_TEXT)
             return
 
-        if text.startswith("/id"):
+        if command == "/id":
             self._send(chat_id, f"Ваш Telegram chat id: {chat_id}")
             return
 
-        if text.startswith("/link"):
-            username = text.replace("/link", "", 1).strip()
-            user = Users.objects.filter(username=username).first()
-            if not user:
-                self._send(chat_id, "Пользователь не найден. Проверьте username.")
+        if command == "/link":
+            parts = text.split(maxsplit=1)
+            code = parts[1].strip() if len(parts) > 1 else ""
+            if not code:
+                self._send(
+                    chat_id,
+                    "Использование: /link <код>\n\n"
+                    "Одноразовый код можно получить на сайте: Профиль → «Привязать Telegram».",
+                )
                 return
-            user.telegram_id = chat_id
-            user.save(update_fields=["telegram_id"])
-            self._send(chat_id, f"Готово. Telegram привязан к аккаунту {user.username}.")
+            outcome = redeem_link_code(chat_id, code)
+            self._send(chat_id, outcome.message)
+            # Tell the previously-bound chat it has been detached, so a
+            # re-link is visible to whoever was receiving notifications.
+            if outcome.ok and outcome.previous_chat_id:
+                self._send(
+                    outcome.previous_chat_id,
+                    "Этот Telegram больше не привязан к аккаунту: владелец привязал новый чат.",
+                )
             return
 
-        self._send(chat_id, "Напишите /start, чтобы увидеть команды.")
+        self._send(chat_id, "Напишите /start, чтобы увидеть список команд.")

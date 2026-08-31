@@ -9,10 +9,10 @@
 {% block content %}
 <section class="form-shell">
     <div class="card">
-        <h3>{{ title }}</h3>
+        <h1>{{ title }}</h1>
         <form method="post" enctype="multipart/form-data">
             {% csrf_token %}
-            {{ form.as_p }}
+            {% include "partials/_form.html" with form=form %}
             {% if form.latitude %}
             <div class="field-group">
                 <div class="field-label-row">
@@ -23,7 +23,9 @@
                 <p class="field-hint" data-i18n="map.pick_hint">Click the map or drag the marker to set the exact location.</p>
             </div>
             {% endif %}
-            <button class="primary" type="submit" data-i18n="btn.save">Save</button>
+            <div class="form-actions">
+                <button class="primary" type="submit" data-i18n="btn.save">Save</button>
+            </div>
         </form>
     </div>
 </section>

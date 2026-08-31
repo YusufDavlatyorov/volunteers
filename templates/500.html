@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Something went wrong - Generation Connect</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background: #f5f7f4;
+    color: #16232c;
+    line-height: 1.6;
+  }
+  .box {
+    width: 100%;
+    max-width: 440px;
+    text-align: center;
+    background: #ffffff;
+    border: 1px solid #e3e8df;
+    border-radius: 16px;
+    padding: 40px 28px;
+    box-shadow: 0 10px 28px rgba(22,35,44,0.07);
+  }
+  .mark {
+    display: inline-grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #1b3a5c, #3e7c6a);
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.95rem;
+    margin-bottom: 18px;
+  }
+  .code { font-size: 0.85rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #66757d; }
+  h1 { font-size: 1.5rem; margin: 8px 0 10px; letter-spacing: -0.01em; }
+  p { color: #66757d; margin-bottom: 22px; }
+  a {
+    display: inline-block;
+    padding: 12px 26px;
+    border-radius: 10px;
+    background: #1b3a5c;
+    color: #fff;
+    font-weight: 700;
+    text-decoration: none;
+  }
+  @media (prefers-color-scheme: dark) {
+    body { background: #0f171c; color: #edf1ee; }
+    .box { background: #162127; border-color: rgba(255,255,255,0.08); box-shadow: 0 10px 26px rgba(0,0,0,0.34); }
+    .code, p { color: #8b9a94; }
+    a { background: #7ba3c9; color: #0f171c; }
+  }
+</style>
+</head>
+<body>
+  <div class="box">
+    <span class="mark">GC</span>
+    <p class="code">500</p>
+    <h1>Something went wrong</h1>
+    <p>An unexpected error occurred on our side. Please try again in a moment.</p>
+    <a href="/">Go to home</a>
+  </div>
+</body>
+</html>

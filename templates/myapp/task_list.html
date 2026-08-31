@@ -7,7 +7,7 @@
     <div class="grid">
         {% for task in my_active %}
             <div class="card reveal">
-                <span class="tag accent">{{ task.get_status_display }}</span>
+                {% include "myapp/_task_status_tag.html" with status=task.status status_display=task.get_status_display %}
                 <h3>{{ task.get_help_type_display }}</h3>
                 <p class="opportunity-location">
                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg>
@@ -27,10 +27,11 @@
 </section>
 {% endif %}
 <section class="section {% if my_active %}alt{% endif %}">
-    <div class="section-head">
-        <h1 data-i18n="task.title">Free Requests</h1>
-    </div>
-    <form class="card filter-bar" method="get">{{ filter_form.as_p }}<button class="button ghost" type="submit" data-i18n="task.filter">Filter</button></form>
+    {% include "partials/_page_header.html" with title="Free Requests" title_i18n="task.title" lede="Open help requests in your region — accept one at a time." %}
+    <form class="card filter-bar" method="get">
+        {% include "partials/_form.html" with form=filter_form %}
+        <button class="button primary" type="submit" data-i18n="task.filter">Filter</button>
+    </form>
     {% if tasks %}
         <div class="opportunity-grid">
             {% for task in tasks %}

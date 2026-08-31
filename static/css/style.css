@@ -22,6 +22,8 @@
     --danger: #b8432f;
     --danger-glow: rgba(184,67,47,0.10);
     --ok: #3e7c6a;
+    --info: #2f6f9e;
+    --info-glow: rgba(47,111,158,0.12);
     --line: #dfe5da;
     --shadow: 0 1px 2px rgba(22,35,44,0.05), 0 10px 28px rgba(22,35,44,0.07);
     --shadow-hover: 0 4px 10px rgba(22,35,44,0.07), 0 22px 44px rgba(22,35,44,0.11);
@@ -59,6 +61,8 @@
     --danger: #e08871;
     --danger-glow: rgba(224,136,113,0.12);
     --ok: #6bbe8c;
+    --info: #6fb0d8;
+    --info-glow: rgba(111,176,216,0.16);
     --line: rgba(255,255,255,0.09);
     --shadow: 0 1px 2px rgba(0,0,0,0.30), 0 10px 26px rgba(0,0,0,0.34);
     --shadow-hover: 0 4px 10px rgba(0,0,0,0.34), 0 24px 48px rgba(0,0,0,0.44);
@@ -213,12 +217,28 @@ p { color: var(--muted); line-height: 1.65; transition: color 0.3s ease; }
     transition: color 0.2s ease, background 0.2s ease;
 }
 .nav-links a:hover { color: var(--primary); background: var(--surface-2); }
+/* Current page — set via aria-current in base.html from the resolved url name. */
+.nav-links a[aria-current="page"] { color: var(--primary); background: var(--surface-2); }
 .nav-links a.nav-cta {
     color: white;
     background: var(--primary);
     margin-left: 0.35rem;
 }
 .nav-links a.nav-cta:hover { color: white; background: var(--hero-via); }
+.nav-links a.nav-cta[aria-current="page"] { color: white; background: var(--hero-via); }
+/* Logout sits among text links — keep it quiet, not a filled button. */
+.nav-links .nav-logout-form { display: inline-flex; }
+.nav-links .nav-logout {
+    min-height: unset;
+    padding: 0.5rem 0.65rem;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--muted);
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+.nav-links .nav-logout:hover { color: var(--danger); background: var(--surface-2); transform: none; box-shadow: none; }
 .menu-button { display: none; }
 
 /* ===== TOOLBAR (theme + lang) ===== */
@@ -289,6 +309,7 @@ p { color: var(--muted); line-height: 1.65; transition: color 0.3s ease; }
 .danger:hover { transform: translateY(-1px); box-shadow: 0 6px 18px var(--danger-glow); }
 .button:disabled, button:disabled { opacity: 0.55; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
 .button-row { display: flex; flex-wrap: wrap; gap: 0.65rem; margin-top: 1.1rem; }
+.section-head .button-row { margin-top: 0; }
 form.inline-form { display: inline-block; }
 
 /* ===== HERO =====
@@ -397,14 +418,36 @@ form.inline-form { display: inline-block; }
 .section.alt > * { max-width: var(--container-lg); margin-left: auto; margin-right: auto; }
 .section.section-md { max-width: var(--container-md); }
 .section.section-xl { max-width: var(--container-xl); }
+.section.alt.section-xl > * { max-width: var(--container-xl); }
+.section.alt.section-md > * { max-width: var(--container-md); }
 .section-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.6rem; }
 .section-head h2 { margin: 0; }
+
+/* ===== PAGE HEADER =====
+   The standard top-of-page block: title + optional lede on the left, an
+   optional primary action on the right. Replaces the hand-rolled
+   `.section-head > div > h1 + p.lede` pattern repeated across CRM/list pages.
+   The inner-page h1 is a notch smaller than the hero h1 (which scales to 4.1rem). */
+.page-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-6);
+}
+.page-header__text { min-width: 0; }
+.page-header h1 { margin: 0 0 0.3rem; font-size: clamp(1.7rem, 3.2vw, 2.3rem); line-height: 1.15; }
+.page-header .lede { margin: 0; }
+.page-header__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); flex-shrink: 0; }
 .grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
     gap: 1.15rem;
 }
 .grid.grid-narrow { grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
+/* Panels that size to their own content instead of stretching to the tallest sibling. */
+.grid.grid-top { align-items: start; }
 .two-col {
     display: grid;
     grid-template-columns: minmax(0, 1.15fr) minmax(300px, 0.85fr);
@@ -484,6 +527,14 @@ form.inline-form { display: inline-block; }
     text-transform: uppercase;
     letter-spacing: 0.02em;
 }
+/* Status-tag semantics — used consistently via myapp/_task_status_tag.html:
+     (plain) .tag  → pending / free / neutral        (valley-teal)
+     .tag.info     → active / in progress            (highland-blue)
+     .tag.success  → completed / approved / available (valley-teal, filled tint)
+     .tag.urgent   → overdue / cancelled / rejected / urgent (clay-red)
+     .tag.muted    → offline / busy / archived / past (grey)
+     .tag.accent   → highlight only (rank #1, "new") — never a status */
+.tag.info { background: var(--info-glow); color: var(--info); }
 .tag.urgent { background: var(--danger-glow); color: var(--danger); }
 .tag.accent { background: var(--accent-glow); color: var(--accent); }
 .tag.success { background: var(--ok-glow); color: var(--ok); }
@@ -696,10 +747,13 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
     margin: 0;
 }
 .filter-bar > p:has(> input[type="checkbox"]),
-.filter-bar > p:has(> input[type="radio"]) {
+.filter-bar > p:has(> input[type="radio"]),
+.filter-bar .field-group:has(input[type="checkbox"]),
+.filter-bar .field-group:has(input[type="radio"]) {
     flex: 0 0 auto;
     align-self: center;
 }
+.filter-bar .field-group:has(input[type="checkbox"]) { min-width: 0; }
 .filter-bar button, .filter-bar .button { flex: 0 0 auto; align-self: flex-end; }
 
 /* An applicant/person row: avatar + details + actions, wrapping on narrow
@@ -729,6 +783,213 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
 .request-row .row-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 .row-rank { display: flex; align-items: center; gap: 0.9rem; }
 .row-rank .rank-num { font-family: 'Bricolage Grotesque', sans-serif; font-weight: 700; font-size: 1.1rem; color: var(--muted); min-width: 1.6rem; }
+
+/* ===== DATA TABLE (CRM lists) =====
+   One scannable table on desktop; on narrow screens each row folds into a
+   labelled card (thead hidden, each td shows its column name from
+   data-label). The table scrolls inside .table-scroll — the page never does. */
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 12px;
+    overflow: hidden;
+}
+.data-table thead th {
+    padding: var(--space-3) var(--space-4);
+    text-align: left;
+    font-size: 0.74rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+}
+.data-table tbody td {
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--line);
+    vertical-align: middle;
+    color: var(--text-2);
+    font-size: 0.9rem;
+}
+.data-table tbody tr:last-child td { border-bottom: none; }
+.data-table tbody tr { transition: background 0.15s ease; }
+.data-table tbody tr:hover { background: var(--surface-2); }
+.data-table td .cell-title { font-weight: 700; color: var(--text); }
+.data-table td .cell-sub { display: block; font-size: 0.82rem; color: var(--muted); margin-top: 0.15rem; }
+.data-table .col-actions { text-align: right; white-space: nowrap; }
+.data-table .col-actions .button,
+.data-table .col-actions button {
+    min-height: 2.15rem;
+    padding: 0.4rem 0.8rem;
+    font-size: 0.82rem;
+}
+.data-table .col-actions form { display: inline-block; }
+.data-table .col-actions--stack { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: flex-end; }
+.data-table .col-num { font-variant-numeric: tabular-nums; }
+
+@media (max-width: 860px) {
+    /* Break the table box model entirely so rows can be full-width cards. */
+    .table-scroll { overflow-x: visible; }
+    .data-table, .data-table tbody { display: block; width: 100%; border: none; background: transparent; }
+    .data-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+    .data-table tbody tr {
+        display: block;
+        background: var(--card-bg);
+        border: 1px solid var(--card-border);
+        border-radius: 12px;
+        box-shadow: var(--shadow);
+        padding: var(--space-2) var(--space-4);
+        margin-bottom: var(--space-3);
+    }
+    .data-table tbody tr:hover { background: var(--card-bg); }
+    .data-table tbody td {
+        display: block;
+        padding: 0.5rem 0;
+        border-bottom: 1px solid var(--line);
+        text-align: left;
+        overflow-wrap: anywhere;
+    }
+    .data-table tbody tr td:last-child { border-bottom: none; }
+    .data-table tbody td::before {
+        content: attr(data-label);
+        display: block;
+        margin-bottom: 0.2rem;
+        font-size: 0.7rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+    }
+    .data-table td[data-label=""]::before { content: none; }
+    .data-table td[data-label=""] { padding-top: 0.75rem; }
+    .data-table .col-actions { text-align: left; white-space: normal; }
+    .data-table .col-actions.col-actions--stack {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-start;
+        gap: var(--space-2);
+    }
+}
+
+/* ===== TAB BAR =====
+   Segmented filter tabs (role / status filters). Replaces rows of .button
+   used as tabs. Scrolls horizontally on narrow screens rather than wrapping
+   into an uneven block. */
+.tab-bar {
+    display: flex;
+    gap: var(--space-1);
+    padding: var(--space-1);
+    margin-bottom: var(--space-5);
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+.tab-bar a {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.5rem 0.95rem;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 0.88rem;
+    color: var(--text-2);
+    white-space: nowrap;
+    transition: background 0.18s ease, color 0.18s ease;
+}
+.tab-bar a .tab-count { color: var(--muted); font-variant-numeric: tabular-nums; }
+.tab-bar a:hover { color: var(--primary); background: var(--surface); }
+.tab-bar a.is-active,
+.tab-bar a[aria-current="page"] { background: var(--primary); color: #fff; }
+.tab-bar a.is-active .tab-count,
+.tab-bar a[aria-current="page"] .tab-count { color: rgba(255,255,255,0.75); }
+
+/* ===== QUICK ACTIONS (dashboard) =====
+   A vertical list of navigational actions — icon badge, label, chevron —
+   instead of a grid of differently-sized buttons. */
+.quick-actions { display: flex; flex-direction: column; gap: 0.35rem; }
+.quick-action {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: 0.7rem 0.65rem;
+    border-radius: 10px;
+    font-weight: 600;
+    font-size: 0.92rem;
+    color: var(--text);
+    transition: background 0.18s ease;
+}
+.quick-action:hover { background: var(--surface-2); color: var(--primary); }
+.quick-action__icon {
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 9px;
+    background: var(--primary-glow);
+    color: var(--primary);
+    flex-shrink: 0;
+}
+.quick-action__icon svg { width: 17px; height: 17px; }
+.quick-action__label { flex: 1; min-width: 0; }
+.quick-action__chev { color: var(--muted); flex-shrink: 0; }
+
+/* ===== CODE BLOCK (one-time codes, tokens) ===== */
+.code-block {
+    display: block;
+    margin: var(--space-3) 0;
+    padding: var(--space-3) var(--space-4);
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+    font-size: 0.86rem;
+    color: var(--text);
+    overflow-x: auto;
+    white-space: pre;
+}
+.code-block code { user-select: all; }
+
+/* ===== STATUS SCREEN =====
+   A single centered card for a confirmation / error / not-found screen.
+   Built on the auth shell so it matches the login/register treatment
+   instead of the old glass-card look. */
+.status-screen { display: grid; place-items: center; min-height: 68vh; padding: clamp(2rem, 6vw, 4rem) 1rem; }
+.status-screen .status-card {
+    width: 100%;
+    max-width: 460px;
+    text-align: center;
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 16px;
+    box-shadow: var(--shadow);
+    padding: clamp(1.75rem, 4vw, 2.5rem);
+}
+.status-screen .status-card h1 { font-size: clamp(1.5rem, 3vw, 1.95rem); margin: 0.6rem 0 0.5rem; }
+.status-screen .status-card p { margin: 0 auto 0.4rem; max-width: 34rem; }
+.status-screen .status-code {
+    font-family: 'Bricolage Grotesque', 'Inter', sans-serif;
+    font-weight: 700;
+    font-size: 0.9rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+.status-screen .button-row { justify-content: center; margin-top: var(--space-5); }
+
+/* ===== FORM ACTIONS ===== */
+.form-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-top: var(--space-5); }
+.form-actions .button, .form-actions button { min-width: 8rem; }
+.form-actions--full .button, .form-actions--full button { width: 100%; }
+
+.text-center { text-align: center; }
 
 /* ===== OPPORTUNITY CARDS (help-request marketplace listings) =====
    A colour-coded band + icon stands in for a photo per category, since the
@@ -776,6 +1037,7 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
 
 /* ===== PROFILE / DASHBOARD ===== */
 .profile-head { display: flex; gap: 1.2rem; align-items: center; }
+.detail-card > .profile-head { margin-bottom: var(--space-5); }
 .avatar {
     width: 76px;
     height: 76px;
@@ -798,9 +1060,9 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
 }
 .avatar-sm { width: 44px; height: 44px; border-width: 2px; }
 .avatar-fallback.avatar-sm { font-size: 1.05rem; }
-.dash-greeting { margin-bottom: 1.8rem; }
-.dash-greeting h1 { margin-bottom: 0.3rem; }
-.dash-greeting p { font-size: 1.02rem; }
+.dash-greeting { margin-bottom: var(--space-6); }
+.dash-greeting h1 { margin-bottom: 0.3rem; font-size: clamp(1.8rem, 3.6vw, 2.6rem); line-height: 1.12; }
+.dash-greeting p { font-size: 1.02rem; margin: 0; }
 
 /* ===== IMAGES ===== */
 .report-img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 9px; }
@@ -954,11 +1216,10 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
     background: var(--primary);
     color: #fff;
     box-shadow: var(--shadow-hover);
-    animation: aiFabPulse 3.5s ease-in-out infinite;
     transition: transform 0.22s ease, box-shadow 0.22s ease;
 }
 .ai-fab svg { width: 24px; height: 24px; }
-.ai-fab:hover, .ai-fab:focus-visible { transform: translateY(-3px) scale(1.05); box-shadow: 0 14px 30px var(--primary-glow); animation-play-state: paused; }
+.ai-fab:hover, .ai-fab:focus-visible { transform: translateY(-3px) scale(1.05); box-shadow: 0 14px 30px var(--primary-glow); }
 .ai-fab::after {
     content: attr(data-tooltip);
     position: absolute;
@@ -977,10 +1238,6 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
     transition: opacity 0.18s ease;
 }
 .ai-fab:hover::after, .ai-fab:focus-visible::after { opacity: 1; }
-@keyframes aiFabPulse {
-    0%, 100% { box-shadow: var(--shadow-hover), 0 0 0 0 var(--primary-glow); }
-    50% { box-shadow: var(--shadow-hover), 0 0 0 8px var(--primary-glow); }
-}
 @media (max-width: 640px) {
     .ai-fab { width: 48px; height: 48px; right: 16px; bottom: 16px; }
     .ai-fab svg { width: 21px; height: 21px; }
@@ -1023,26 +1280,14 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
 .reveal:nth-child(3) { transition-delay: 0.12s; }
 .reveal:nth-child(4) { transition-delay: 0.18s; }
 
-/* ===== ERROR PAGE ===== */
-.error-wrapper { min-height: 85vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
-.error-glass-card { max-width: 500px; width: 100%; text-align: center; padding: 50px 30px; border-radius: 20px; border: 1px solid var(--card-border); background: var(--card-bg); }
-.error-code-container { position: relative; display: inline-block; margin-bottom: 10px; }
-.error-code { font-size: 8rem; font-weight: 700; margin: 0; color: var(--text); letter-spacing: -5px; line-height: 1; opacity: 0.1; font-family: 'Bricolage Grotesque', sans-serif; }
-.error-code-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; font-size: 8rem; font-weight: 700; color: var(--primary); letter-spacing: -5px; line-height: 1; font-family: 'Bricolage Grotesque', sans-serif; }
-.error-bg-glow { position: absolute; width: 150px; height: 150px; background: var(--primary); filter: blur(80px); opacity: 0.15; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: -1; }
-.btn-back-home { text-decoration: none; display: inline-flex; align-items: center; gap: 10px; padding: 15px 35px; background: var(--primary); color: white; border-radius: 12px; font-weight: 700; }
-.btn-back-home:hover { transform: translateY(-2px); }
-
-/* ===== CONFIRM CARD ===== */
-.confirm-container { min-height: 80vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
-.confirm-card { max-width: 450px; width: 100%; text-align: center; padding: 40px; border: 1px solid var(--card-border); background: var(--card-bg); border-radius: 20px; }
-
 /* ===== RESPONSIVE =====
    Desktop 1440px+, tablet 768px+, mobile 320px+. */
 @media (max-width: 1080px) {
     .hero-photo { object-position: center 20%; }
 }
-@media (max-width: 820px) {
+/* Collapse the (link-heavy) primary nav to a menu before it would wrap onto a
+   second row — happens around 960px once a user is signed in. */
+@media (max-width: 960px) {
     .menu-button { display: inline-flex; background: var(--surface-2); color: var(--text); border-radius: 8px; }
     .nav-links {
         display: none;
@@ -1060,12 +1305,24 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
     }
     .nav-links.open { display: flex; gap: 0.3rem; }
     .nav-links a.nav-cta { margin-left: 0; text-align: center; }
+    .nav-links .nav-logout-form { display: flex; }
+    .nav-links .nav-logout { width: 100%; justify-content: flex-start; }
+}
+@media (max-width: 820px) {
     .two-col { grid-template-columns: 1fr; }
     .request-row { grid-template-columns: 1fr; }
     .footer { flex-direction: column; align-items: flex-start; }
     .grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
     .field-row, .role-picker { grid-template-columns: 1fr; }
     .metric-row { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+    .page-header { align-items: flex-start; }
+    .page-header__actions { width: 100%; }
+}
+@media (max-width: 560px) {
+    /* Filter fields and their action button each take a full row rather than
+       squeezing into an uneven wrap. */
+    .filter-bar > p, .filter-bar .field-group { flex-basis: 100%; }
+    .filter-bar button, .filter-bar .button { width: 100%; }
 }
 @media (max-width: 480px) {
     .grid, .opportunity-grid { grid-template-columns: 1fr; }
@@ -1073,6 +1330,7 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
     .lang-btn { padding: 0.25rem 0.4rem; font-size: 0.72rem; }
     .hero-strip { flex-direction: column; align-items: flex-start; }
     .auth-card { padding: 1.5rem; }
+    .kpi-row { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
     /* The 220px content-based floor on .applicant-body (plus an avatar and,
        in the people directory, a trailing rating figure) no longer fits
        beside its siblings at this width — let it take the full row instead
@@ -1099,6 +1357,12 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
 .map-legend { display: flex; flex-wrap: wrap; gap: 0.9rem; margin-bottom: 0.85rem; font-size: 0.82rem; color: var(--text-2); }
 .map-legend-item { display: inline-flex; align-items: center; gap: 0.4rem; }
 .map-legend-dot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; background: var(--primary); }
+.map-legend-dot--pending, .map-legend-dot--busy { background: var(--accent); }
+.map-legend-dot--active { background: var(--primary); }
+.map-legend-dot--urgent { background: var(--danger); }
+.map-legend-dot--available { background: var(--ok); }
+.map-legend-dot--offline { background: var(--muted); }
+.map-legend-dot--me { background: var(--primary-2); }
 .map-route-meta { display: flex; flex-wrap: wrap; gap: var(--space-5); margin: 0.75rem 0; }
 .map-route-meta .metric { min-width: 120px; }
 
@@ -1132,9 +1396,93 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
 .gc-pin-wrap { background: transparent; border: none; }
 .gc-pin { position: relative; display: block; width: 26px; height: 26px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); background: var(--pin-color, var(--primary)); box-shadow: 0 2px 6px rgba(0,0,0,0.35); border: 2px solid var(--surface); }
 .gc-pin-glyph { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; transform: rotate(45deg); font-size: 12px; line-height: 1; color: var(--surface); font-weight: 700; }
+/* Emergency: a soft expanding ring. Overdue: a dashed halo. Both purely
+   decorative — the pin colour already carries the meaning. */
+.gc-pin--emergency::after {
+    content: '';
+    position: absolute;
+    inset: -6px;
+    border-radius: 50% 50% 50% 0;
+    border: 2px solid var(--pin-color, var(--danger));
+    opacity: 0.6;
+    animation: gcPinPulse 1.8s ease-out infinite;
+}
+.gc-pin--overdue::after {
+    content: '';
+    position: absolute;
+    inset: -5px;
+    border-radius: 50% 50% 50% 0;
+    border: 2px dashed var(--pin-color, var(--danger));
+    opacity: 0.7;
+}
+@keyframes gcPinPulse {
+    0% { transform: scale(0.85); opacity: 0.7; }
+    100% { transform: scale(1.5); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .gc-pin--emergency::after { animation: none; opacity: 0.6; }
+}
 .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--card-bg); color: var(--text); }
 .gc-popup a { color: var(--primary); font-weight: 600; }
 .gc-popup-sub { color: var(--muted); font-size: 0.82rem; }
+
+/* ===== OPERATIONAL MAP =====
+   A split view: interactive map on the left, a detail panel on the right that
+   fills when a marker is selected. Filters above filter the loaded markers
+   client-side (no reload). Collapses to a single column on small screens with
+   the panel appearing below the map only after a marker is tapped. */
+.ops-map__filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--space-4);
+    margin-bottom: var(--space-4);
+}
+.ops-map__filters .field-group { flex: 1 1 170px; min-width: 150px; margin: 0; }
+.ops-map__filters .button { flex: 0 0 auto; }
+
+.ops-map {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+    border: 1px solid var(--card-border);
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: var(--shadow);
+    min-height: min(72vh, 720px);
+}
+.ops-map__canvas { min-height: min(72vh, 720px); height: 100%; }
+.ops-map__panel {
+    border-left: 1px solid var(--line);
+    background: var(--surface);
+    overflow-y: auto;
+    padding: var(--space-5);
+}
+.ops-panel__empty {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.6rem;
+    color: var(--muted);
+}
+.ops-panel__empty svg { color: var(--muted); }
+.ops-panel__title { margin: 0 0 0.35rem; font-size: 1.1rem; }
+.ops-panel__sub { margin: 0; color: var(--muted); }
+.ops-panel__badges { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: var(--space-4); }
+.ops-panel__meta { display: grid; gap: var(--space-3); margin-bottom: var(--space-5); }
+.ops-panel__meta .meta-label { margin-bottom: 0.15rem; }
+.ops-panel__meta p { margin: 0; color: var(--text); font-weight: 600; }
+.ops-panel__actions { display: flex; flex-direction: column; gap: var(--space-2); }
+.ops-panel__actions .button { width: 100%; }
+
+.ops-locate-status { margin-top: var(--space-3); font-size: 0.85rem; color: var(--muted); }
+.ops-locate-status.is-error { color: var(--danger); }
+
+@media (max-width: 860px) {
+    .ops-map { grid-template-columns: 1fr; }
+    .ops-map__canvas { min-height: 56vh; }
+    .ops-map__panel { border-left: none; border-top: 1px solid var(--line); }
+    .ops-map__panel[hidden] { display: none; }
+}
 
 @media (max-width: 820px) {
     .map-page-container { height: 60vh; min-height: 340px; }

@@ -3,7 +3,7 @@ from datetime import timedelta
 from django.db import models, transaction
 from django.utils import timezone
 
-from accounts.models import REGION_CHOICES, Users
+from accounts.models import REGION_CHOICES, Users, validate_file_size
 
 
 # Single source of truth for the "task in progress too long" threshold, reused by
@@ -29,10 +29,23 @@ STATUS_CHOICES = [
     ("cancelled", "Отменен"),
 ]
 
+PRIORITY_NORMAL = "normal"
+PRIORITY_HIGH = "high"
+PRIORITY_EMERGENCY = "emergency"
+PRIORITY_CHOICES = [
+    (PRIORITY_NORMAL, "Обычный"),
+    (PRIORITY_HIGH, "Высокий"),
+    (PRIORITY_EMERGENCY, "Экстренный"),
+]
+
 EVENT_REGION_CHOICES = REGION_CHOICES + [("all", "Все регионы")]
 
 
 class HelpRequest(models.Model):
+    PRIORITY_NORMAL = PRIORITY_NORMAL
+    PRIORITY_HIGH = PRIORITY_HIGH
+    PRIORITY_EMERGENCY = PRIORITY_EMERGENCY
+
     client = models.ForeignKey(
         Users,
         on_delete=models.CASCADE,
@@ -55,7 +68,14 @@ class HelpRequest(models.Model):
     latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
+    # `is_urgent` is the legacy boolean, kept in sync from `priority` by
+    # HelpRequestForm so existing `.filter(is_urgent=...)` call sites keep working.
+    # `priority` is the graded value new code (map markers, dispatch, emergency
+    # queue) reads.
     is_urgent = models.BooleanField(default=False)
+    priority = models.CharField(
+        max_length=20, choices=PRIORITY_CHOICES, default=PRIORITY_NORMAL, db_index=True
+    )
     alarm_sent = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -197,7 +217,7 @@ class PhotoReport(models.Model):
     author = models.ForeignKey(Users, on_delete=models.SET_NULL, null=True, related_name="photo_reports")
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True)
-    image = models.ImageField(upload_to="reports/")
+    image = models.ImageField(upload_to="reports/", validators=[validate_file_size])
     region = models.CharField(max_length=100, choices=REGION_CHOICES, blank=True)
     event = models.ForeignKey(Event, on_delete=models.SET_NULL, null=True, blank=True, related_name="photo_reports")
     help_request = models.ForeignKey(

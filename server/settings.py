@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 import os
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -30,14 +31,39 @@ def env_bool(name, default=False):
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv(
-    'DJANGO_SECRET_KEY',
-    'django-insecure-_@((a*iz^(-(yra70l$fyatq$xpatl6vkh@48kc6e_3=2qfja@',
-)
+# No insecure fallback: a real key is required in every environment (local dev
+# gets one from .env — see .env.example — so this only fires on a genuinely
+# unconfigured checkout, instead of silently signing sessions/CSRF with a
+# well-known committed-to-history default).
+SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', '').strip()
+if not SECRET_KEY:
+    raise ImproperlyConfigured(
+        "DJANGO_SECRET_KEY is not set. Copy .env.example to .env and set a real "
+        "secret key (see README.md), e.g.: "
+        "python -c \"from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())\""
+    )
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = env_bool('DJANGO_DEBUG', True)
-ALLOWED_HOSTS = [h.strip() for h in os.getenv('DJANGO_ALLOWED_HOSTS', '*').split(',') if h.strip()]
+# Defaults to False (safe) when unset; local dev opts into True explicitly via .env.
+DEBUG = env_bool('DJANGO_DEBUG', False)
+ALLOWED_HOSTS = [h.strip() for h in os.getenv('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',') if h.strip()]
+
+if not DEBUG and (not ALLOWED_HOSTS or '*' in ALLOWED_HOSTS):
+    raise ImproperlyConfigured(
+        "DJANGO_ALLOWED_HOSTS must list specific hosts when DJANGO_DEBUG=False "
+        "(a wildcard '*' defeats Django's Host-header validation in production)."
+    )
+
+# Production-only hardening: these would break the plain-HTTP local dev server
+# (forced HTTPS redirect, cookies marked Secure) so they only switch on once
+# DEBUG=False, i.e. once a real deployment sets DJANGO_DEBUG accordingly.
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+SECURE_SSL_REDIRECT = not DEBUG
+SECURE_HSTS_SECONDS = 31536000 if not DEBUG else 0
+SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG
+SECURE_CONTENT_TYPE_NOSNIFF = True
+X_FRAME_OPTIONS = 'DENY'
 
 
 # Application definition
@@ -181,6 +207,10 @@ GROQ_MODEL = os.getenv('GROQ_MODEL', 'llama-3.1-8b-instant')
 
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', '')
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
+# Public @-handle of the bot, shown in the account-linking instructions so the
+# user knows which chat to open. Not a secret; optional (the UI degrades to a
+# generic "our bot" when unset).
+TELEGRAM_BOT_USERNAME = os.getenv('TELEGRAM_BOT_USERNAME', '')
 
 # Maps / routing (Leaflet + OpenStreetMap tiles, no key needed for the map itself).
 OSRM_BASE_URL = os.getenv('OSRM_BASE_URL', 'https://router.project-osrm.org').rstrip('/')

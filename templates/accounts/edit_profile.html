@@ -10,8 +10,8 @@
         <h1 data-i18n="edit.title">Edit Profile</h1>
         <form method="post" enctype="multipart/form-data">
             {% csrf_token %}
-            {{ user_form.as_p }}
-            {{ profile_form.as_p }}
+            {% include "partials/_form.html" with form=user_form %}
+            {% include "partials/_form.html" with form=profile_form %}
             <div class="field-group">
                 <div class="field-label-row">
                     <label data-i18n="map.pick_location">Your location on the map (optional)</label>
@@ -20,8 +20,13 @@
                 <div id="locationPicker" class="map-picker"></div>
                 <p class="field-hint" data-i18n="map.pick_hint">Click the map or drag the marker to set the exact location.</p>
             </div>
-            <button class="primary" type="submit" data-i18n="edit.save">Save</button>
+            <div class="form-actions">
+                <button class="primary" type="submit" data-i18n="edit.save">Save</button>
+            </div>
         </form>
+        <p class="field-hint">
+            <a href="{% url 'telegram_link' %}" data-i18n="tg.edit_link">Link Telegram for notifications</a>
+        </p>
     </div>
 </section>
 {% endblock %}

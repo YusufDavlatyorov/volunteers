@@ -1,56 +1,27 @@
 {% extends "base.html" %}
 {% block title %}Admin Panel - Generation Connect{% endblock %}
 {% block content %}
-<section class="section">
-    <div class="dash-greeting reveal">
-        <h1 data-i18n="admin.title">Admin Panel</h1>
-        <p data-i18n="admin.desc">Here you can see free and busy requests. A busy request is visible only to the assigned volunteer, curator and admin.</p>
+<section class="section section-xl">
+    {% include "partials/_page_header.html" with title="Admin Panel" title_i18n="admin.title" lede="Free and busy requests, live stats, and recent activity across the platform." lede_i18n="admin.desc" %}
+
+    <div class="button-row">
+        <a class="button primary" href="{% url 'crm_tasks' %}" data-i18n="crm.tasks_title">Task Management</a>
+        <a class="button secondary" href="{% url 'broadcast' %}" data-i18n="admin.broadcast">Send Message to Volunteers</a>
+        <a class="button ghost" href="{% url 'create_event' %}" data-i18n="admin.create_event">Create Event</a>
+        <a class="button ghost" href="{% url 'photo_reports' %}" data-i18n="admin.photo_reports">Photo Reports</a>
+        <a class="button ghost" href="{% url 'rating' %}" data-i18n="admin.rating">Rating</a>
+        <form method="post" action="{% url 'check_overdue' %}" class="inline-form">
+            {% csrf_token %}
+            <button type="submit" class="button ghost" data-i18n="admin.check">Check Overdue</button>
+        </form>
     </div>
-    <div class="metric-row">
+
+    <p class="kpi-group-label" data-i18n="crm.kpi_volunteers">Volunteers &amp; clients</p>
+    <div class="kpi-row">
         <a class="card stat-card reveal" href="{% url 'people_list' 'volunteer' %}">
-            <span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="4"></circle><path d="M2 21v-2a5 5 0 0 1 5-5h4a5 5 0 0 1 5 5v2"></path><circle cx="17" cy="7" r="3"></circle></svg></span>
             <span class="metric">{{ total_volunteers }}</span>
             <p data-i18n="admin.stat_volunteers">Volunteers</p>
         </a>
-        <a class="card stat-card reveal" href="{% url 'people_list' 'client' %}">
-            <span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 21v-2a8 8 0 0 1 16 0v2"></path></svg></span>
-            <span class="metric">{{ total_clients }}</span>
-            <p data-i18n="admin.stat_clients">Clients</p>
-        </a>
-        <a class="card stat-card reveal" href="#requests">
-            <span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"></path></svg></span>
-            <span class="metric">{{ total_requests }}</span>
-            <p data-i18n="admin.stat_requests">Active Requests</p>
-        </a>
-        {% if user.is_superuser %}
-            <a class="card stat-card reveal" href="{% url 'volunteer_applications' %}">
-                <span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 3"></path></svg></span>
-                <span class="metric">{{ pending_volunteer_applications }}</span>
-                <p data-i18n="va.pending_count">Pending Applications</p>
-            </a>
-        {% endif %}
-        <a class="card stat-card reveal" href="{% url 'completed_tasks' %}">
-            <span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="m8 12 3 3 5-6"></path></svg></span>
-            <span class="metric">{{ archive_count }}</span>
-            <p data-i18n="admin.stat_completed">Completed Requests</p>
-        </a>
-        <a class="card stat-card reveal" href="{% url 'event_list' %}">
-            <span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"></rect><path d="M16 2v4M8 2v4M3 10h18"></path></svg></span>
-            <span class="metric">{{ total_events }}</span>
-            <p data-i18n="admin.stat_events">Events</p>
-        </a>
-    </div>
-    <div class="button-row">
-        <a class="button primary" href="{% url 'crm_tasks' %}" data-i18n="crm.tasks_title">Task Management</a>
-        <a class="button primary" href="{% url 'broadcast' %}" data-i18n="admin.broadcast">Send Message to Volunteers</a>
-        <a class="button secondary" href="{% url 'create_event' %}" data-i18n="admin.create_event">Create Event</a>
-        <a class="button ghost" href="{% url 'photo_reports' %}" data-i18n="admin.photo_reports">Photo Reports</a>
-        <a class="button ghost" href="{% url 'rating' %}" data-i18n="admin.rating">Rating</a>
-        <a class="button ghost" href="{% url 'check_overdue' %}" data-i18n="admin.check">Check Overdue</a>
-    </div>
-
-    <p class="kpi-group-label" data-i18n="crm.kpi_volunteers">Volunteers by availability</p>
-    <div class="kpi-row">
         <a class="card stat-card reveal" href="{% url 'people_list' 'volunteer' %}?availability=available">
             <span class="metric">{{ stats.volunteers_available }}</span>
             <p data-i18n="crm.kpi_available">Available</p>
@@ -64,7 +35,7 @@
             <p data-i18n="crm.kpi_offline">Offline</p>
         </a>
         <a class="card stat-card reveal" href="{% url 'people_list' 'client' %}">
-            <span class="metric">{{ stats.clients_total }}</span>
+            <span class="metric">{{ total_clients }}</span>
             <p data-i18n="admin.stat_clients">Clients</p>
         </a>
     </div>
@@ -97,8 +68,9 @@
         </a>
     </div>
 </section>
-<section class="section alt">
-    <div class="grid">
+
+<section class="section section-xl alt">
+    <div class="grid grid-top">
         <div class="card reveal">
             <div class="section-head"><h3 data-i18n="crm.activity_title">Recent Activity</h3></div>
             {% if recent_activity %}
@@ -166,7 +138,8 @@
         </div>
     </div>
 </section>
-<section class="section" id="requests">
+
+<section class="section section-xl" id="requests">
     <div class="section-head"><h2 data-i18n="admin.free">Free Requests</h2></div>
     {% if free_requests %}
         <div class="opportunity-grid">
@@ -181,7 +154,7 @@
         </div>
     {% endif %}
 </section>
-<section class="section alt">
+<section class="section section-xl alt">
     <div class="section-head"><h2 data-i18n="admin.busy">Busy Requests</h2></div>
     {% if busy_requests %}
         <div class="opportunity-grid">

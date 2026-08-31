@@ -1,0 +1,24 @@
+{% comment %}
+Standard top-of-page header: title (+ optional lede) on the left, an optional
+primary action on the right.
+Params:
+  title           plain text fallback (required)
+  title_i18n      data-i18n key for the title (optional)
+  lede            plain text fallback for the sub-line (optional)
+  lede_i18n       data-i18n key for the lede (optional)
+  action_url      href for the right-hand action button (optional)
+  action_label    text fallback for the action (required if action_url given)
+  action_i18n     data-i18n key for the action (optional)
+  action_class    button variant, defaults to "primary"
+{% endcomment %}
+<div class="page-header">
+    <div class="page-header__text">
+        <h1{% if title_i18n %} data-i18n="{{ title_i18n }}"{% endif %}>{{ title }}</h1>
+        {% if lede %}<p class="lede"{% if lede_i18n %} data-i18n="{{ lede_i18n }}"{% endif %}>{{ lede }}</p>{% endif %}
+    </div>
+    {% if action_url %}
+    <div class="page-header__actions">
+        <a class="button {{ action_class|default:'primary' }}" href="{{ action_url }}"{% if action_i18n %} data-i18n="{{ action_i18n }}"{% endif %}>{{ action_label }}</a>
+    </div>
+    {% endif %}
+</div>

@@ -27,12 +27,13 @@ class RegistrationForm(forms.ModelForm):
 
     class Meta:
         model = Users
-        fields = ["username", "email", "region", "telegram_id"]
+        # telegram_id is not accepted here — a Telegram chat is bound only via
+        # the verified code flow in accounts.views.telegram_link_view.
+        fields = ["username", "email", "region"]
         widgets = {
             "username": forms.TextInput(attrs={"placeholder": "username"}),
             "email": forms.EmailInput(attrs={"placeholder": "you@example.com"}),
             "region": forms.Select(choices=[("", "Выберите регион")] + REGION_CHOICES),
-            "telegram_id": forms.NumberInput(attrs={"placeholder": "Telegram chat id, можно позже"}),
         }
 
     def clean_username(self):
@@ -96,20 +97,33 @@ class LoginForm(forms.Form):
 
 
 class ForgotPasswordForm(forms.Form):
-    email = forms.EmailField(widget=forms.EmailInput(attrs={"placeholder": "Ваш email"}))
+    email = forms.EmailField(label="Email", widget=forms.EmailInput(attrs={"placeholder": "Ваш email"}))
 
 
 class ResetPasswordForm(forms.Form):
-    new_password = forms.CharField(widget=forms.PasswordInput(attrs={"placeholder": "Новый пароль"}))
-    confirm_password = forms.CharField(widget=forms.PasswordInput(attrs={"placeholder": "Повторите пароль"}))
+    new_password = forms.CharField(label="Новый пароль", widget=forms.PasswordInput(attrs={"placeholder": "Новый пароль"}))
+    confirm_password = forms.CharField(label="Повторите пароль", widget=forms.PasswordInput(attrs={"placeholder": "Повторите пароль"}))
+
+    def __init__(self, *args, user=None, **kwargs):
+        # The account being reset — passed so AUTH_PASSWORD_VALIDATORS'
+        # UserAttributeSimilarityValidator can reject a password too close to
+        # the username/email.
+        self.user = user
+        super().__init__(*args, **kwargs)
 
     def clean(self):
         cleaned = super().clean()
         password = cleaned.get("new_password")
         if password != cleaned.get("confirm_password"):
             raise forms.ValidationError("Пароли не совпадают")
-        if password and len(password) < 8:
-            raise forms.ValidationError("Пароль слишком короткий")
+        if password:
+            # Same policy as registration — the reset path must not be a way
+            # around AUTH_PASSWORD_VALIDATORS (min length, common-password and
+            # numeric-only blocklists, similarity to account attributes).
+            try:
+                validate_password(password, self.user)
+            except ValidationError as exc:
+                raise forms.ValidationError(exc.messages)
         return cleaned
 
 
@@ -117,6 +131,13 @@ class ProfileForm(forms.ModelForm):
     class Meta:
         model = Profile
         fields = ["full_name", "age", "image", "bio", "availability_status", "latitude", "longitude"]
+        labels = {
+            "full_name": "Полное имя",
+            "age": "Возраст",
+            "image": "Фото профиля",
+            "bio": "О себе",
+            "availability_status": "Статус доступности",
+        }
         widgets = {
             "full_name": forms.TextInput(attrs={"placeholder": "Полное имя"}),
             "age": forms.NumberInput(attrs={"min": 1, "max": 120}),
@@ -125,6 +146,18 @@ class ProfileForm(forms.ModelForm):
             "latitude": forms.HiddenInput(),
             "longitude": forms.HiddenInput(),
         }
+
+    def clean(self):
+        # DecimalField(max_digits=9) alone allows any value up to ~1000,
+        # which is meaningless (and, on the map, misleading) for a real-world
+        # WGS84 latitude/longitude — enforce the actual coordinate range here.
+        cleaned = super().clean()
+        lat, lng = cleaned.get("latitude"), cleaned.get("longitude")
+        if (lat is None) != (lng is None):
+            raise forms.ValidationError("Укажите широту и долготу вместе или не указывайте вовсе.")
+        if lat is not None and lng is not None and not (-90 <= lat <= 90 and -180 <= lng <= 180):
+            raise forms.ValidationError("Некорректные координаты.")
+        return cleaned
 
     def save(self, commit=True):
         profile = super().save(commit=False)
@@ -138,11 +171,16 @@ class ProfileForm(forms.ModelForm):
 class UserUpdateForm(forms.ModelForm):
     class Meta:
         model = Users
-        fields = ["email", "region", "telegram_id"]
+        # telegram_id is managed separately via the verified Telegram-linking
+        # flow (accounts.views.telegram_link_view), never edited free-form here.
+        fields = ["email", "region"]
+        labels = {
+            "email": "Email",
+            "region": "Регион",
+        }
         widgets = {
             "email": forms.EmailInput(),
             "region": forms.Select(choices=[("", "Выберите регион")] + REGION_CHOICES),
-            "telegram_id": forms.NumberInput(attrs={"placeholder": "Telegram chat id"}),
         }
 
     def clean_email(self):

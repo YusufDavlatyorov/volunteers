@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Page not found - Generation Connect{% endblock %}
+{% block content %}
+<section class="status-screen">
+    <div class="status-card">
+        <div class="status-icon is-rejected">
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.3-4.3M8 11h6"></path></svg>
+        </div>
+        <p class="status-code">404</p>
+        <h1 data-i18n="error404.title">Page not found</h1>
+        <p data-i18n="error404.desc">The page you were looking for has moved or no longer exists.</p>
+        <div class="button-row">
+            <a class="button primary" href="{% url 'about' %}" data-i18n="error.back_home">Go to home</a>
+            {% if user.is_authenticated %}<a class="button ghost" href="{% url 'profile' %}" data-i18n="error.back_dashboard">Dashboard</a>{% endif %}
+        </div>
+    </div>
+</section>
+{% endblock %}

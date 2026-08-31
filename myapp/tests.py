@@ -1,19 +1,27 @@
+import io
+import threading
 from unittest import mock
 
 import requests
+from PIL import Image
 from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
 from django.core import mail
-from django.db import IntegrityError, transaction
-from django.test import Client, TestCase, override_settings
+from django.core.cache import cache
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import IntegrityError, OperationalError, connection, transaction
+from django.test import Client, TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from accounts.models import Users
-from .models import HelpRequest, VolunteerApplication
+from accounts.models import Users, hash_token
+from .forms import HelpRequestForm, PhotoReportForm
+from .models import HelpRequest, PhotoReport, VolunteerApplication
+from .notifications import notify_users
 from .services import analytics
 from .services.geo import get_route, haversine_km, is_valid_coordinate
 from .services.matching import recommend_volunteers
+from .services.telegram_link import LINK_ATTEMPT_LIMIT, redeem_link_code
 
 
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
@@ -443,6 +451,145 @@ class MapAndLocationTests(TestCase):
         self.client.login(username="map_admin", password="pass12345")
         self.assertEqual(self.client.get(reverse("create_event")).status_code, 200)
         self.assertEqual(self.client.get(reverse("broadcast")).status_code, 200)
+
+    def test_map_data_payload_carries_ops_fields(self):
+        HelpRequest.objects.create(
+            client=self.client_user, help_type="grocery", description="mine", address="a", phone="p",
+            region="dushanbe", latitude=38.5, longitude=68.7, priority="emergency",
+        )
+        self.client.login(username="map_client", password="pass12345")
+        point = next(p for p in self.client.get(reverse("map_data")).json()["points"] if p["kind"] == "task")
+        for key in ("id", "kind", "status", "priority", "help_type", "region", "is_overdue", "url"):
+            self.assertIn(key, point)
+        self.assertEqual(point["priority"], "emergency")
+        self.assertFalse(point["is_overdue"])
+
+    def test_map_data_marks_overdue_active_task(self):
+        HelpRequest.objects.create(
+            client=self.client_user, help_type="grocery", description="late", address="a", phone="p",
+            region="dushanbe", latitude=38.5, longitude=68.7, status="active", volunteer=self.volunteer,
+            accepted_at=timezone.now() - timezone.timedelta(hours=4),
+        )
+        self.client.login(username="map_client", password="pass12345")
+        point = next(p for p in self.client.get(reverse("map_data")).json()["points"] if p["kind"] == "task")
+        self.assertTrue(point["is_overdue"])
+
+    def test_located_client_gets_a_me_marker_but_still_only_own_tasks(self):
+        self.client_user.profile.set_location(38.52, 68.75)
+        HelpRequest.objects.create(
+            client=self.client_user, help_type="grocery", description="mine", address="a", phone="p",
+            region="dushanbe", latitude=38.5, longitude=68.7,
+        )
+        other = Users.objects.create_user(
+            username="c_other", email="c_other@example.com", password="pass12345", is_client=True, region="dushanbe"
+        )
+        HelpRequest.objects.create(
+            client=other, help_type="grocery", description="theirs", address="a", phone="p",
+            region="dushanbe", latitude=38.6, longitude=68.8,
+        )
+        self.client.login(username="map_client", password="pass12345")
+        points = self.client.get(reverse("map_data")).json()["points"]
+        self.assertEqual(sum(1 for p in points if p["kind"] == "me"), 1)
+        self.assertEqual(sum(1 for p in points if p["kind"] == "task"), 1)
+
+    def test_ops_map_page_renders_component_and_filter_context(self):
+        self.client.login(username="map_admin", password="pass12345")
+        response = self.client.get(reverse("map"))
+        self.assertContains(response, 'id="opsMap"')
+        self.assertContains(response, "ops-map__panel")
+        self.assertContains(response, 'id="opsFilterPriority"')
+        self.assertIn("priority_choices", response.context)
+
+
+class PriorityFieldTests(TestCase):
+    def setUp(self):
+        self.client_user = Users.objects.create_user(
+            username="pr_client", email="pr_client@example.com", password="pass12345", is_client=True, region="dushanbe"
+        )
+
+    def test_priority_defaults_to_normal(self):
+        task = HelpRequest.objects.create(
+            client=self.client_user, help_type="grocery", description="x", address="a", phone="p", region="dushanbe",
+        )
+        self.assertEqual(task.priority, "normal")
+        self.assertFalse(task.is_urgent)
+
+    def test_legacy_is_urgent_create_still_works(self):
+        task = HelpRequest.objects.create(
+            client=self.client_user, help_type="grocery", description="x", address="a", phone="p",
+            region="dushanbe", is_urgent=True,
+        )
+        self.assertTrue(task.is_urgent)
+
+    def test_form_priority_syncs_is_urgent(self):
+        self.client.login(username="pr_client", password="pass12345")
+        self.client.post(reverse("create_request"), {
+            "help_type": "medical", "description": "urgent", "address": "a", "phone": "+992", "priority": "emergency",
+        })
+        task = HelpRequest.objects.get(client=self.client_user)
+        self.assertEqual(task.priority, "emergency")
+        self.assertTrue(task.is_urgent)
+
+    def test_form_normal_priority_leaves_is_urgent_false(self):
+        self.client.login(username="pr_client", password="pass12345")
+        self.client.post(reverse("create_request"), {
+            "help_type": "grocery", "description": "calm", "address": "a", "phone": "+992", "priority": "normal",
+        })
+        task = HelpRequest.objects.get(client=self.client_user)
+        self.assertEqual(task.priority, "normal")
+        self.assertFalse(task.is_urgent)
+
+    def test_crm_filter_by_priority(self):
+        admin = Users.objects.create_superuser(username="pr_admin", email="pr_admin@example.com", password="pass12345")
+        HelpRequest.objects.create(
+            client=self.client_user, help_type="medical", description="emergency one", address="a", phone="p",
+            region="dushanbe", priority="emergency",
+        )
+        HelpRequest.objects.create(
+            client=self.client_user, help_type="grocery", description="calm one", address="a", phone="p",
+            region="dushanbe", priority="normal",
+        )
+        self.client.login(username="pr_admin", password="pass12345")
+        response = self.client.get(reverse("crm_tasks"), {"priority": "emergency"})
+        rows = list(response.context["page_obj"])
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].priority, "emergency")
+
+
+class StartRouteTests(TestCase):
+    def setUp(self):
+        self.client_user = Users.objects.create_user(
+            username="sr_client", email="sr_client@example.com", password="pass12345", is_client=True, region="dushanbe"
+        )
+        self.volunteer = Users.objects.create_user(
+            username="sr_vol", email="sr_vol@example.com", password="pass12345", is_volunteer=True, region="dushanbe"
+        )
+        self.other_vol = Users.objects.create_user(
+            username="sr_vol2", email="sr_vol2@example.com", password="pass12345", is_volunteer=True, region="dushanbe"
+        )
+        self.task = HelpRequest.objects.create(
+            client=self.client_user, help_type="grocery", description="x", address="a", phone="p",
+            region="dushanbe", status="active", volunteer=self.volunteer, latitude=38.5, longitude=68.7,
+        )
+
+    def _get(self, username):
+        self.client.login(username=username, password="pass12345")
+        return self.client.get(reverse("task_detail", args=[self.task.pk]))
+
+    def test_assigned_volunteer_sees_start_route_deep_link(self):
+        response = self._get("sr_vol")
+        self.assertContains(response, "google.com/maps/dir/")
+        self.assertContains(response, "destination=38.5")
+
+    def test_client_and_other_volunteer_do_not_see_start_route(self):
+        self.assertNotContains(self._get("sr_client"), "google.com/maps/dir/")
+        # other volunteer can't even view this active task
+        self.assertEqual(self._get("sr_vol2").status_code, 302)
+
+    def test_no_start_route_without_task_location(self):
+        self.task.latitude = self.task.longitude = None
+        self.task.save(update_fields=["latitude", "longitude"])
+        self.assertNotContains(self._get("sr_vol"), "google.com/maps/dir/")
 
 
 class GeoServiceTests(TestCase):
@@ -1399,3 +1546,518 @@ class TaskDetailCrmIntegrationTests(TestCase):
         self.client.login(username="tdi_admin", password="pass12345")
         response = self.client.get(reverse("task_detail", args=[task.pk]))
         self.assertNotContains(response, 'data-i18n="crm.history_overdue"')
+
+
+class TaskDetailIdorTests(TestCase):
+    """CRITICAL: task_detail_view used to let any authenticated user open any
+    pending HelpRequest (address/phone/description leaked) just by knowing
+    its <pk>, because `task.status == "pending"` was one of the
+    OR-conditions in the old permission check."""
+
+    def setUp(self):
+        self.admin = Users.objects.create_superuser(username="idor_admin", email="idor_admin@example.com", password="pass12345")
+        self.curator = Users.objects.create_user(
+            username="idor_curator", email="idor_curator@example.com", password="pass12345", is_curator=True
+        )
+        self.client_a = Users.objects.create_user(
+            username="idor_client_a", email="idor_client_a@example.com", password="pass12345", is_client=True, region="dushanbe"
+        )
+        self.client_b = Users.objects.create_user(
+            username="idor_client_b", email="idor_client_b@example.com", password="pass12345", is_client=True, region="dushanbe"
+        )
+        self.vol_same_region = Users.objects.create_user(
+            username="idor_vol_same", email="idor_vol_same@example.com", password="pass12345", is_volunteer=True, region="dushanbe"
+        )
+        self.vol_other_region = Users.objects.create_user(
+            username="idor_vol_other", email="idor_vol_other@example.com", password="pass12345", is_volunteer=True, region="khatlon"
+        )
+        self.vol_no_region = Users.objects.create_user(
+            username="idor_vol_none", email="idor_vol_none@example.com", password="pass12345", is_volunteer=True, region=""
+        )
+        self.task = HelpRequest.objects.create(
+            client=self.client_a, help_type="grocery", description="secret groceries", address="12 Secret St",
+            phone="+992900000000", region="dushanbe", status="pending",
+        )
+
+    def test_other_client_cannot_view_someone_elses_pending_task(self):
+        self.client.login(username="idor_client_b", password="pass12345")
+        response = self.client.get(reverse("task_detail", args=[self.task.pk]))
+        self.assertRedirects(response, reverse("profile"))
+
+    def test_owning_client_can_view_own_task(self):
+        self.client.login(username="idor_client_a", password="pass12345")
+        response = self.client.get(reverse("task_detail", args=[self.task.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "12 Secret St")
+
+    def test_volunteer_in_matching_region_can_view_pending_task(self):
+        self.client.login(username="idor_vol_same", password="pass12345")
+        response = self.client.get(reverse("task_detail", args=[self.task.pk]))
+        self.assertEqual(response.status_code, 200)
+
+    def test_volunteer_in_other_region_cannot_view_pending_task(self):
+        self.client.login(username="idor_vol_other", password="pass12345")
+        response = self.client.get(reverse("task_detail", args=[self.task.pk]))
+        self.assertRedirects(response, reverse("profile"))
+
+    def test_volunteer_with_no_region_can_view_any_pending_task(self):
+        # Matches task_list_view: a volunteer with no region set sees pending
+        # tasks from every region, so the detail page must allow it too.
+        self.client.login(username="idor_vol_none", password="pass12345")
+        response = self.client.get(reverse("task_detail", args=[self.task.pk]))
+        self.assertEqual(response.status_code, 200)
+
+    def test_volunteer_cannot_view_another_volunteers_active_task(self):
+        self.task.status = "active"
+        self.task.volunteer = self.vol_same_region
+        self.task.accepted_at = timezone.now()
+        self.task.save()
+        bystander = Users.objects.create_user(
+            username="idor_vol_bystander", email="idor_vol_bystander@example.com", password="pass12345",
+            is_volunteer=True, region="dushanbe",
+        )
+        self.client.login(username="idor_vol_bystander", password="pass12345")
+        response = self.client.get(reverse("task_detail", args=[self.task.pk]))
+        self.assertRedirects(response, reverse("profile"))
+
+    def test_curator_and_admin_have_full_access(self):
+        for username in ("idor_curator", "idor_admin"):
+            self.client.login(username=username, password="pass12345")
+            response = self.client.get(reverse("task_detail", args=[self.task.pk]))
+            self.assertEqual(response.status_code, 200)
+            self.client.logout()
+
+    def test_incrementing_pk_does_not_leak_another_clients_task(self):
+        # The exact IDOR shape described in the report: probe an adjacent id.
+        other_task = HelpRequest.objects.create(
+            client=self.client_b, help_type="medical", description="other client's private issue", address="99 Other Ave",
+            phone="+992911111111", region="dushanbe", status="pending",
+        )
+        self.assertEqual(other_task.pk, self.task.pk + 1)  # sanity: adjacent ids, as a real IDOR probe would try
+        self.client.login(username="idor_client_a", password="pass12345")
+        response = self.client.get(reverse("task_detail", args=[other_task.pk]))
+        self.assertRedirects(response, reverse("profile"))
+
+
+class AcceptTaskRaceConditionTests(TestCase):
+    """HIGH: accept_task_view raced. These are deterministic simulations of
+    the exact interleavings the fix must survive; AcceptTaskConcurrencyTests
+    below exercises the same two races with real concurrent threads."""
+
+    def setUp(self):
+        cache.clear()
+        self.client_user = Users.objects.create_user(
+            username="race_det_client", email="race_det_client@example.com", password="pass12345", is_client=True, region="dushanbe"
+        )
+        self.vol_a = Users.objects.create_user(
+            username="race_det_vol_a", email="race_det_vol_a@example.com", password="pass12345", is_volunteer=True, region="dushanbe"
+        )
+        self.task = HelpRequest.objects.create(
+            client=self.client_user, help_type="grocery", description="x", address="a", phone="p", region="dushanbe",
+        )
+
+    def tearDown(self):
+        cache.clear()
+
+    def test_task_taken_between_page_load_and_click_is_rejected_not_overwritten(self):
+        # Simulates another request winning the race a moment earlier: by the
+        # time our conditional UPDATE runs, status is no longer "pending".
+        other_vol = Users.objects.create_user(
+            username="race_det_vol_b", email="race_det_vol_b@example.com", password="pass12345", is_volunteer=True, region="dushanbe"
+        )
+        HelpRequest.objects.filter(pk=self.task.pk).update(volunteer=other_vol, status="active", accepted_at=timezone.now())
+
+        self.client.login(username="race_det_vol_a", password="pass12345")
+        response = self.client.post(reverse("accept_task", args=[self.task.pk]))
+        self.assertRedirects(response, reverse("task_list"))
+
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.volunteer_id, other_vol.pk)  # not overwritten by the loser
+        self.assertEqual(self.task.status, "active")
+
+    def test_in_flight_accept_lock_blocks_a_second_concurrent_attempt(self):
+        # Simulates the same volunteer's second concurrent request arriving
+        # while the first request is still mid-flight (lock held).
+        second_task = HelpRequest.objects.create(
+            client=self.client_user, help_type="grocery", description="y", address="a", phone="p", region="dushanbe",
+        )
+        cache.set(f"accept_task_lock:{self.vol_a.pk}", "1", 10)
+
+        self.client.login(username="race_det_vol_a", password="pass12345")
+        response = self.client.post(reverse("accept_task", args=[second_task.pk]))
+        self.assertRedirects(response, reverse("task_list"))
+
+        second_task.refresh_from_db()
+        self.assertEqual(second_task.status, "pending")
+        self.assertIsNone(second_task.volunteer)
+
+
+class AcceptTaskConcurrencyTests(TransactionTestCase):
+    """The two races named in the report, exercised against real concurrent
+    requests on separate DB connections/threads (TransactionTestCase, not
+    TestCase, so the threads can actually see each other's committed rows)."""
+
+    def setUp(self):
+        cache.clear()
+        self.client_user = Users.objects.create_user(
+            username="race_live_client", email="race_live_client@example.com", password="pass12345", is_client=True, region="dushanbe"
+        )
+        self.vol_a = Users.objects.create_user(
+            username="race_live_vol_a", email="race_live_vol_a@example.com", password="pass12345", is_volunteer=True, region="dushanbe"
+        )
+        self.vol_b = Users.objects.create_user(
+            username="race_live_vol_b", email="race_live_vol_b@example.com", password="pass12345", is_volunteer=True, region="dushanbe"
+        )
+
+    def tearDown(self):
+        cache.clear()
+
+    def _accept_in_thread(self, username, task_pk, barrier):
+        def run():
+            barrier.wait()
+            try:
+                thread_client = Client()
+                thread_client.login(username=username, password="pass12345")
+                thread_client.post(reverse("accept_task", args=[task_pk]))
+            except OperationalError:
+                # SQLite's own busy-timeout occasionally trips under real
+                # thread contention on a loaded test machine (even the
+                # session-write in .login() can hit it); the assertions below
+                # only look at final committed state, so a request that
+                # simply lost the race to even acquire the write lock is a
+                # legitimate (if noisy) outcome here, not a test bug.
+                pass
+            finally:
+                connection.close()
+
+        thread = threading.Thread(target=run)
+        thread.start()
+        return thread
+
+    def test_two_volunteers_racing_the_same_task_only_one_wins(self):
+        task = HelpRequest.objects.create(
+            client=self.client_user, help_type="grocery", description="x", address="a", phone="p", region="dushanbe",
+        )
+        barrier = threading.Barrier(2)
+        t1 = self._accept_in_thread("race_live_vol_a", task.pk, barrier)
+        t2 = self._accept_in_thread("race_live_vol_b", task.pk, barrier)
+        t1.join(timeout=10)
+        t2.join(timeout=10)
+
+        task.refresh_from_db()
+        self.assertEqual(task.status, "active")
+        self.assertIn(task.volunteer_id, [self.vol_a.pk, self.vol_b.pk])
+        self.assertEqual(HelpRequest.objects.filter(status="active").count(), 1)
+
+    def test_one_volunteer_racing_two_tasks_ends_up_with_at_most_one_active(self):
+        task1 = HelpRequest.objects.create(
+            client=self.client_user, help_type="grocery", description="x", address="a", phone="p", region="dushanbe",
+        )
+        task2 = HelpRequest.objects.create(
+            client=self.client_user, help_type="grocery", description="y", address="a", phone="p", region="dushanbe",
+        )
+        barrier = threading.Barrier(2)
+        t1 = self._accept_in_thread("race_live_vol_a", task1.pk, barrier)
+        t2 = self._accept_in_thread("race_live_vol_a", task2.pk, barrier)
+        t1.join(timeout=10)
+        t2.join(timeout=10)
+
+        active_count = HelpRequest.objects.filter(volunteer=self.vol_a, status="active").count()
+        self.assertLessEqual(active_count, 1)
+
+
+class CheckOverdueMethodTests(TestCase):
+    """MEDIUM: GET /myapp/archive/check-overdue/ performed a state change
+    (sending curator alerts, flipping alarm_sent) from a plain link, with no
+    CSRF protection for that action."""
+
+    def setUp(self):
+        self.admin = Users.objects.create_superuser(username="co_admin", email="co_admin@example.com", password="pass12345")
+
+    def test_get_check_overdue_is_rejected(self):
+        self.client.login(username="co_admin", password="pass12345")
+        response = self.client.get(reverse("check_overdue"))
+        self.assertEqual(response.status_code, 405)
+
+    def test_post_check_overdue_works(self):
+        self.client.login(username="co_admin", password="pass12345")
+        response = self.client.post(reverse("check_overdue"))
+        self.assertRedirects(response, reverse("admin_panel"))
+
+
+class HelpRequestFormCoordinateValidationTests(TestCase):
+    """LOW: latitude/longitude accepted any DecimalField(max_digits=9) value
+    (up to ~1000), not just real WGS84 coordinates."""
+
+    def _base_data(self, **overrides):
+        data = {"help_type": "grocery", "description": "x", "address": "a", "phone": "p"}
+        data.update(overrides)
+        return data
+
+    def test_valid_coordinates_accepted(self):
+        form = HelpRequestForm(data=self._base_data(latitude="38.56", longitude="68.78"))
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_out_of_range_latitude_rejected(self):
+        form = HelpRequestForm(data=self._base_data(latitude="999.5", longitude="68.78"))
+        self.assertFalse(form.is_valid())
+
+    def test_missing_longitude_with_latitude_present_is_rejected(self):
+        form = HelpRequestForm(data=self._base_data(latitude="38.56"))
+        self.assertFalse(form.is_valid())
+
+    def test_no_coordinates_at_all_is_still_valid(self):
+        form = HelpRequestForm(data=self._base_data())
+        self.assertTrue(form.is_valid(), form.errors)
+
+
+def _small_image_file(name="photo.png"):
+    buffer = io.BytesIO()
+    Image.new("RGB", (10, 10), color="blue").save(buffer, format="PNG")
+    return SimpleUploadedFile(name, buffer.getvalue(), content_type="image/png")
+
+
+def _oversized_image_file(name="big.png"):
+    # A real, Pillow-parseable PNG with junk appended past the IEND chunk:
+    # Image.open().verify() only reads up to IEND, so this is cheap to build
+    # but still reports a `.size` comfortably over the 5MB cap.
+    buffer = io.BytesIO()
+    Image.new("RGB", (10, 10), color="blue").save(buffer, format="PNG")
+    payload = buffer.getvalue() + b"0" * (6 * 1024 * 1024)
+    return SimpleUploadedFile(name, payload, content_type="image/png")
+
+
+class PhotoReportSecurityTests(TestCase):
+    """LOW: any authenticated user (including clients) could publish a photo
+    report, and image uploads (avatars and photo reports) had no size cap."""
+
+    def setUp(self):
+        self.admin = Users.objects.create_superuser(username="pr_admin", email="pr_admin@example.com", password="pass12345")
+        self.curator = Users.objects.create_user(
+            username="pr_curator", email="pr_curator@example.com", password="pass12345", is_curator=True
+        )
+        self.volunteer = Users.objects.create_user(
+            username="pr_vol", email="pr_vol@example.com", password="pass12345", is_volunteer=True, region="dushanbe"
+        )
+        self.client_user = Users.objects.create_user(
+            username="pr_client", email="pr_client@example.com", password="pass12345", is_client=True, region="dushanbe"
+        )
+
+    def test_client_cannot_create_photo_report(self):
+        self.client.login(username="pr_client", password="pass12345")
+        response = self.client.post(reverse("photo_reports"), {"title": "T", "description": "d", "image": _small_image_file()})
+        self.assertRedirects(response, reverse("photo_reports"))
+        self.assertEqual(PhotoReport.objects.count(), 0)
+
+    def test_client_does_not_see_create_form(self):
+        self.client.login(username="pr_client", password="pass12345")
+        response = self.client.get(reverse("photo_reports"))
+        self.assertNotContains(response, 'enctype="multipart/form-data"')
+
+    def test_volunteer_can_create_photo_report(self):
+        self.client.login(username="pr_vol", password="pass12345")
+        response = self.client.post(reverse("photo_reports"), {"title": "T", "description": "d", "image": _small_image_file()})
+        self.assertRedirects(response, reverse("photo_reports"))
+        self.assertEqual(PhotoReport.objects.count(), 1)
+
+    def test_curator_and_admin_can_create_photo_report(self):
+        for username in ("pr_curator", "pr_admin"):
+            self.client.login(username=username, password="pass12345")
+            response = self.client.post(
+                reverse("photo_reports"), {"title": f"T-{username}", "description": "d", "image": _small_image_file(f"{username}.png")}
+            )
+            self.assertRedirects(response, reverse("photo_reports"))
+            self.client.logout()
+        self.assertEqual(PhotoReport.objects.count(), 2)
+
+    def test_oversized_image_is_rejected_by_form_validation(self):
+        form = PhotoReportForm(data={"title": "T", "description": "d"}, files={"image": _oversized_image_file()})
+        self.assertFalse(form.is_valid())
+        self.assertIn("image", form.errors)
+
+    def test_oversized_avatar_is_rejected_by_form_validation(self):
+        from accounts.forms import ProfileForm
+
+        form = ProfileForm(data={"availability_status": "available"}, files={"image": _oversized_image_file("avatar.png")})
+        self.assertFalse(form.is_valid())
+        self.assertIn("image", form.errors)
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class TelegramLinkRedemptionTests(TestCase):
+    """HIGH #1: the old bot `/link <username>` bound the sender's Telegram chat
+    to ANY account given only a (publicly guessable) username — no auth, no
+    confirmation. Linking now requires a one-time, hashed, short-lived,
+    per-chat-rate-limited code that proves control of BOTH the app account
+    (minted while logged in) and the chat (redeemed from it)."""
+
+    def setUp(self):
+        cache.clear()
+        self.owner = Users.objects.create_user(
+            username="tg_owner", email="tg_owner@example.com", password="pass12345", is_client=True,
+        )
+        self.attacker = Users.objects.create_user(
+            username="tg_attacker", email="tg_attacker@example.com", password="pass12345", is_client=True,
+        )
+
+    def tearDown(self):
+        cache.clear()
+
+    def test_valid_owner_code_links_their_own_chat(self):
+        code = self.owner.generate_telegram_link_token()
+        outcome = redeem_link_code(555001, code)
+        self.assertTrue(outcome.ok)
+        self.assertEqual(outcome.code, "linked")
+        self.owner.refresh_from_db()
+        self.assertEqual(self.owner.telegram_id, 555001)
+        # token consumed
+        self.assertIsNone(self.owner.telegram_link_token)
+
+    def test_code_is_hashed_at_rest(self):
+        code = self.owner.generate_telegram_link_token()
+        self.owner.refresh_from_db()
+        self.assertNotEqual(self.owner.telegram_link_token, code)
+        self.assertEqual(self.owner.telegram_link_token, hash_token(code))
+
+    def test_attacker_cannot_link_a_victim_account_without_its_code(self):
+        # Victim has a live linking code; the attacker never sees it and guesses.
+        self.owner.generate_telegram_link_token()
+        outcome = redeem_link_code(999666, "definitely-not-the-real-code")
+        self.assertFalse(outcome.ok)
+        self.assertEqual(outcome.code, "invalid")
+        self.owner.refresh_from_db()
+        self.assertIsNone(self.owner.telegram_id)
+
+    def test_there_is_no_username_binding_path_at_all(self):
+        # The username itself is worthless to the redemption function now.
+        outcome = redeem_link_code(999667, self.owner.username)
+        self.assertFalse(outcome.ok)
+        self.owner.refresh_from_db()
+        self.assertIsNone(self.owner.telegram_id)
+
+    def test_expired_code_is_rejected(self):
+        code = self.owner.generate_telegram_link_token()
+        self.owner.telegram_link_token_created_at = timezone.now() - timezone.timedelta(minutes=11)
+        self.owner.save(update_fields=["telegram_link_token_created_at"])
+        outcome = redeem_link_code(555002, code)
+        self.assertFalse(outcome.ok)
+        self.assertEqual(outcome.code, "invalid")
+        self.owner.refresh_from_db()
+        self.assertIsNone(self.owner.telegram_id)
+
+    def test_code_is_single_use(self):
+        code = self.owner.generate_telegram_link_token()
+        self.assertTrue(redeem_link_code(555003, code).ok)
+        # replay from the same chat
+        self.assertFalse(redeem_link_code(555003, code).ok)
+        # replay from a different chat must not move the binding either
+        self.assertFalse(redeem_link_code(777003, code).ok)
+        self.owner.refresh_from_db()
+        self.assertEqual(self.owner.telegram_id, 555003)
+
+    def test_regenerating_invalidates_the_previous_code(self):
+        old_code = self.owner.generate_telegram_link_token()
+        new_code = self.owner.generate_telegram_link_token()
+        self.assertFalse(redeem_link_code(555004, old_code).ok)
+        self.assertTrue(redeem_link_code(555004, new_code).ok)
+
+    def test_brute_force_is_throttled_per_chat(self):
+        for i in range(LINK_ATTEMPT_LIMIT):
+            self.assertFalse(redeem_link_code(444555, f"wrong-{i}").ok)
+        # Even the correct code is now refused until the window clears — proving
+        # the limiter runs before the token lookup.
+        code = self.owner.generate_telegram_link_token()
+        outcome = redeem_link_code(444555, code)
+        self.assertFalse(outcome.ok)
+        self.assertEqual(outcome.code, "throttled")
+        self.owner.refresh_from_db()
+        self.assertIsNone(self.owner.telegram_id)
+
+    def test_throttle_is_scoped_per_chat_not_global(self):
+        for i in range(LINK_ATTEMPT_LIMIT):
+            redeem_link_code(11111, f"wrong-{i}")
+        code = self.owner.generate_telegram_link_token()
+        self.assertTrue(redeem_link_code(22222, code).ok)
+
+    def test_successful_link_clears_the_failed_attempt_counter(self):
+        redeem_link_code(333444, "wrong-once")
+        code = self.owner.generate_telegram_link_token()
+        self.assertTrue(redeem_link_code(333444, code).ok)
+        # counter reset: a fresh burst is needed to trip the limit again
+        self.assertEqual(cache.get("telegram_link_attempts:chat:333444"), None)
+
+    def test_existing_telegram_binding_cannot_be_hijacked(self):
+        # owner is already linked to chat 6000
+        self.owner.telegram_id = 6000
+        self.owner.save(update_fields=["telegram_id"])
+        # attacker, logged in as themselves, mints a code and sends it from 6000
+        code = self.attacker.generate_telegram_link_token()
+        outcome = redeem_link_code(6000, code)
+        self.assertFalse(outcome.ok)
+        self.assertEqual(outcome.code, "chat_in_use")
+        self.owner.refresh_from_db()
+        self.attacker.refresh_from_db()
+        self.assertEqual(self.owner.telegram_id, 6000)
+        self.assertIsNone(self.attacker.telegram_id)
+
+    def test_relinking_same_account_to_a_new_chat_reports_the_old_chat(self):
+        self.owner.telegram_id = 100
+        self.owner.save(update_fields=["telegram_id"])
+        code = self.owner.generate_telegram_link_token()
+        outcome = redeem_link_code(200, code)
+        self.assertTrue(outcome.ok)
+        self.assertEqual(outcome.previous_chat_id, 100)
+        self.owner.refresh_from_db()
+        self.assertEqual(self.owner.telegram_id, 200)
+
+    @override_settings(TELEGRAM_BOT_TOKEN="test-bot-token")
+    def test_notifications_reach_the_linked_chat_after_linking(self):
+        code = self.owner.generate_telegram_link_token()
+        redeem_link_code(314159, code)
+        self.owner.refresh_from_db()
+        with mock.patch("myapp.notifications.requests.post") as posted:
+            posted.return_value.raise_for_status.return_value = None
+            notify_users([self.owner], "Subject", "Body")
+        posted.assert_called_once()
+        self.assertEqual(posted.call_args.kwargs["json"]["chat_id"], 314159)
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class TelegramBotCommandTests(TestCase):
+    """The bot command dispatch itself: `/link <username>` is gone; `/link
+    <code>` drives the verified redemption; other commands are unchanged."""
+
+    def setUp(self):
+        cache.clear()
+        from myapp.management.commands.run_telegram_bot import Command
+
+        self.user = Users.objects.create_user(
+            username="bot_user", email="bot_user@example.com", password="pass12345", is_client=True,
+        )
+        self.cmd = Command()
+        self.sent = []
+        self.cmd._send = lambda chat_id, text: self.sent.append((chat_id, text))
+
+    def tearDown(self):
+        cache.clear()
+
+    def test_link_by_username_no_longer_binds_anything(self):
+        self.cmd._handle_message(4242, "/link bot_user")
+        self.user.refresh_from_db()
+        self.assertIsNone(self.user.telegram_id)
+
+    def test_link_with_a_valid_code_binds_the_sender_chat(self):
+        code = self.user.generate_telegram_link_token()
+        self.cmd._handle_message(4242, f"/link {code}")
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.telegram_id, 4242)
+
+    def test_link_without_an_argument_shows_usage(self):
+        self.cmd._handle_message(4242, "/link")
+        self.assertIn("Использование", self.sent[-1][1])
+        self.user.refresh_from_db()
+        self.assertIsNone(self.user.telegram_id)
+
+    def test_id_command_still_returns_the_chat_id(self):
+        self.cmd._handle_message(4242, "/id")
+        self.assertIn("4242", self.sent[-1][1])

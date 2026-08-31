@@ -17,6 +17,33 @@ PASSWORD = "Volunteer2026!"
 
 REGIONS = ["dushanbe", "sogd", "khatlon", "gbao", "rrp"]
 
+# Approximate city centres so demo markers land on the right part of the map.
+REGION_CENTERS = {
+    "dushanbe": (38.5598, 68.7870),
+    "sogd": (40.2839, 69.6220),   # Khujand
+    "khatlon": (37.8300, 68.7800),  # Bokhtar
+    "gbao": (37.4900, 71.5500),   # Khorog
+    "rrp": (38.5200, 68.5500),    # Hisor
+    "all": (38.5598, 68.7870),
+}
+
+_AVAILABILITY_CYCLE = ["available", "available", "available", "busy", "offline"]
+
+
+def _jitter(seed_str, spread=0.035):
+    """Deterministic small lat/lng offset (± ~spread degrees ≈ a few km),
+    seeded from a string so re-running seed_demo keeps markers stable."""
+    h = sum(ord(c) * (i + 1) for i, c in enumerate(seed_str))
+    d_lat = ((h % 1000) / 1000 - 0.5) * 2 * spread
+    d_lng = (((h // 1000) % 1000) / 1000 - 0.5) * 2 * spread
+    return d_lat, d_lng
+
+
+def _coords_for(region, seed_str):
+    base_lat, base_lng = REGION_CENTERS.get(region, REGION_CENTERS["dushanbe"])
+    d_lat, d_lng = _jitter(seed_str)
+    return round(base_lat + d_lat, 6), round(base_lng + d_lng, 6)
+
 
 VOLUNTEERS = [
     ("aziz_k", "Азиз Каримов", "dushanbe", "перевозки, покупки, помощь с документами", 31),
@@ -126,6 +153,16 @@ class Command(BaseCommand):
         profile.bio = bio or "Участник Generation Connect. Готов помогать по своему региону и быстро отвечать на запросы."
         profile.rating = self._rating_for(username, is_volunteer)
         profile.image = ""
+        # Give volunteers and clients a location near their region centre so the
+        # operations map is populated. Curators/admin are coordinators, not
+        # field staff — no location.
+        if is_volunteer or is_client:
+            profile.latitude, profile.longitude = _coords_for(region, username)
+            profile.location_updated_at = timezone.now()
+        if is_volunteer:
+            profile.availability_status = _AVAILABILITY_CYCLE[
+                sum(ord(c) for c in username) % len(_AVAILABILITY_CYCLE)
+            ]
         profile.save()
         return user
 
@@ -168,10 +205,19 @@ class Command(BaseCommand):
             ("grocery", "Купить лекарства по списку и хлеб.", "ул. Сино 15", "sogd", "pending"),
             ("other", "Помочь подготовиться к семейному мероприятию.", "ул. Вахдат 21", "khatlon", "completed"),
         ]
+        # idx 1 (active medical) -> emergency + overdue; idx 5,6 -> high.
+        priority_by_idx = {1: "emergency", 5: "high", 6: "high"}
         result = []
         for idx, (help_type, description, address, region, status) in enumerate(request_data):
             client = clients[idx % len(clients)]
             volunteer = volunteers[idx % len(volunteers)] if status in {"active", "completed"} else None
+            priority = priority_by_idx.get(idx, "normal")
+            accepted_at = None
+            if volunteer:
+                # Push the emergency active task past the 3h overdue threshold.
+                hours_ago = 5 if idx == 1 else idx + 1
+                accepted_at = timezone.now() - timedelta(hours=hours_ago)
+            lat, lng = _coords_for(region, f"{client.username}-{description}")
             item, _ = HelpRequest.objects.update_or_create(
                 client=client,
                 description=description,
@@ -182,8 +228,11 @@ class Command(BaseCommand):
                     "phone": f"+992 90 10{idx:02d} {idx:04d}",
                     "region": region,
                     "status": status,
-                    "is_urgent": idx in {1, 5, 6},
-                    "accepted_at": timezone.now() - timedelta(hours=idx + 1) if volunteer else None,
+                    "priority": priority,
+                    "is_urgent": priority != "normal",
+                    "latitude": lat,
+                    "longitude": lng,
+                    "accepted_at": accepted_at,
                     "completed_at": timezone.now() - timedelta(days=idx) if status == "completed" else None,
                 },
             )

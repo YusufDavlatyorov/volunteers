@@ -28,34 +28,39 @@
         <span class="brand-mark">GC</span>
         <span>Generation Connect</span>
     </a>
-    <button class="menu-button" type="button" data-menu-toggle>☰</button>
+    <button class="menu-button" type="button" data-menu-toggle aria-label="Menu" aria-expanded="false">☰</button>
     <div class="nav-links" data-menu>
-        <a href="{% url 'about' %}" data-i18n="nav.about">About Us</a>
+        {% with active=request.resolver_match.url_name %}
+        <a href="{% url 'about' %}" data-i18n="nav.about" {% if active == 'about' %}aria-current="page"{% endif %}>About Us</a>
         {% if user.is_authenticated %}
-            <a href="{% url 'profile' %}" data-i18n="nav.dashboard">Dashboard</a>
-            <a href="{% url 'map' %}" data-i18n="nav.map">Map</a>
+            <a href="{% url 'profile' %}" data-i18n="nav.dashboard" {% if active == 'profile' %}aria-current="page"{% endif %}>Dashboard</a>
+            <a href="{% url 'map' %}" data-i18n="nav.map" {% if active == 'map' %}aria-current="page"{% endif %}>Map</a>
             {% if user.is_superuser or user.is_curator %}
-                <a href="{% url 'admin_panel' %}" data-i18n="nav.admin">Admin Panel</a>
+                <a href="{% url 'admin_panel' %}" data-i18n="nav.admin" {% if active == 'admin_panel' %}aria-current="page"{% endif %}>Admin Panel</a>
             {% endif %}
             {% if user.is_superuser %}
-                <a href="{% url 'volunteer_applications' %}" data-i18n="nav.volunteer_apps">Volunteer Requests</a>
+                <a href="{% url 'volunteer_applications' %}" data-i18n="nav.volunteer_apps" {% if active == 'volunteer_applications' or active == 'volunteer_application_detail' %}aria-current="page"{% endif %}>Volunteer Requests</a>
             {% endif %}
             {% if user.is_volunteer %}
-                <a href="{% url 'task_list' %}" data-i18n="nav.requests">Find Tasks</a>
+                <a href="{% url 'task_list' %}" data-i18n="nav.requests" {% if active == 'task_list' %}aria-current="page"{% endif %}>Find Tasks</a>
             {% endif %}
             {% if user.is_client %}
-                <a href="{% url 'create_request' %}" data-i18n="nav.new_request">Request Help</a>
+                <a href="{% url 'create_request' %}" data-i18n="nav.new_request" {% if active == 'create_request' %}aria-current="page"{% endif %}>Request Help</a>
             {% endif %}
             {% if not user.is_volunteer and not user.is_client and not user.is_superuser and not user.is_curator %}
-                <a href="{% url 'volunteer_application' %}" data-i18n="nav.my_application">My Application</a>
+                <a href="{% url 'volunteer_application' %}" data-i18n="nav.my_application" {% if active == 'volunteer_application' %}aria-current="page"{% endif %}>My Application</a>
             {% endif %}
-            <a href="{% url 'rating' %}" data-i18n="nav.rating">Rating</a>
-            <a class="button ghost" href="{% url 'logout' %}" data-i18n="nav.logout">Logout</a>
+            <a href="{% url 'rating' %}" data-i18n="nav.rating" {% if active == 'rating' %}aria-current="page"{% endif %}>Rating</a>
+            <form method="post" action="{% url 'logout' %}" class="nav-logout-form">
+                {% csrf_token %}
+                <button type="submit" class="button ghost nav-logout" data-i18n="nav.logout">Logout</button>
+            </form>
         {% else %}
-            <a href="{% url 'rating' %}" data-i18n="nav.rating">Rating</a>
-            <a href="{% url 'login' %}" data-i18n="nav.login">Login</a>
-            <a class="nav-cta" href="{% url 'register' %}" data-i18n="nav.register">Become a Volunteer</a>
+            <a href="{% url 'rating' %}" data-i18n="nav.rating" {% if active == 'rating' %}aria-current="page"{% endif %}>Rating</a>
+            <a href="{% url 'login' %}" data-i18n="nav.login" {% if active == 'login' %}aria-current="page"{% endif %}>Login</a>
+            <a class="nav-cta" href="{% url 'register' %}" data-i18n="nav.register" {% if active == 'register' %}aria-current="page"{% endif %}>Become a Volunteer</a>
         {% endif %}
+        {% endwith %}
     </div>
     <div class="toolbar">
         <div class="lang-group">
@@ -112,8 +117,10 @@
 })();
 
 /* ===== MOBILE MENU ===== */
-document.querySelector('[data-menu-toggle]')?.addEventListener('click', () => {
-    document.querySelector('[data-menu]')?.classList.toggle('open');
+document.querySelector('[data-menu-toggle]')?.addEventListener('click', (e) => {
+    const menu = document.querySelector('[data-menu]');
+    const open = menu?.classList.toggle('open');
+    e.currentTarget.setAttribute('aria-expanded', String(!!open));
 });
 
 /* ===== SCROLL REVEAL ===== */

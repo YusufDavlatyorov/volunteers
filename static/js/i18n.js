@@ -76,6 +76,12 @@ const T = {
     "login.remember":"Remember me","login.no_account":"Don't have an account?",
     "field.username":"Username","field.password":"Password","field.email":"Email",
     "field.region":"Region","field.telegram":"Telegram ID (optional)","field.confirm_password":"Confirm password",
+    "tg.title":"Link Telegram","tg.intro":"Link a Telegram chat to your account to receive notifications there.",
+    "tg.linked":"Your Telegram account is linked.","tg.not_linked":"No Telegram chat is linked yet.",
+    "tg.generate":"Generate linking code","tg.regenerate":"Generate a new code","tg.unlink":"Unlink Telegram",
+    "tg.code_label":"Your one-time code (valid for 10 minutes, single use):",
+    "tg.instructions":"Open Telegram, start a chat with","tg.instructions_2":"and send the line above.",
+    "tg.our_bot":"our bot","tg.back":"Back to profile","tg.edit_link":"Link Telegram for notifications",
     "reg.eyebrow":"Two ways to help","reg.title":"Register",
     "reg.desc":"Help people. Build your community. Make an impact — or ask for a hand when you need one.",
     "reg.heading":"Join Generation Connect","reg.btn":"Submit Application",
@@ -149,6 +155,14 @@ const T = {
     "map.legend_task_urgent":"Urgent","map.legend_volunteer_available":"Volunteer available",
     "map.legend_volunteer_busy":"Volunteer busy","map.legend_volunteer_offline":"Volunteer offline",
     "map.legend_me":"You","map.empty":"No locations to show yet.",
+    "map.ops_title":"Operations Map",
+    "map.filter_status":"Status","map.filter_priority":"Priority","map.filter_region":"Region","map.filter_type":"Request type","map.filter_any":"Any",
+    "map.legend_emergency":"Emergency","map.legend_overdue":"Overdue",
+    "map.locate_me":"Locate me","map.panel_prompt":"Select a marker to see details.","map.panel_distance":"Distance from you",
+    "map.view_task":"View Task","map.start_route":"Start Route",
+    "map.locate_loading":"Determining your location…",
+    "map.locate_denied":"Location access is blocked. Enable it in your browser settings to use this.",
+    "map.locate_unavailable":"Location is unavailable right now.",
     "route.title":"Route to client","route.loading":"Calculating route…",
     "route.distance":"Distance","route.eta":"Estimated time","route.source":"Your location",
     "route.unavailable_title":"Location unavailable",
@@ -172,7 +186,19 @@ const T = {
     "crm.view_profile":"Profile","crm.task_location":"Task location","crm.task_history":"Task history",
     "crm.history_created":"Created","crm.history_accepted":"Accepted","crm.history_completed":"Completed",
     "crm.history_overdue":"Overdue","crm.history_overdue_desc":"In progress for more than 3 hours.",
-    "pagination.prev":"Previous","pagination.page":"Page","pagination.of":"of","pagination.next":"Next"
+    "pagination.prev":"Previous","pagination.page":"Page","pagination.of":"of","pagination.next":"Next",
+    "reset.desc":"Choose a new password for your account.",
+    "error.back_home":"Go to home","error.back_dashboard":"Dashboard",
+    "error404.title":"Page not found",
+    "error404.desc":"The page you were looking for has moved or no longer exists.",
+    "error403.title":"Access denied",
+    "error403.desc":"You don't have permission to view this page with your current role.",
+    "tbl.task":"Task","tbl.type":"Type","tbl.status":"Status","tbl.region":"Region",
+    "tbl.client":"Client","tbl.volunteer":"Volunteer","tbl.created":"Created","tbl.completed":"Completed",
+    "tbl.name":"Name","tbl.availability":"Availability","tbl.activity":"Activity","tbl.rating":"Rating",
+    "tbl.requests":"Requests","tbl.email":"Email","tbl.applicant":"Applicant","tbl.applied":"Applied",
+    "tbl.subject":"Subject","tbl.sent_by":"Sent by","tbl.recipients":"Recipients",
+    "tbl.event":"Event","tbl.date":"Date","tbl.curator":"Curator","tbl.actions":"Actions"
   },
   ru: {
     "nav.about":"О нас","nav.rating":"Рейтинг","nav.profile":"Профиль",
@@ -251,6 +277,12 @@ const T = {
     "login.remember":"Запомнить меня","login.no_account":"Нет аккаунта?",
     "field.username":"Имя пользователя","field.password":"Пароль","field.email":"Email",
     "field.region":"Регион","field.telegram":"Telegram ID (необязательно)","field.confirm_password":"Повторите пароль",
+    "tg.title":"Привязать Telegram","tg.intro":"Привяжите чат Telegram к аккаунту, чтобы получать уведомления там.",
+    "tg.linked":"Ваш аккаунт Telegram привязан.","tg.not_linked":"Telegram пока не привязан.",
+    "tg.generate":"Сгенерировать код привязки","tg.regenerate":"Сгенерировать новый код","tg.unlink":"Отвязать Telegram",
+    "tg.code_label":"Ваш одноразовый код (действует 10 минут, один раз):",
+    "tg.instructions":"Откройте Telegram, начните чат с","tg.instructions_2":"и отправьте строку выше.",
+    "tg.our_bot":"нашим ботом","tg.back":"Назад в профиль","tg.edit_link":"Привязать Telegram для уведомлений",
     "reg.eyebrow":"Два способа помочь","reg.title":"Регистрация",
     "reg.desc":"Помогайте людям. Стройте сообщество. Меняйте жизни — или попросите о помощи, когда она нужна вам.",
     "reg.heading":"Присоединяйтесь к Generation Connect","reg.btn":"Отправить заявку",
@@ -324,6 +356,14 @@ const T = {
     "map.legend_task_urgent":"Срочно","map.legend_volunteer_available":"Волонтёр доступен",
     "map.legend_volunteer_busy":"Волонтёр занят","map.legend_volunteer_offline":"Волонтёр не в сети",
     "map.legend_me":"Вы","map.empty":"Пока нет точек для отображения.",
+    "map.ops_title":"Оперативная карта",
+    "map.filter_status":"Статус","map.filter_priority":"Приоритет","map.filter_region":"Регион","map.filter_type":"Тип запроса","map.filter_any":"Любой",
+    "map.legend_emergency":"Экстренный","map.legend_overdue":"Просрочен",
+    "map.locate_me":"Найти меня","map.panel_prompt":"Выберите маркер, чтобы увидеть детали.","map.panel_distance":"Расстояние от вас",
+    "map.view_task":"Открыть запрос","map.start_route":"Построить маршрут",
+    "map.locate_loading":"Определяем ваше местоположение…",
+    "map.locate_denied":"Доступ к геолокации заблокирован. Включите его в настройках браузера.",
+    "map.locate_unavailable":"Геолокация сейчас недоступна.",
     "route.title":"Маршрут к клиенту","route.loading":"Расчёт маршрута…",
     "route.distance":"Расстояние","route.eta":"Время в пути","route.source":"Ваше местоположение",
     "route.unavailable_title":"Местоположение недоступно",
@@ -347,7 +387,19 @@ const T = {
     "crm.view_profile":"Профиль","crm.task_location":"Местоположение запроса","crm.task_history":"История запроса",
     "crm.history_created":"Создан","crm.history_accepted":"Принят","crm.history_completed":"Завершён",
     "crm.history_overdue":"Просрочен","crm.history_overdue_desc":"В работе более 3 часов.",
-    "pagination.prev":"Назад","pagination.page":"Страница","pagination.of":"из","pagination.next":"Вперёд"
+    "pagination.prev":"Назад","pagination.page":"Страница","pagination.of":"из","pagination.next":"Вперёд",
+    "reset.desc":"Выберите новый пароль для аккаунта.",
+    "error.back_home":"На главную","error.back_dashboard":"Дашборд",
+    "error404.title":"Страница не найдена",
+    "error404.desc":"Страница, которую вы искали, перемещена или больше не существует.",
+    "error403.title":"Доступ запрещён",
+    "error403.desc":"У вашей роли нет прав для просмотра этой страницы.",
+    "tbl.task":"Запрос","tbl.type":"Вид","tbl.status":"Статус","tbl.region":"Регион",
+    "tbl.client":"Клиент","tbl.volunteer":"Волонтёр","tbl.created":"Создан","tbl.completed":"Завершён",
+    "tbl.name":"Имя","tbl.availability":"Доступность","tbl.activity":"Активность","tbl.rating":"Рейтинг",
+    "tbl.requests":"Запросы","tbl.email":"Email","tbl.applicant":"Заявитель","tbl.applied":"Подана",
+    "tbl.subject":"Тема","tbl.sent_by":"Отправитель","tbl.recipients":"Получатели",
+    "tbl.event":"Акция","tbl.date":"Дата","tbl.curator":"Куратор","tbl.actions":"Действия"
   },
   tj: {
     "nav.about":"Дар бораи мо","nav.rating":"Рейтинг","nav.profile":"Профил",
@@ -426,6 +478,12 @@ const T = {
     "login.remember":"Маро дар хотир нигоҳ дор","login.no_account":"Ҳисоб надоред?",
     "field.username":"Номи корбар","field.password":"Парол","field.email":"Email",
     "field.region":"Минтақа","field.telegram":"Telegram ID (ихтиёрӣ)","field.confirm_password":"Паролро такрор кунед",
+    "tg.title":"Пайвасти Telegram","tg.intro":"Чати Telegram-ро ба аккаунт пайваст кунед, то огоҳиномаҳоро дар он ҷо гиред.",
+    "tg.linked":"Аккаунти Telegram-и шумо пайваст шудааст.","tg.not_linked":"Telegram ҳанӯз пайваст нашудааст.",
+    "tg.generate":"Сохтани рамзи пайваст","tg.regenerate":"Сохтани рамзи нав","tg.unlink":"Ҷудо кардани Telegram",
+    "tg.code_label":"Рамзи яккаратаи шумо (10 дақиқа эътибор дорад, як бор):",
+    "tg.instructions":"Telegram-ро кушоед, бо","tg.instructions_2":"чат оғоз карда, сатри болоро фиристед.",
+    "tg.our_bot":"боти мо","tg.back":"Бозгашт ба профил","tg.edit_link":"Пайвасти Telegram барои огоҳиномаҳо",
     "reg.eyebrow":"Ду роҳи кӯмак","reg.title":"Бақайдгирӣ",
     "reg.desc":"Ба одамон кӯмак кунед. Ҷамъияти худро бунёд кунед. Таъсир расонед — ё вақте ки ба кӯмак ниёз доред, дархост кунед.",
     "reg.heading":"Ба Generation Connect ҳамроҳ шавед","reg.btn":"Дархостро фиристодан",
@@ -499,6 +557,14 @@ const T = {
     "map.legend_task_urgent":"Таъҷилӣ","map.legend_volunteer_available":"Волонтёр дастрас",
     "map.legend_volunteer_busy":"Волонтёр банд","map.legend_volunteer_offline":"Волонтёр офлайн",
     "map.legend_me":"Шумо","map.empty":"Ҳоло ягон нуқта барои намоиш нест.",
+    "map.ops_title":"Харитаи оперативӣ",
+    "map.filter_status":"Ҳолат","map.filter_priority":"Афзалият","map.filter_region":"Минтақа","map.filter_type":"Навъи дархост","map.filter_any":"Ҳама",
+    "map.legend_emergency":"Фаврӣ","map.legend_overdue":"Дермонда",
+    "map.locate_me":"Маро ёбед","map.panel_prompt":"Барои дидани тафсилот нишонаро интихоб кунед.","map.panel_distance":"Масофа аз шумо",
+    "map.view_task":"Кушодани дархост","map.start_route":"Сохтани масир",
+    "map.locate_loading":"Ҷойгиршавии шумо муайян карда мешавад…",
+    "map.locate_denied":"Дастрасӣ ба ҷойгиршавӣ баста аст. Онро дар танзимоти браузер фаъол кунед.",
+    "map.locate_unavailable":"Ҷойгиршавӣ ҳоло дастрас нест.",
     "route.title":"Масир то муштарӣ","route.loading":"Ҳисоб кардани масир…",
     "route.distance":"Масофа","route.eta":"Вақти тахминӣ","route.source":"Ҷойгиршавии шумо",
     "route.unavailable_title":"Ҷойгиршавӣ дастрас нест",
@@ -522,7 +588,19 @@ const T = {
     "crm.view_profile":"Профил","crm.task_location":"Ҷойгиршавии дархост","crm.task_history":"Таърихи дархост",
     "crm.history_created":"Сохта шуд","crm.history_accepted":"Қабул шуд","crm.history_completed":"Анҷом ёфт",
     "crm.history_overdue":"Дермонда","crm.history_overdue_desc":"Зиёда аз 3 соат дар кор.",
-    "pagination.prev":"Қафо","pagination.page":"Саҳифа","pagination.of":"аз","pagination.next":"Пеш"
+    "pagination.prev":"Қафо","pagination.page":"Саҳифа","pagination.of":"аз","pagination.next":"Пеш",
+    "reset.desc":"Барои аккаунти худ пароли нав интихоб кунед.",
+    "error.back_home":"Ба саҳифаи асосӣ","error.back_dashboard":"Дашборд",
+    "error404.title":"Саҳифа ёфт нашуд",
+    "error404.desc":"Саҳифае, ки ҷустуҷӯ мекардед, кӯчонида шудааст ё дигар вуҷуд надорад.",
+    "error403.title":"Дастрасӣ манъ аст",
+    "error403.desc":"Нақши шумо барои дидани ин саҳифа ҳуқуқ надорад.",
+    "tbl.task":"Дархост","tbl.type":"Навъ","tbl.status":"Ҳолат","tbl.region":"Минтақа",
+    "tbl.client":"Муштарӣ","tbl.volunteer":"Волонтёр","tbl.created":"Сохта шуд","tbl.completed":"Анҷом ёфт",
+    "tbl.name":"Ном","tbl.availability":"Дастрасӣ","tbl.activity":"Фаъолият","tbl.rating":"Рейтинг",
+    "tbl.requests":"Дархостҳо","tbl.email":"Email","tbl.applicant":"Дархостдиҳанда","tbl.applied":"Пешниҳод шуд",
+    "tbl.subject":"Мавзӯъ","tbl.sent_by":"Фиристанда","tbl.recipients":"Қабулкунандагон",
+    "tbl.event":"Чорабинӣ","tbl.date":"Сана","tbl.curator":"Куратор","tbl.actions":"Амалҳо"
   }
 };
 
@@ -544,6 +622,16 @@ function setLanguage(lang) {
   });
   document.querySelectorAll('.lang-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.lang === lang);
+  });
+  // Keep the responsive (stacked) data-table row labels in sync with the
+  // translated column headers, so the mobile card view is localized too.
+  document.querySelectorAll('table.data-table').forEach(table => {
+    const heads = Array.from(table.querySelectorAll('thead th')).map(th => th.textContent.trim());
+    table.querySelectorAll('tbody tr').forEach(tr => {
+      Array.from(tr.children).forEach((td, i) => {
+        if (heads[i]) td.setAttribute('data-label', heads[i]);
+      });
+    });
   });
 }
 

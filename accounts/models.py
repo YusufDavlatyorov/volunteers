@@ -1,9 +1,41 @@
-import uuid
+import hashlib
+import secrets
 from datetime import timedelta
 
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
+
+
+MAX_UPLOAD_SIZE_MB = 5
+MAX_UPLOAD_SIZE_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024
+
+
+def validate_file_size(value):
+    """Shared upload-size cap for avatar/photo-report images — an
+    unrestricted ImageField accepts arbitrarily large files, which is an easy
+    disk-exhaustion / slow-upload denial-of-service vector on MEDIA_ROOT."""
+    if value.size > MAX_UPLOAD_SIZE_BYTES:
+        raise ValidationError(f"Файл слишком большой. Максимальный размер: {MAX_UPLOAD_SIZE_MB} МБ.")
+
+
+def hash_token(raw_token):
+    """One-way hash for reset/verification tokens at rest.
+
+    Only this hash is stored in the DB, so reading the database (a backup
+    leak, a SQL-injection elsewhere, etc.) doesn't hand out working
+    password-reset or email-confirmation links — the raw token that goes into
+    the emailed URL never touches storage. SHA-256 (not a slow password
+    hash) is appropriate here because the input is a high-entropy random
+    token, not a low-entropy guessable secret like a password.
+    """
+    return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+
+# A Telegram-linking code is a one-time credential typed into the bot chat, so
+# it must live long enough to switch apps and copy/paste but no longer.
+TELEGRAM_LINK_TOKEN_TTL = timedelta(minutes=10)
 
 
 REGION_CHOICES = [
@@ -63,6 +95,11 @@ class Users(AbstractBaseUser, PermissionsMixin):
     email_verification_token_created_at = models.DateTimeField(null=True, blank=True)
     reset_password_token = models.CharField(max_length=100, null=True, blank=True)
     reset_password_token_created_at = models.DateTimeField(null=True, blank=True)
+    # Only the hash of the current Telegram-linking code is kept at rest, same
+    # as the reset/verification tokens above. The raw code is shown once in the
+    # web UI and then redeemed via the bot (see myapp/services/telegram_link.py).
+    telegram_link_token = models.CharField(max_length=100, null=True, blank=True)
+    telegram_link_token_created_at = models.DateTimeField(null=True, blank=True)
     date_joined = models.DateTimeField(auto_now_add=True)
 
     objects = UsersManager()
@@ -111,10 +148,11 @@ class Users(AbstractBaseUser, PermissionsMixin):
         return f"{self.username} ({self.role_display})"
 
     def generate_email_verification_token(self):
-        self.email_verification_token = str(uuid.uuid4())
+        raw_token = secrets.token_urlsafe(32)
+        self.email_verification_token = hash_token(raw_token)
         self.email_verification_token_created_at = timezone.now()
         self.save(update_fields=["email_verification_token", "email_verification_token_created_at"])
-        return self.email_verification_token
+        return raw_token
 
     def email_verification_token_is_valid(self):
         if not self.email_verification_token_created_at:
@@ -128,10 +166,11 @@ class Users(AbstractBaseUser, PermissionsMixin):
         self.save()
 
     def generate_reset_password_token(self):
-        self.reset_password_token = str(uuid.uuid4())
+        raw_token = secrets.token_urlsafe(32)
+        self.reset_password_token = hash_token(raw_token)
         self.reset_password_token_created_at = timezone.now()
         self.save(update_fields=["reset_password_token", "reset_password_token_created_at"])
-        return self.reset_password_token
+        return raw_token
 
     def reset_password_token_is_valid(self):
         if not self.reset_password_token_created_at:
@@ -142,6 +181,26 @@ class Users(AbstractBaseUser, PermissionsMixin):
         self.reset_password_token = None
         self.reset_password_token_created_at = None
         self.save(update_fields=["reset_password_token", "reset_password_token_created_at"])
+
+    def generate_telegram_link_token(self):
+        """Mint a fresh one-time code for binding a Telegram chat to this
+        account. Returns the raw code (shown once in the UI); only its hash is
+        stored, and minting a new code invalidates any previous one."""
+        raw_token = secrets.token_urlsafe(32)
+        self.telegram_link_token = hash_token(raw_token)
+        self.telegram_link_token_created_at = timezone.now()
+        self.save(update_fields=["telegram_link_token", "telegram_link_token_created_at"])
+        return raw_token
+
+    def telegram_link_token_is_valid(self):
+        if not self.telegram_link_token or not self.telegram_link_token_created_at:
+            return False
+        return timezone.now() < self.telegram_link_token_created_at + TELEGRAM_LINK_TOKEN_TTL
+
+    def clear_telegram_link_token(self):
+        self.telegram_link_token = None
+        self.telegram_link_token_created_at = None
+        self.save(update_fields=["telegram_link_token", "telegram_link_token_created_at"])
 
 
 class Profile(models.Model):
@@ -157,7 +216,7 @@ class Profile(models.Model):
     user = models.OneToOneField(Users, on_delete=models.CASCADE, related_name="profile")
     full_name = models.CharField(max_length=255, blank=True)
     age = models.PositiveIntegerField(null=True, blank=True)
-    image = models.ImageField(upload_to="avatars/", blank=True)
+    image = models.ImageField(upload_to="avatars/", blank=True, validators=[validate_file_size])
     bio = models.TextField(blank=True)
     rating = models.PositiveIntegerField(default=0)
 
