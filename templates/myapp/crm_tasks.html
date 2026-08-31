@@ -45,7 +45,7 @@
                             {% if task.is_urgent %}<span class="cell-sub"><span class="tag urgent" data-i18n="task.urgent_badge">Urgent</span></span>{% endif %}
                         </td>
                         <td data-label="Region">{{ task.get_region_display|default:"—" }}</td>
-                        <td data-label="Status">{% include "myapp/_task_status_tag.html" with status=task.status status_display=task.get_status_display overdue=task.is_overdue %}</td>
+                        <td data-label="Status">{% include "myapp/_task_status_tag.html" with status=task.status status_display=task.get_status_display overdue=task.is_overdue work_stage_display=task.get_work_stage_display %}</td>
                         <td data-label="Client">{{ task.client.username }}</td>
                         <td data-label="Volunteer">{% if task.volunteer %}{{ task.volunteer.username }}{% else %}—{% endif %}</td>
                         <td data-label="Created" class="col-num">{{ task.created_at|date:"d M, H:i" }}</td>

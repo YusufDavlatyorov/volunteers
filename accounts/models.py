@@ -233,6 +233,10 @@ class Profile(models.Model):
     availability_status = models.CharField(
         max_length=20, choices=AVAILABILITY_CHOICES, default=AVAILABILITY_AVAILABLE
     )
+    # Help types a volunteer is comfortable with — feeds the matching score
+    # (myapp.services.matching). A list of HELP_TYPE_CHOICES keys; empty = "no
+    # info", treated neutrally by the scorer, never as a penalty.
+    skills = models.JSONField(default=list, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -247,6 +251,9 @@ class Profile(models.Model):
     def add_points(self, points=3):
         self.rating += points
         self.save(update_fields=["rating", "updated_at"])
+
+    def has_skill(self, help_type):
+        return help_type in (self.skills or [])
 
     @property
     def has_location(self):

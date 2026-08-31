@@ -5,7 +5,7 @@ Checkboxes get the inline .checkbox-row layout instead of a stacked label.
 Usage: {% include "partials/_field.html" with field=field %}
 {% endcomment %}
 {% if field.is_hidden %}{{ field }}{% else %}
-<div class="field-group{% if field.errors %} has-error{% endif %}">
+<div class="field-group{% if field.errors %} has-error{% endif %}{% if field.widget_type == 'checkboxselectmultiple' or field.widget_type == 'radioselect' %} checkbox-group{% endif %}">
     {% if field.widget_type == "checkbox" %}
         <label class="checkbox-row" for="{{ field.id_for_label }}">
             {{ field }}

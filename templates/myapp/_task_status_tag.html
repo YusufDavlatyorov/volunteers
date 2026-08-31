@@ -2,9 +2,10 @@
 Task status pill. Colour semantics match .tag.* in style.css:
   pending → neutral · active → info (blue) · completed → success · cancelled → urgent
 Pass overdue=True to prepend an "Overdue" pill (used by CRM lists / task detail).
-Usage: {% include "myapp/_task_status_tag.html" with status=task.status status_display=task.get_status_display overdue=task.is_overdue %}
+Pass work_stage_display for an active task to append the volunteer's progress as a muted pill.
+Usage: {% include "myapp/_task_status_tag.html" with status=task.status status_display=task.get_status_display overdue=task.is_overdue work_stage_display=task.get_work_stage_display %}
 {% endcomment %}
 {% if overdue %}<span class="tag urgent" data-i18n="crm.overdue_badge">Overdue</span> {% endif %}{% if status == "completed" %}<span class="tag success">{{ status_display }}</span>
-{% elif status == "active" %}<span class="tag info">{{ status_display }}</span>
+{% elif status == "active" %}<span class="tag info">{{ status_display }}</span>{% if work_stage_display %} <span class="tag muted">{{ work_stage_display }}</span>{% endif %}
 {% elif status == "cancelled" %}<span class="tag urgent">{{ status_display }}</span>
 {% else %}<span class="tag">{{ status_display }}</span>{% endif %}

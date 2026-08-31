@@ -62,7 +62,7 @@
                     {% for task in recent_tasks %}
                     <tr>
                         <td data-label="Type"><span class="cell-title">{{ task.get_help_type_display }}</span></td>
-                        <td data-label="Status">{% include "myapp/_task_status_tag.html" with status=task.status status_display=task.get_status_display %}</td>
+                        <td data-label="Status">{% include "myapp/_task_status_tag.html" with status=task.status status_display=task.get_status_display work_stage_display=task.get_work_stage_display %}</td>
                         <td data-label="Client">{{ task.client.username }}</td>
                         <td data-label="Created" class="col-num">{{ task.created_at|date:"d M" }}</td>
                         <td data-label="" class="col-actions">

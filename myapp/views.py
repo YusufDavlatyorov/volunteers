@@ -33,6 +33,7 @@ from .models import (
     PRIORITY_CHOICES,
     STATUS_CHOICES,
     VolunteerApplication,
+    WORK_STAGE_CHOICES,
 )
 from .notifications import notify_users, volunteer_queryset_for_region
 from .services import analytics, maps
@@ -340,6 +341,23 @@ def task_detail_view(request, pk):
     # pin is still useful context and needs no extra endpoint (lat/lng are
     # already on the task).
     show_location_map = task.has_location and not show_route
+
+    work_stage_steps = next_stage = None
+    if task.status == "active":
+        labels = dict(WORK_STAGE_CHOICES)
+        order = HelpRequest.WORK_STAGE_ORDER
+        current_idx = order.index(task.work_stage)
+        work_stage_steps = [
+            {
+                "key": key,
+                "label": labels[key],
+                "state": "done" if i < current_idx else "current" if i == current_idx else "upcoming",
+            }
+            for i, key in enumerate(order)
+        ]
+        if current_idx + 1 < len(order):
+            next_stage = {"key": order[current_idx + 1], "label": labels[order[current_idx + 1]]}
+
     return render(
         request,
         "myapp/task_detail.html",
@@ -349,6 +367,9 @@ def task_detail_view(request, pk):
             "show_recommendations": show_recommendations,
             "show_location_map": show_location_map,
             "show_history": is_crm_staff,
+            "work_stage_steps": work_stage_steps,
+            "next_stage": next_stage,
+            "can_advance_stage": task.status == "active" and (user == task.volunteer or is_crm_staff),
         },
     )
 
@@ -390,7 +411,8 @@ def accept_task_view(request, pk):
         # the second affects zero rows instead of silently overwriting the
         # first volunteer's acceptance.
         updated = HelpRequest.objects.filter(pk=task.pk, status="pending").update(
-            volunteer=request.user, status="active", accepted_at=timezone.now()
+            volunteer=request.user, status="active", accepted_at=timezone.now(),
+            work_stage=HelpRequest.WORK_STAGE_ASSIGNED,
         )
     finally:
         cache.delete(lock_key)
@@ -422,6 +444,39 @@ def complete_task_view(request, pk):
     notify_users([task.client], "Запрос выполнен", f"Ваш запрос #{task.id} отмечен как выполненный. Спасибо!")
     messages.success(request, "Запрос завершен, рейтинг обновлен.")
     return redirect("task_list")
+
+
+_STAGE_CLIENT_NOTIFY = {
+    HelpRequest.WORK_STAGE_EN_ROUTE: "Волонтёр выехал к вам",
+    HelpRequest.WORK_STAGE_ARRIVED: "Волонтёр на месте",
+}
+
+
+@login_required
+@require_POST
+def task_advance_stage_view(request, pk):
+    """Move an active task's work_stage forward. The assigned volunteer drives
+    their own progress; curator/admin can correct it."""
+    task = get_object_or_404(HelpRequest.objects.select_related("client", "volunteer"), pk=pk)
+    user = request.user
+    if not (user == task.volunteer or user.is_superuser or user.is_curator):
+        messages.error(request, "У вас нет доступа к этой странице")
+        return redirect("profile")
+
+    try:
+        task.advance_work_stage(request.POST.get("stage", ""))
+    except ValueError:
+        messages.warning(request, "Не удалось изменить этап задачи.")
+        return redirect("task_detail", pk=pk)
+
+    if task.work_stage in _STAGE_CLIENT_NOTIFY:
+        notify_users(
+            [task.client],
+            _STAGE_CLIENT_NOTIFY[task.work_stage],
+            f"Запрос #{task.id}: {task.get_work_stage_display().lower()}.",
+        )
+    messages.success(request, f"Этап обновлён: {task.get_work_stage_display()}.")
+    return redirect("task_detail", pk=pk)
 
 
 @role_required("client")
@@ -878,6 +933,7 @@ def task_recommendations_view(request, pk):
             "availability_display": profile.get_availability_status_display(),
             "active_task_count": item["active_task_count"],
             "same_region": item["same_region"],
+            "skill_match": item["skill_match"],
             "location_freshness": item["location_freshness"],
             "reasons": item["reasons"],
         }
@@ -906,4 +962,29 @@ def task_notify_volunteer_view(request, pk, volunteer_id):
         f"Это рекомендация, а не назначение — запрос остаётся свободным, пока вы сами его не примете."
     )
     notify_users([volunteer], subject, message)
+    return JsonResponse({"success": True})
+
+
+@role_required("admin", "curator")
+@require_POST
+def task_assign_volunteer_view(request, pk, volunteer_id):
+    """Curator/admin assigns a pending task directly to a volunteer (the
+    accept-recommendation action). Uses the same conditional UPDATE guard as
+    accept_task_view so a curator assign and a volunteer self-accept can't both
+    win."""
+    task = get_object_or_404(HelpRequest.objects.select_related("client"), pk=pk)
+    volunteer = get_object_or_404(Users, pk=volunteer_id, is_volunteer=True, is_active=True)
+
+    updated = HelpRequest.objects.filter(pk=pk, status="pending").update(
+        volunteer=volunteer, status="active", accepted_at=timezone.now(),
+        work_stage=HelpRequest.WORK_STAGE_ASSIGNED,
+    )
+    if not updated:
+        return JsonResponse({"success": False, "reason": "task_not_pending"})
+
+    message = (
+        f"Куратор назначил вам запрос #{task.id} ({task.get_help_type_display()}).\n"
+        f"Клиент: {task.client.username}, телефон: {task.phone}\nАдрес: {task.address}"
+    )
+    notify_users([volunteer, task.client], "Вам назначен запрос помощи", message)
     return JsonResponse({"success": True})

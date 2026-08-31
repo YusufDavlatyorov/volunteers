@@ -3,6 +3,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 
+from myapp.models import HELP_TYPE_CHOICES
 from .models import REGION_CHOICES, Profile, Users
 
 
@@ -128,9 +129,17 @@ class ResetPasswordForm(forms.Form):
 
 
 class ProfileForm(forms.ModelForm):
+    skills = forms.MultipleChoiceField(
+        label="Навыки — чем могу помочь",
+        choices=HELP_TYPE_CHOICES,
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        help_text="Влияет на подбор задач в CRM.",
+    )
+
     class Meta:
         model = Profile
-        fields = ["full_name", "age", "image", "bio", "availability_status", "latitude", "longitude"]
+        fields = ["full_name", "age", "image", "bio", "availability_status", "skills", "latitude", "longitude"]
         labels = {
             "full_name": "Полное имя",
             "age": "Возраст",
@@ -146,6 +155,14 @@ class ProfileForm(forms.ModelForm):
             "latitude": forms.HiddenInput(),
             "longitude": forms.HiddenInput(),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance and self.instance.pk:
+            self.initial.setdefault("skills", self.instance.skills or [])
+
+    def clean_skills(self):
+        return list(self.cleaned_data.get("skills") or [])
 
     def clean(self):
         # DecimalField(max_digits=9) alone allows any value up to ~1000,

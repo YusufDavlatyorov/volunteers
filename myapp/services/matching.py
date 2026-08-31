@@ -17,13 +17,19 @@ from .geo import haversine_km
 
 # How much each signal contributes to the final 0-100 score. Urgent tasks
 # lean harder on distance ("fastest/closest suitable volunteer") and lighter
-# on region/workload — speed matters more than a perfect fit when it's urgent.
-NORMAL_WEIGHTS = {"distance": 0.40, "availability": 0.30, "workload": 0.15, "region": 0.10, "freshness": 0.05}
-URGENT_WEIGHTS = {"distance": 0.55, "availability": 0.25, "workload": 0.10, "region": 0.05, "freshness": 0.05}
+# on region/workload/skills — speed matters more than a perfect fit when it's urgent.
+NORMAL_WEIGHTS = {"distance": 0.34, "availability": 0.26, "workload": 0.14, "region": 0.09, "skills": 0.12, "freshness": 0.05}
+URGENT_WEIGHTS = {"distance": 0.50, "availability": 0.22, "workload": 0.10, "region": 0.05, "skills": 0.08, "freshness": 0.05}
 
 DISTANCE_CAP_KM = 40  # beyond this a volunteer is technically included but the distance component floors at 0
 WORKLOAD_CAP = 3  # active tasks at/above this floor the workload component at 0
-AVERAGE_SPEED_KMH = 30  # rough regional estimate for the "estimated minutes" shown in the list
+# Haversine estimate only — calling OSRM for every candidate on every page load
+# is too slow. The precise driving ETA is on the route card once a volunteer is assigned.
+AVERAGE_SPEED_KMH = 30
+
+SKILL_SCORE_MATCH = 1.0
+SKILL_SCORE_NEUTRAL = 0.6   # volunteer has listed no skills — "no info", not a penalty
+SKILL_SCORE_MISMATCH = 0.3  # has skills, none cover this task's help type
 
 FRESH_WITHIN = timezone.timedelta(minutes=30)
 RECENT_WITHIN = timezone.timedelta(hours=24)
@@ -45,6 +51,15 @@ def _distance_score(distance_km):
 
 def _workload_score(active_task_count):
     return max(0.0, 1.0 - min(active_task_count, WORKLOAD_CAP) / WORKLOAD_CAP)
+
+
+def _skill_score(profile_skills, task_help_type):
+    """Returns (score, label). Empty skills -> neutral, never a penalty."""
+    if not profile_skills:
+        return SKILL_SCORE_NEUTRAL, "none"
+    if task_help_type in profile_skills:
+        return SKILL_SCORE_MATCH, "match"
+    return SKILL_SCORE_MISMATCH, "mismatch"
 
 
 def _freshness(location_updated_at, now):
@@ -71,7 +86,7 @@ def location_freshness_label(location_updated_at, now=None):
     return label
 
 
-def _reasons(distance_km, availability, active_task_count, same_region, freshness_label):
+def _reasons(distance_km, availability, active_task_count, same_region, freshness_label, skill_label):
     reasons = []
     if distance_km <= CLOSE_KM:
         reasons.append("Совсем рядом")
@@ -81,6 +96,10 @@ def _reasons(distance_km, availability, active_task_count, same_region, freshnes
     reasons.append("Нет активных задач" if active_task_count == 0 else f"{active_task_count} активных задач(и)")
     if same_region:
         reasons.append("Тот же регион, что и запрос")
+    if skill_label == "match":
+        reasons.append("Подходит по навыкам")
+    elif skill_label == "mismatch":
+        reasons.append("Навыки не совпадают с типом запроса")
     if freshness_label in ("aging", "stale"):
         reasons.append("Местоположение может быть устаревшим")
     elif freshness_label == "unknown":
@@ -132,12 +151,14 @@ def recommend_volunteers(task, limit=5):
         availability = profile.availability_status
         same_region = bool(task.region) and volunteer.region == task.region
         freshness_score, freshness_label = _freshness(profile.location_updated_at, now)
+        skill_score, skill_label = _skill_score(profile.skills, task.help_type)
 
         component_scores = {
             "distance": _distance_score(distance_km),
             "availability": AVAILABILITY_SCORE.get(availability, 0.0),
             "workload": _workload_score(volunteer.active_task_count),
             "region": 1.0 if same_region else 0.4,
+            "skills": skill_score,
             "freshness": freshness_score,
         }
         score = round(sum(component_scores[key] * weights[key] for key in weights) * 100, 1)
@@ -150,9 +171,10 @@ def recommend_volunteers(task, limit=5):
             "availability": availability,
             "active_task_count": volunteer.active_task_count,
             "same_region": same_region,
+            "skill_match": skill_label,
             "location_freshness": freshness_label,
             "location_updated_at": profile.location_updated_at,
-            "reasons": _reasons(distance_km, availability, volunteer.active_task_count, same_region, freshness_label),
+            "reasons": _reasons(distance_km, availability, volunteer.active_task_count, same_region, freshness_label, skill_label),
         })
 
     if ranked:

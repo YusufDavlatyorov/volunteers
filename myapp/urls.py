@@ -23,6 +23,8 @@ from .views import (
     create_event_view,
     dashboard_view,
     photo_reports_view,
+    task_advance_stage_view,
+    task_assign_volunteer_view,
     task_notify_volunteer_view,
     task_recommendations_view,
     task_route_view,
@@ -41,9 +43,11 @@ urlpatterns = [
     path('tasks/', task_list_view, name='task_list'),
     path('tasks/<int:pk>/accept/', accept_task_view, name='accept_task'),
     path('tasks/<int:pk>/complete/', complete_task_view, name='complete_task'),
+    path('tasks/<int:pk>/stage/', task_advance_stage_view, name='task_advance_stage'),
     path('tasks/<int:pk>/route/', task_route_view, name='task_route'),
     path('tasks/<int:pk>/recommendations/', task_recommendations_view, name='task_recommendations'),
     path('tasks/<int:pk>/recommendations/notify/<int:volunteer_id>/', task_notify_volunteer_view, name='task_notify_volunteer'),
+    path('tasks/<int:pk>/recommendations/assign/<int:volunteer_id>/', task_assign_volunteer_view, name='task_assign_volunteer'),
     path('tasks/<int:pk>/', task_detail_view, name='task_detail'),
 
     # Client

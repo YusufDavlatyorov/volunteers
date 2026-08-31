@@ -28,6 +28,7 @@ REGION_CENTERS = {
 }
 
 _AVAILABILITY_CYCLE = ["available", "available", "available", "busy", "offline"]
+_HELP_TYPES = ["medical", "grocery", "transport", "household", "emotional", "documents", "other"]
 
 
 def _jitter(seed_str, spread=0.035):
@@ -163,6 +164,10 @@ class Command(BaseCommand):
             profile.availability_status = _AVAILABILITY_CYCLE[
                 sum(ord(c) for c in username) % len(_AVAILABILITY_CYCLE)
             ]
+            # A deterministic 2-3 skill spread so the CRM matching shows real
+            # skill fit rather than everyone being "no info".
+            h = sum(ord(c) for c in username)
+            profile.skills = sorted({_HELP_TYPES[(h + i) % len(_HELP_TYPES)] for i in range(3)})
         profile.save()
         return user
 

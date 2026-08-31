@@ -1373,6 +1373,65 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
 .rec-reasons { margin: 0.4rem 0 0; padding-left: 1.1rem; color: var(--muted); font-size: 0.82rem; display: flex; flex-direction: column; gap: 0.15rem; }
 .rec-score-tag { font-variant-numeric: tabular-nums; }
 
+/* ===== WORK-STAGE STEPPER (volunteer task progress) =====
+   assigned -> en route -> arrived -> in progress -> completed. Horizontal with
+   a connector line on desktop; a vertical rail on narrow screens. */
+.stepper {
+    list-style: none;
+    display: flex;
+    gap: 0;
+    margin: var(--space-4) 0 var(--space-2);
+    padding: 0;
+}
+.stepper__step {
+    flex: 1;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.4rem;
+    text-align: center;
+    min-width: 0;
+}
+.stepper__step:not(:last-child)::after {
+    content: "";
+    position: absolute;
+    top: 6px;
+    left: 50%;
+    width: 100%;
+    height: 2px;
+    background: var(--line);
+}
+.stepper__step.is-done:not(:last-child)::after { background: var(--primary-2); }
+.stepper__dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--surface-2);
+    border: 2px solid var(--line);
+    position: relative;
+    z-index: 1;
+    flex-shrink: 0;
+}
+.stepper__step.is-done .stepper__dot { background: var(--primary-2); border-color: var(--primary-2); }
+.stepper__step.is-current .stepper__dot { background: var(--primary); border-color: var(--primary); box-shadow: 0 0 0 4px var(--primary-glow); }
+.stepper__label { font-size: 0.76rem; font-weight: 600; color: var(--muted); line-height: 1.25; }
+.stepper__step.is-done .stepper__label,
+.stepper__step.is-current .stepper__label { color: var(--text); }
+
+@media (max-width: 560px) {
+    .stepper { flex-direction: column; gap: 0; padding-left: 0.2rem; }
+    .stepper__step { flex-direction: row; align-items: flex-start; gap: 0.7rem; text-align: left; padding-bottom: 0.7rem; }
+    .stepper__step:not(:last-child)::after { top: 14px; left: 6px; width: 2px; height: 100%; }
+    .stepper__label { font-size: 0.85rem; }
+}
+
+/* Skills checkbox group on the edit-profile form — a wrapping row, not a
+   bare bullet list (Django's CheckboxSelectMultiple default). */
+.checkbox-group ul { list-style: none; display: flex; flex-wrap: wrap; gap: 0.5rem 0.9rem; margin: 0.35rem 0 0; padding: 0; }
+.checkbox-group li { margin: 0; }
+.checkbox-group label { display: inline-flex; align-items: center; gap: 0.4rem; margin: 0; font-weight: 500; color: var(--text-2); cursor: pointer; }
+
 /* ===== CRM: PAGINATION & KPI TILES =====
    Pagination reuses .button/.button-ghost for its controls — only the
    wrapping layout is new. KPI tiles reuse .card/.stat-card exactly as the

@@ -594,6 +594,142 @@ class StartRouteTests(TestCase):
         self.assertNotContains(self._get("sr_vol"), "google.com/maps/dir/")
 
 
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class WorkStageTests(TestCase):
+    """HelpRequest.work_stage — the volunteer's on-the-ground progress while active."""
+
+    def setUp(self):
+        self.client_user = Users.objects.create_user(
+            username="ws_client", email="ws_client@example.com", password="pass12345", is_client=True, region="dushanbe"
+        )
+        self.volunteer = Users.objects.create_user(
+            username="ws_vol", email="ws_vol@example.com", password="pass12345", is_volunteer=True, region="dushanbe"
+        )
+        self.curator = Users.objects.create_user(
+            username="ws_curator", email="ws_curator@example.com", password="pass12345", is_curator=True
+        )
+        self.task = HelpRequest.objects.create(
+            client=self.client_user, help_type="grocery", description="x", address="a", phone="p",
+            region="dushanbe", status="pending",
+        )
+
+    def _advance(self, username, stage):
+        self.client.login(username=username, password="pass12345")
+        return self.client.post(reverse("task_advance_stage", args=[self.task.pk]), {"stage": stage})
+
+    def test_accept_sets_work_stage_assigned(self):
+        self.client.login(username="ws_vol", password="pass12345")
+        self.client.post(reverse("accept_task", args=[self.task.pk]))
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.status, "active")
+        self.assertEqual(self.task.work_stage, "assigned")
+
+    def test_volunteer_advances_through_the_stages(self):
+        self.task.accept(self.volunteer)
+        for stage in ("en_route", "arrived", "in_progress"):
+            self._advance("ws_vol", stage)
+            self.task.refresh_from_db()
+            self.assertEqual(self.task.work_stage, stage)
+
+    def test_cannot_move_backward(self):
+        self.task.accept(self.volunteer)
+        self.task.advance_work_stage("in_progress")
+        self._advance("ws_vol", "assigned")
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.work_stage, "in_progress")
+
+    def test_cannot_advance_a_pending_or_completed_task(self):
+        self._advance("ws_vol", "en_route")  # still pending
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.work_stage, "assigned")
+        self.task.accept(self.volunteer)
+        self.task.complete()
+        self._advance("ws_vol", "en_route")
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.work_stage, "assigned")
+
+    def test_unrelated_volunteer_and_client_denied(self):
+        self.task.accept(self.volunteer)
+        other = Users.objects.create_user(
+            username="ws_vol2", email="ws_vol2@example.com", password="pass12345", is_volunteer=True, region="dushanbe"
+        )
+        self.assertEqual(self._advance("ws_vol2", "en_route").status_code, 302)
+        self.assertEqual(self._advance("ws_client", "en_route").status_code, 302)
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.work_stage, "assigned")
+
+    def test_staff_can_correct_the_stage(self):
+        self.task.accept(self.volunteer)
+        self._advance("ws_curator", "arrived")
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.work_stage, "arrived")
+
+    def test_client_notified_on_en_route_and_arrived_only(self):
+        self.task.accept(self.volunteer)
+        mail.outbox.clear()
+        self._advance("ws_vol", "en_route")
+        self.assertEqual(len(mail.outbox), 1)
+        mail.outbox.clear()
+        self._advance("ws_vol", "arrived")
+        self.assertEqual(len(mail.outbox), 1)
+        mail.outbox.clear()
+        self._advance("ws_vol", "in_progress")
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_complete_still_works_from_any_stage_and_awards_points(self):
+        self.task.accept(self.volunteer)
+        self.task.advance_work_stage("in_progress")
+        self.client.login(username="ws_vol", password="pass12345")
+        self.client.post(reverse("complete_task", args=[self.task.pk]))
+        self.task.refresh_from_db()
+        self.volunteer.profile.refresh_from_db()
+        self.assertEqual(self.task.status, "completed")
+        self.assertEqual(self.volunteer.profile.rating, 3)
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class DirectAssignTests(TestCase):
+    def setUp(self):
+        self.client_user = Users.objects.create_user(
+            username="da_client", email="da_client@example.com", password="pass12345", is_client=True, region="dushanbe"
+        )
+        self.volunteer = Users.objects.create_user(
+            username="da_vol", email="da_vol@example.com", password="pass12345", is_volunteer=True, region="dushanbe"
+        )
+        self.curator = Users.objects.create_user(
+            username="da_curator", email="da_curator@example.com", password="pass12345", is_curator=True
+        )
+        self.task = HelpRequest.objects.create(
+            client=self.client_user, help_type="grocery", description="x", address="a", phone="p",
+            region="dushanbe", status="pending",
+        )
+
+    def _assign(self, username, volunteer_id=None):
+        self.client.login(username=username, password="pass12345")
+        return self.client.post(reverse("task_assign_volunteer", args=[self.task.pk, volunteer_id or self.volunteer.pk]))
+
+    def test_curator_assigns_pending_task(self):
+        mail.outbox.clear()
+        response = self._assign("da_curator")
+        self.assertJSONEqual(response.content, {"success": True})
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.status, "active")
+        self.assertEqual(self.task.volunteer, self.volunteer)
+        self.assertEqual(self.task.work_stage, "assigned")
+        self.assertEqual(len(mail.outbox), 1)  # one send to [volunteer, client]
+
+    def test_cannot_assign_non_pending_task(self):
+        self.task.accept(self.volunteer)
+        response = self._assign("da_curator")
+        self.assertEqual(response.json()["success"], False)
+
+    def test_volunteer_and_client_and_anon_cannot_assign(self):
+        self.assertIn(self._assign("da_vol").status_code, (302, 403))
+        self.assertIn(self._assign("da_client").status_code, (302, 403))
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.status, "pending")
+
+
 class GeoServiceTests(TestCase):
     """Pure-function tests for myapp.services.geo — no DB, no network."""
 
@@ -963,7 +1099,7 @@ class MatchingAlgorithmTests(TestCase):
         self._counter = 0
 
     def _make_volunteer(self, distance_km=5, region="dushanbe", availability="available",
-                         active_tasks=0, location_age=None, has_location=True):
+                         active_tasks=0, location_age=None, has_location=True, skills=None):
         self._counter += 1
         volunteer = Users.objects.create_user(
             username=f"vol_{self._counter}", email=f"vol_{self._counter}@example.com",
@@ -971,6 +1107,8 @@ class MatchingAlgorithmTests(TestCase):
         )
         profile = volunteer.profile
         profile.availability_status = availability
+        if skills is not None:
+            profile.skills = skills
         if has_location:
             profile.latitude = TASK_LAT + distance_km / KM_PER_DEGREE_LAT
             profile.longitude = TASK_LNG
@@ -1076,6 +1214,26 @@ class MatchingAlgorithmTests(TestCase):
         self.task.refresh_from_db()
         self.assertEqual(self.task.status, "pending")
         self.assertIsNone(self.task.volunteer)
+
+    # Skills (task.help_type is "grocery" in setUp)
+    def test_skill_match_ranks_higher_all_else_equal(self):
+        matches = self._make_volunteer(distance_km=5, skills=["grocery", "transport"])
+        differs = self._make_volunteer(distance_km=5, skills=["medical"])
+        ids = [item["volunteer"].id for item in recommend_volunteers(self.task)]
+        self.assertLess(ids.index(matches.id), ids.index(differs.id))
+
+    def test_empty_skills_is_neutral_not_a_penalty(self):
+        no_skills = self._make_volunteer(distance_km=5, skills=[])
+        wrong_skills = self._make_volunteer(distance_km=5, skills=["medical"])
+        ids = [item["volunteer"].id for item in recommend_volunteers(self.task)]
+        self.assertLess(ids.index(no_skills.id), ids.index(wrong_skills.id))
+
+    def test_skill_match_label_in_payload(self):
+        self._make_volunteer(distance_km=5, skills=["grocery"])
+        self._make_volunteer(distance_km=6, skills=["medical"])
+        self._make_volunteer(distance_km=7)
+        labels = {item["skill_match"] for item in recommend_volunteers(self.task)}
+        self.assertEqual(labels, {"match", "mismatch", "none"})
 
 
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
@@ -1873,6 +2031,34 @@ class AcceptTaskConcurrencyTests(TransactionTestCase):
 
         active_count = HelpRequest.objects.filter(volunteer=self.vol_a, status="active").count()
         self.assertLessEqual(active_count, 1)
+
+    def test_curator_assign_racing_a_self_accept_only_one_wins(self):
+        curator = Users.objects.create_user(
+            username="race_live_curator", email="race_live_curator@example.com", password="pass12345", is_curator=True
+        )
+        task = HelpRequest.objects.create(
+            client=self.client_user, help_type="grocery", description="z", address="a", phone="p", region="dushanbe",
+        )
+
+        def assign_run(barrier):
+            barrier.wait()
+            try:
+                c = Client(); c.login(username="race_live_curator", password="pass12345")
+                c.post(reverse("task_assign_volunteer", args=[task.pk, self.vol_b.pk]))
+            except OperationalError:
+                pass
+            finally:
+                connection.close()
+
+        barrier = threading.Barrier(2)
+        t1 = self._accept_in_thread("race_live_vol_a", task.pk, barrier)
+        t2 = threading.Thread(target=assign_run, args=(barrier,)); t2.start()
+        t1.join(timeout=10); t2.join(timeout=10)
+
+        task.refresh_from_db()
+        self.assertEqual(task.status, "active")
+        self.assertIn(task.volunteer_id, [self.vol_a.pk, self.vol_b.pk])
+        self.assertEqual(HelpRequest.objects.filter(pk=task.pk, status="active").count(), 1)
 
 
 class CheckOverdueMethodTests(TestCase):
