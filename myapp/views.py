@@ -35,7 +35,7 @@ from .models import (
     VolunteerApplication,
 )
 from .notifications import notify_users, volunteer_queryset_for_region
-from .services import analytics
+from .services import analytics, maps
 from .services.geo import get_route, is_valid_coordinate
 from .services.matching import location_freshness_label, recommend_volunteers
 
@@ -432,6 +432,13 @@ def create_request_view(request):
             help_request = form.save(commit=False)
             help_request.client = request.user
             help_request.region = request.user.region
+            # If the client didn't drop a pin, try to resolve the typed address
+            # to a point so the request still shows on the operations map.
+            # Best-effort: an un-geocodable address just means no coordinates.
+            if not help_request.has_location and help_request.address:
+                coords = maps.geocode(help_request.address, region=help_request.region)
+                if coords:
+                    help_request.latitude, help_request.longitude = coords
             help_request.save()
             volunteers = volunteer_queryset_for_region(request.user.region)
             notify_users(volunteers, "Новый запрос помощи", f"Новый запрос в регионе {request.user.get_region_display()}: {help_request.description[:180]}")

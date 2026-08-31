@@ -4,10 +4,12 @@ from unittest import mock
 
 import requests
 from PIL import Image
+from django.conf import settings
 from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
 from django.core import mail
 from django.core.cache import cache
+from django.core.exceptions import ImproperlyConfigured
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError, OperationalError, connection, transaction
 from django.test import Client, TestCase, TransactionTestCase, override_settings
@@ -18,7 +20,7 @@ from accounts.models import Users, hash_token
 from .forms import HelpRequestForm, PhotoReportForm
 from .models import HelpRequest, PhotoReport, VolunteerApplication
 from .notifications import notify_users
-from .services import analytics
+from .services import analytics, maps
 from .services.geo import get_route, haversine_km, is_valid_coordinate
 from .services.matching import recommend_volunteers
 from .services.telegram_link import LINK_ATTEMPT_LIMIT, redeem_link_code
@@ -662,6 +664,113 @@ class GeoServiceTests(TestCase):
             result = get_route((38.55, 68.78), (38.56, 68.79))
         self.assertFalse(result["success"])
         self.assertGreater(result["distance_km"], 0)
+
+
+def _nominatim_response(payload):
+    r = mock.Mock()
+    r.raise_for_status.return_value = None
+    r.json.return_value = payload
+    return r
+
+
+class MapsServiceTests(TestCase):
+    """myapp.services.maps — the provider-agnostic layer. Network mocked at
+    myapp.services.maps.requests.get."""
+
+    def test_tile_layer_osm_shape(self):
+        cfg = maps.tile_layer()
+        self.assertIn("openstreetmap.org", cfg["url"])
+        self.assertIn("attribution", cfg)
+        self.assertEqual(cfg["max_zoom"], 19)
+
+    @override_settings(MAPS_PROVIDER="totally-unknown")
+    def test_unknown_provider_falls_back_to_osm(self):
+        self.assertIn("openstreetmap.org", maps.tile_layer()["url"])
+
+    @override_settings(MAPS_PROVIDER="mapbox", MAPS_API_KEY="")
+    def test_mapbox_without_key_raises(self):
+        with self.assertRaises(ImproperlyConfigured):
+            maps.tile_layer()
+
+    @override_settings(MAPS_PROVIDER="mapbox", MAPS_API_KEY="pk.test123")
+    def test_mapbox_with_key_builds_url(self):
+        self.assertIn("pk.test123", maps.tile_layer()["url"])
+
+    def test_geocode_success_returns_tuple(self):
+        with mock.patch(
+            "myapp.services.maps.requests.get",
+            return_value=_nominatim_response([{"lat": "38.5598", "lon": "68.7870"}]),
+        ) as m:
+            coords = maps.geocode("ул. Рудаки 12", region="dushanbe")
+        self.assertEqual(coords, (38.5598, 68.787))
+        # Nominatim policy: a User-Agent must be sent, and the region label appended.
+        self.assertEqual(m.call_args.kwargs["headers"]["User-Agent"], settings.NOMINATIM_USER_AGENT)
+        self.assertIn("Душанбе", m.call_args.kwargs["params"]["q"])
+
+    def test_geocode_empty_query_short_circuits(self):
+        with mock.patch("myapp.services.maps.requests.get") as m:
+            self.assertIsNone(maps.geocode("   "))
+        m.assert_not_called()
+
+    def test_geocode_network_failure_returns_none(self):
+        with mock.patch("myapp.services.maps.requests.get", side_effect=requests.RequestException("boom")):
+            self.assertIsNone(maps.geocode("somewhere"))
+
+    def test_geocode_no_results_returns_none(self):
+        with mock.patch("myapp.services.maps.requests.get", return_value=_nominatim_response([])):
+            self.assertIsNone(maps.geocode("nowhere at all"))
+
+    def test_geocode_out_of_range_result_rejected(self):
+        with mock.patch(
+            "myapp.services.maps.requests.get",
+            return_value=_nominatim_response([{"lat": "999", "lon": "68.78"}]),
+        ):
+            self.assertIsNone(maps.geocode("bad"))
+
+    def test_route_delegates_to_geo_get_route(self):
+        sentinel = {"success": True, "distance_km": 1.0, "duration_min": 2.0, "geometry": []}
+        with mock.patch("myapp.services.maps._osm_route", return_value=sentinel) as m:
+            result = maps.route((38.5, 68.7), (38.6, 68.8))
+        self.assertIs(result, sentinel)
+        m.assert_called_once_with((38.5, 68.7), (38.6, 68.8))
+
+
+class CreateRequestGeocodingTests(TestCase):
+    def setUp(self):
+        self.client_user = Users.objects.create_user(
+            username="geo_client", email="geo_client@example.com", password="pass12345",
+            is_client=True, region="dushanbe",
+        )
+        self.client.login(username="geo_client", password="pass12345")
+
+    def _post(self, **extra):
+        data = {"help_type": "grocery", "description": "x", "address": "ул. Рудаки 12", "phone": "+992"}
+        data.update(extra)
+        return self.client.post(reverse("create_request"), data)
+
+    def test_address_is_geocoded_when_no_pin(self):
+        with mock.patch("myapp.views.maps.geocode", return_value=(38.5598, 68.787)) as m:
+            response = self._post()
+        self.assertEqual(response.status_code, 302)
+        task = HelpRequest.objects.get(client=self.client_user)
+        self.assertTrue(task.has_location)
+        self.assertAlmostEqual(float(task.latitude), 38.5598)
+        m.assert_called_once()
+
+    def test_unresolvable_address_still_saves_without_coordinates(self):
+        with mock.patch("myapp.views.maps.geocode", return_value=None):
+            response = self._post()
+        self.assertEqual(response.status_code, 302)
+        task = HelpRequest.objects.get(client=self.client_user)
+        self.assertFalse(task.has_location)
+
+    def test_map_pin_wins_and_geocode_not_called(self):
+        with mock.patch("myapp.views.maps.geocode") as m:
+            response = self._post(latitude="38.60", longitude="68.80")
+        self.assertEqual(response.status_code, 302)
+        task = HelpRequest.objects.get(client=self.client_user)
+        self.assertAlmostEqual(float(task.latitude), 38.60)
+        m.assert_not_called()
 
 
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")

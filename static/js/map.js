@@ -5,10 +5,32 @@ const GCMap = {
     DEFAULT_CENTER: [38.5598, 68.7870], // Dushanbe
     DEFAULT_ZOOM: 12,
 
-    tileLayer(map) {
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
+    /* Tile config comes from the maps service layer: base.html renders it as
+       <script id="gc-maps-tile" type="application/json"> via json_script
+       (myapp.context_processors.maps_config). The OSM object below is the
+       fallback if that element is absent or the provider was misconfigured. */
+    tileConfig() {
+        const OSM = {
+            url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+            max_zoom: 19,
+            subdomains: 'abc',
+        };
+        try {
+            const el = document.getElementById('gc-maps-tile');
+            const cfg = el ? JSON.parse(el.textContent) : null;
+            return (cfg && cfg.url) ? cfg : OSM;
+        } catch (e) {
+            return OSM;
+        }
+    },
+
+    tileLayer(map) {
+        const cfg = this.tileConfig();
+        L.tileLayer(cfg.url, {
+            maxZoom: cfg.max_zoom || 19,
+            attribution: cfg.attribution || '',
+            subdomains: cfg.subdomains || 'abc',
         }).addTo(map);
         return map;
     },

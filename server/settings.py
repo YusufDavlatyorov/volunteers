@@ -111,6 +111,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'myapp.context_processors.maps_config',
             ],
         },
     },
@@ -212,7 +213,12 @@ TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
 # generic "our bot" when unset).
 TELEGRAM_BOT_USERNAME = os.getenv('TELEGRAM_BOT_USERNAME', '')
 
-# Maps / routing (Leaflet + OpenStreetMap tiles, no key needed for the map itself).
+# Maps — a provider-agnostic layer lives in myapp/services/maps.py.
+#   osm    (default) : free Leaflet tiles + OSRM routing + Nominatim geocoding, no key
+#   mapbox / google  : drop-in, requires MAPS_API_KEY
+MAPS_PROVIDER = os.getenv('MAPS_PROVIDER', 'osm').strip().lower()
+MAPS_API_KEY = os.getenv('MAPS_API_KEY', '')
+GEOCODING_TIMEOUT_SECONDS = 5
 OSRM_BASE_URL = os.getenv('OSRM_BASE_URL', 'https://router.project-osrm.org').rstrip('/')
 NOMINATIM_USER_AGENT = os.getenv('NOMINATIM_USER_AGENT', 'generation-connect-dev')
 
