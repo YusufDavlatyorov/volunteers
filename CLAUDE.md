@@ -21,10 +21,11 @@ which now exist. Verify anything from it against the actual code before relying 
 source .venv/bin/activate            # venv already present in repo (Python 3.14)
 python manage.py runserver           # dev server → http://127.0.0.1:8000/
 python manage.py migrate             # apply migrations
-python manage.py seed_demo           # demo data: admins/curators/volunteers/clients/tasks
+python manage.py seed_demo           # demo data: admins/curators/volunteers/clients/tasks (now also sets coords, availability, priority, one overdue task)
 python manage.py run_telegram_bot    # long-polling Telegram bot (separate process, not part of the request cycle)
+python manage.py geocode_missing [--limit N --dry-run --profiles]   # backfill lat/lng for HelpRequests (and --profiles) via Nominatim; sleeps 1.1s/row for the usage policy
 
-python manage.py test                                    # full suite (221 tests, ~50s)
+python manage.py test                                    # full suite (261 tests, ~65s)
 python manage.py test myapp.tests.MatchingAlgorithmTests  # one test class
 python manage.py test myapp.tests.MatchingAlgorithmTests.test_closer_volunteer_ranks_higher  # one test
 python manage.py test accounts                           # one app
@@ -58,9 +59,34 @@ Registering as "volunteer" no longer grants the role directly — it creates a p
 timestamp the review). See `myapp/models.py::VolunteerApplication` and the
 `volunteer_application*` views/URLs.
 
-State-changing actions (`accept_task`, `complete_task`, application approve/reject, `logout`,
+State-changing actions (`accept_task`, `complete_task`, `task_advance_stage`,
+`task_assign_volunteer`, `task_notify_volunteer`, application approve/reject, `logout`,
 `check_overdue`, Telegram unlink) are `@require_POST`; templates must submit them as forms, not
 `<a href>` links.
+
+### Task lifecycle (`HelpRequest`)
+
+`status` is the coarse lifecycle (`pending` → `active` → `completed`/`cancelled`). Two fields
+layer on top of `active`:
+
+- **`priority`** (`normal`/`high`/`emergency`) is the graded urgency new code reads (map markers,
+  dispatch, matching weights). The legacy **`is_urgent`** boolean is still a stored column —
+  `HelpRequestForm.save()` keeps it in sync (`is_urgent = priority != "normal"`) so existing
+  `.filter(is_urgent=...)` sites keep working. `HelpRequestForm.priority` is `required=False`
+  with a `clean_priority` default of `normal` (tests build the form without it).
+- **`work_stage`** (`assigned`/`en_route`/`arrived`/`in_progress`) is the assigned volunteer's
+  on-the-ground progress — only meaningful while `status == "active"`, and it never touches
+  `status`. Move it with `HelpRequest.advance_work_stage(target)`: forward-only (uses
+  `WORK_STAGE_ORDER`), active-only, raises `ValueError` otherwise. The `task_advance_stage_view`
+  is driven by the assigned volunteer; curator/admin can correct it. `en_route`/`arrived`
+  notify the client.
+
+**Dispatch actions** (all admin/curator, on a `pending` task): `task_recommendations_view`
+returns the ranked JSON shortlist (read-only); `task_notify_volunteer_view` pings one volunteer
+but leaves the task `pending` (they still self-accept); `task_assign_volunteer_view` is the
+direct-assign — it flips the task to `active` with the **same conditional `UPDATE ... WHERE
+status='pending'`** guard as `accept_task_view`, so a curator assign and a volunteer self-accept
+can't both win.
 
 ### Security & abuse controls
 
@@ -99,23 +125,42 @@ A hardening pass added a cross-cutting layer that is easy to regress — keep it
 Business logic that needs to be unit-testable without the ORM or network lives here, kept out of
 `views.py` on purpose:
 
-- **`geo.py`** — pure `(lat, lng)` math (`haversine_km`) and the OSRM routing client
-  (`get_route`). `get_route` **never raises**: any OSRM failure (timeout, no route, unset
-  `OSRM_BASE_URL`) returns a `{"success": False, ...}` dict with a haversine-distance fallback,
-  so a broken routing provider degrades gracefully instead of 500ing a view.
+- **`geo.py`** — low-level, pure `(lat, lng)` math (`haversine_km`, `is_valid_coordinate`) and
+  the OSRM routing client (`get_route`). `get_route` **never raises**: any OSRM failure (timeout,
+  no route, unset `OSRM_BASE_URL`) returns a `{"success": False, ...}` dict with a
+  haversine-distance fallback, so a broken routing provider degrades gracefully instead of 500ing
+  a view. Its import surface is test-locked — don't change it; call `maps.py` from new code.
+- **`maps.py`** — provider-agnostic facade over everything the product needs from a "maps API":
+  `tile_layer()` (Leaflet config), `route()` (delegates to `geo.get_route`), `geocode(query,
+  region=)` → `(lat, lng)|None`, `reverse_geocode()`, `provider_name()`. Switching providers is
+  one `.env` change (`MAPS_PROVIDER`: `osm` default/keyless, `mapbox` raster + `MAPS_API_KEY`,
+  `google` raises — needs the JS SDK). Same discipline as `geo.py`: pure I/O, never raises for an
+  expected failure. **New map/route/geocode code calls `maps.*`, not `geo.*` directly.**
 - **`matching.py`** — `recommend_volunteers(task)`: deterministic, explainable 0–100 scoring
-  (distance/availability/workload/region/freshness, urgent tasks weight distance higher) for
-  admin/curator dispatch. Read-only — it ranks candidates but never assigns a task or notifies
-  anyone; that stays an explicit admin/curator action. Distinct from the Groq-based conversational
-  AI assistant in `views.py::ai_chat_view` — do not conflate the two "AI"s.
+  (distance/availability/workload/region/**skills**/freshness, urgent tasks weight distance
+  higher) for admin/curator dispatch. Read-only — it ranks candidates but never assigns or
+  notifies; assignment is the explicit `task_assign_volunteer_view` (see **Task lifecycle**).
+  `location_freshness_label()` is a public wrapper reusing the same freshness thresholds for
+  display. Distinct from the Groq-based conversational AI assistant in `views.py::ai_chat_view` —
+  do not conflate the two "AI"s.
 - **`analytics.py`** — aggregate CRM dashboard queries (`dashboard_stats`, `recent_activity`),
   built with annotated `Count`/`Q` aggregates rather than per-row Python loops, so query count
   stays constant regardless of data volume.
+- **`telegram_link.py`** — `redeem_link_code`, the verified-round-trip consumer for Telegram
+  account binding (see **Telegram account linking**).
+
+`myapp/context_processors.py::maps_config` pushes `maps.tile_layer()` into every template as
+`maps_tile_config`; `base.html` renders it with `{{ maps_tile_config|json_script:"gc-maps-tile" }}`
+(XSS-safe) and `static/js/map.js` reads that element instead of hard-coding a tile URL. A
+misconfigured provider degrades to `{}` and map.js falls back to OSM — a bad `MAPS_PROVIDER`
+never 500s an unrelated page.
 
 `Profile` (on `accounts.models`) carries volunteer/client location (`latitude`/`longitude`,
-`location_updated_at`) and `availability_status` (available/busy/offline) — offline volunteers
-are excluded entirely from matching, not merely scored low. `HelpRequest` also carries its own
-`latitude`/`longitude` for the map and routing.
+`location_updated_at`), `availability_status` (available/busy/offline) — offline volunteers are
+excluded entirely from matching, not merely scored low — and `skills` (a `JSONField` list of
+`HELP_TYPE_CHOICES` keys, `Profile.has_skill(...)`), which feed the matching `skills` component
+(match / empty-is-neutral / mismatch). `HelpRequest` also carries its own `latitude`/`longitude`
+for the map and routing.
 
 `OVERDUE_THRESHOLD` (3 hours) is defined once in `myapp/models.py` and reused by
 `HelpRequest.is_overdue`, `check_overdue_view`, and the analytics overdue count — don't
@@ -152,11 +197,12 @@ prompt tone differs by role (gentler for clients, practical for volunteers).
 ### Config
 
 `server/settings.py` loads everything from `.env` via `python-dotenv` — see `.env.example` for
-the full list (Django core, SMTP, Groq, Telegram incl. `TELEGRAM_BOT_USERNAME`, OSRM/Nominatim
-for maps). Most vars have safe fallbacks and no real credentials are needed for local dev, but
-`DJANGO_SECRET_KEY` is now mandatory with no built-in default (`.env.example` ships a
-placeholder, so a checkout without a `.env` won't boot). See **Security & abuse controls** for
-the other startup guards.
+the full list (Django core, SMTP, Groq, Telegram incl. `TELEGRAM_BOT_USERNAME`, and for maps
+`MAPS_PROVIDER` + `MAPS_API_KEY`, `OSRM_BASE_URL`, `NOMINATIM_USER_AGENT`). Most vars have safe
+fallbacks and no real credentials are needed for local dev (`MAPS_PROVIDER=osm` is fully
+keyless), but `DJANGO_SECRET_KEY` is now mandatory with no built-in default (`.env.example`
+ships a placeholder, so a checkout without a `.env` won't boot). See **Security & abuse
+controls** for the other startup guards.
 
 ### Templates/static
 
@@ -164,4 +210,14 @@ All templates extend `templates/base.html` (navbar, theme toggle, toast messages
 switcher). No CSS framework — `static/css/style.css` is a hand-written design system (light/dark
 via `[data-theme]` CSS variables). `static/js/i18n.js` is a client-side EN/RU/TJ translation
 table driven by `data-i18n` attributes — add new UI strings there, not as hardcoded template text,
-if they need to support all three languages. `static/js/map.js` drives the Leaflet map view.
+if they need to support all three languages. `static/js/map.js` drives the Leaflet map view
+(`GCMap`; `createOpsMap()` is the interactive split-view operations controller).
+
+A UI harmonization pass added reusable includes —
+`templates/partials/_page_header.html`, `_form.html`, `_field.html` (the last renders any widget,
+incl. `checkboxselectmultiple` for the skills field) — and CSS components `.data-table` (CRM
+lists render as real tables on desktop, stacked labelled cards on mobile), `.tab-bar`,
+`.quick-actions`, `.page-header`, `.status-screen`, `.checkbox-group`. Branded error pages live
+at `templates/{404,403,500,403_csrf}.html`. `task_detail.html`, `login.html`, `register.html`
+and `ai_assistant.html` were left alone (test-coupled DOM ids / out of scope) — check
+`myapp/tests.py::TaskDetailCrmIntegrationTests` before touching `task_detail.html`.
