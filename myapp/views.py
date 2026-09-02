@@ -1149,11 +1149,22 @@ _EMERGENCY_ACTIONS = {
 @role_required("admin", "curator")
 @require_POST
 def emergency_update_view(request, pk):
-    """Curator/admin moves a report forward: acknowledge / resolve / cancel."""
+    """Curator/admin acts on a report: acknowledge / resolve / cancel, or
+    re-alert staff when the first notification did not get through."""
     report = get_object_or_404(
         EmergencyReport.objects.select_related("volunteer", "help_request"), pk=pk
     )
-    handler = _EMERGENCY_ACTIONS.get(request.POST.get("action", ""))
+    action = request.POST.get("action", "")
+
+    if action == "realert":
+        if not report.is_open:
+            messages.warning(request, "Сигнал уже закрыт.")
+        else:
+            emergency.realert_staff(report)
+            messages.success(request, "Уведомление отправлено повторно.")
+        return redirect("emergency_detail", pk=pk)
+
+    handler = _EMERGENCY_ACTIONS.get(action)
     if handler is None:
         messages.warning(request, "Неизвестное действие.")
         return redirect("emergency_detail", pk=pk)

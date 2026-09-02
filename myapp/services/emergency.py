@@ -3,7 +3,10 @@
 Model methods (``EmergencyReport.acknowledge`` / ``resolve`` / ``cancel``) own
 the state transitions. This module owns the cross-cutting parts:
 
-  * deduplication — a second press never creates a second row or a second alert
+  * deduplication — three layers: a fast check-then-create, a partial
+    ``UniqueConstraint`` (``help_request``, ``volunteer``) over the open
+    statuses that catches a cross-worker race, and an ``IntegrityError`` handler
+    that turns the loser of that race into "return the existing row"
   * location resolution — reuses ``services.geo.is_valid_coordinate``
   * notification fan-out — through the shared ``notify_users`` /
     ``staff_recipients`` infrastructure (email + Telegram), idempotent for the
@@ -14,6 +17,7 @@ Views stay thin: parse the request, call one function here, redirect.
 
 import logging
 
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from ..models import EmergencyReport
@@ -55,11 +59,8 @@ def _new_body(report):
     )
 
 
-def report_emergency(*, volunteer, help_request, reason="", latitude=None, longitude=None):
-    """Create an open EmergencyReport for this volunteer + task, or return the
-    volunteer's existing open one for the same task (deduplication — a repeated
-    press never spams staff). Returns ``(report, created)``."""
-    existing = (
+def _existing_active_report(volunteer, help_request):
+    return (
         EmergencyReport.objects.filter(
             help_request=help_request,
             volunteer=volunteer,
@@ -68,37 +69,79 @@ def report_emergency(*, volunteer, help_request, reason="", latitude=None, longi
         .order_by("-created_at")
         .first()
     )
+
+
+def report_emergency(*, volunteer, help_request, reason="", latitude=None, longitude=None):
+    """Create an open EmergencyReport for this volunteer + task, or return the
+    volunteer's existing active one for the same task (deduplication — a repeated
+    press never creates a second row or spams staff). Returns ``(report, created)``."""
+    existing = _existing_active_report(volunteer, help_request)
     if existing:
         return existing, False
 
     lat, lng = _resolve_location(help_request, volunteer, latitude, longitude)
-    report = EmergencyReport.objects.create(
-        help_request=help_request,
-        volunteer=volunteer,
-        reason=(reason or "").strip()[:2000],
-        region=help_request.region or volunteer.region or "",
-        latitude=lat,
-        longitude=lng,
-    )
+    try:
+        with transaction.atomic():
+            report = EmergencyReport.objects.create(
+                help_request=help_request,
+                volunteer=volunteer,
+                reason=(reason or "").strip()[:2000],
+                region=help_request.region or volunteer.region or "",
+                latitude=lat,
+                longitude=lng,
+            )
+    except IntegrityError:
+        # A concurrent request (another Gunicorn worker) inserted first and the
+        # partial UniqueConstraint rejected this one. Return the row that won.
+        existing = _existing_active_report(volunteer, help_request)
+        if existing:
+            return existing, False
+        raise
     notify_staff(report)
     return report, True
 
 
-def notify_staff(report):
-    """Fan the report out to active curators + admins, exactly once. Idempotent
-    via ``report.notified_at`` — a conditional UPDATE claims the send, so calling
-    this twice (retry, future "re-alert" button) sends at most one message."""
-    claimed = EmergencyReport.objects.filter(pk=report.pk, notified_at__isnull=True).update(
-        notified_at=timezone.now()
-    )
-    if not claimed:
-        return False
-    notify_users(list(staff_recipients()), NEW_SUBJECT, _new_body(report))
-    logger.info(
-        "emergency #%s reported by user %s on task #%s",
-        report.pk, report.volunteer_id, report.help_request_id,
-    )
+def notify_staff(report, *, force=False):
+    """Fan the report out to active curators + admins. Idempotent by default:
+    ``report.notified_at`` is claimed with a conditional UPDATE, so a retry or a
+    concurrent call sends at most one message. ``force=True`` is the manual
+    "re-alert staff" path (used when the first delivery failed).
+
+    ``notify_users`` never raises (email is ``fail_silently``; Telegram errors
+    are caught) — it returns a delivered count. A zero count is logged as an
+    error, but the report itself stays ``open`` and visible in the CRM and on
+    the dashboard, so a failed push never hides the emergency.
+    """
+    if force:
+        EmergencyReport.objects.filter(pk=report.pk).update(notified_at=timezone.now())
+    else:
+        claimed = EmergencyReport.objects.filter(pk=report.pk, notified_at__isnull=True).update(
+            notified_at=timezone.now()
+        )
+        if not claimed:
+            return False
+
+    recipients = list(staff_recipients())
+    delivered = notify_users(recipients, NEW_SUBJECT, _new_body(report))
+    if recipients and not delivered:
+        logger.error(
+            "emergency #%s: staff SOS notification reached 0 of %d recipient(s) "
+            "(email/Telegram unavailable). The report stays visible in the CRM.",
+            report.pk, len(recipients),
+        )
+    else:
+        logger.info(
+            "emergency #%s reported by user %s on task #%s (notified %d recipient(s))",
+            report.pk, report.volunteer_id, report.help_request_id, delivered,
+        )
     return True
+
+
+def realert_staff(report):
+    """Manual re-send of the initial staff alert for a still-open report."""
+    if not report.is_open:
+        return False
+    return notify_staff(report, force=True)
 
 
 def _notify_reporter(report, phrase):

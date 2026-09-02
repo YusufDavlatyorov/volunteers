@@ -85,6 +85,18 @@ class EmergencyReport(models.Model):
         verbose_name_plural = "Сигналы опасности"
         ordering = ["-created_at"]
         indexes = [models.Index(fields=["status", "-created_at"])]
+        constraints = [
+            # Database-level guarantee (not just a LocMemCache lock, which does
+            # not span Gunicorn workers): a volunteer can have at most one
+            # still-active report per task. A double-click / retried POST /
+            # concurrent request from another worker hits this and the service
+            # returns the existing row instead of a duplicate.
+            models.UniqueConstraint(
+                fields=["help_request", "volunteer"],
+                condition=models.Q(status__in=("open", "acknowledged")),
+                name="uniq_active_emergency_per_volunteer_task",
+            ),
+        ]
 
     def __str__(self):
         return f"SOS #{self.pk} — {self.get_status_display()} (запрос #{self.help_request_id})"

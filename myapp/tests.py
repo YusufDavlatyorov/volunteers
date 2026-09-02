@@ -2879,9 +2879,12 @@ class EmergencyDashboardTests(TestCase):
         self.task = _active_task(self.client_user, self.volunteer)
 
     def test_dashboard_stats_counts(self):
+        # Distinct (volunteer, task) pairs — the partial unique constraint allows
+        # only one active report per pair.
         self.assertEqual(analytics.dashboard_stats()["emergencies_open"], 0)
+        task2 = _active_task(self.client_user, self.other_vol)
         EmergencyReport.objects.create(help_request=self.task, volunteer=self.volunteer)
-        EmergencyReport.objects.create(help_request=self.task, volunteer=self.volunteer, status="acknowledged")
+        EmergencyReport.objects.create(help_request=task2, volunteer=self.other_vol, status="acknowledged")
         EmergencyReport.objects.create(help_request=self.task, volunteer=self.volunteer, status="resolved")
         stats = analytics.dashboard_stats()
         self.assertEqual(stats["emergencies_open"], 1)
@@ -2981,3 +2984,157 @@ class EmergencyWithoutCoordinatesTests(TestCase):
         resp = self.client.get(reverse("emergency_detail", args=[report.pk]))
         self.assertEqual(resp.status_code, 200)
         self.assertNotContains(resp, 'id="locationMap"')
+
+
+# --- Stage 4 hardening: DB-level dedup, transition rejection, notification failure ---
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class EmergencyDedupHardeningTests(TestCase):
+    def setUp(self):
+        self.admin, self.curator, self.volunteer, self.other_vol, self.client_user = _emergency_users()
+        self.task = _active_task(self.client_user, self.volunteer)
+        mail.outbox.clear()
+
+    def test_db_constraint_blocks_second_active_report_same_pair(self):
+        EmergencyReport.objects.create(help_request=self.task, volunteer=self.volunteer)
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                EmergencyReport.objects.create(help_request=self.task, volunteer=self.volunteer)
+
+    def test_db_constraint_covers_acknowledged_state(self):
+        r = EmergencyReport.objects.create(help_request=self.task, volunteer=self.volunteer)
+        r.acknowledge(self.curator)
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                EmergencyReport.objects.create(help_request=self.task, volunteer=self.volunteer)
+
+    def test_constraint_allows_new_report_after_previous_closed(self):
+        r = EmergencyReport.objects.create(help_request=self.task, volunteer=self.volunteer)
+        r.resolve(self.curator)
+        # same pair, previous one terminal -> allowed
+        EmergencyReport.objects.create(help_request=self.task, volunteer=self.volunteer)
+        self.assertEqual(EmergencyReport.objects.filter(help_request=self.task, volunteer=self.volunteer).count(), 2)
+
+    def test_service_survives_the_race_and_returns_existing(self):
+        """Simulate the check-then-create window losing to a concurrent worker:
+        the fast pre-check finds nothing, the INSERT hits the constraint, and the
+        service recovers by returning the row that won — one row, one alert."""
+        EmergencyReport.objects.create(help_request=self.task, volunteer=self.volunteer)
+        mail.outbox.clear()
+        with mock.patch("myapp.services.emergency._existing_active_report", side_effect=[None, EmergencyReport.objects.get()]):
+            report, created = emergency.report_emergency(volunteer=self.volunteer, help_request=self.task)
+        self.assertFalse(created)
+        self.assertEqual(EmergencyReport.objects.count(), 1)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_concurrent_view_posts_create_one_row_one_alert(self):
+        self.client.login(username="e_vol", password="pass12345")
+        url = reverse("emergency_report", args=[self.task.pk])
+        self.client.post(url, {"reason": "a"})
+        cache.clear()
+        self.client.post(url, {"reason": "b"})
+        cache.clear()
+        self.client.post(url, {"reason": "c"})
+        self.assertEqual(EmergencyReport.objects.count(), 1)
+        self.assertEqual(len(mail.outbox), 1)
+
+
+class EmergencyInvalidTransitionRejectionTests(TestCase):
+    def setUp(self):
+        self.admin, self.curator, self.volunteer, _, self.client_user = _emergency_users()
+        self.task = _active_task(self.client_user, self.volunteer)
+
+    def _report(self, status):
+        return EmergencyReport.objects.create(help_request=self.task, volunteer=self.volunteer, status=status)
+
+    def test_resolved_cannot_go_to_acknowledged_or_open(self):
+        r = self._report("resolved")
+        for target in ("acknowledged", "open"):
+            self.assertFalse(r.can_transition_to(target))
+        with self.assertRaises(ValueError):
+            r.acknowledge(self.curator)
+
+    def test_cancelled_cannot_go_to_acknowledged_or_resolved(self):
+        r = self._report("cancelled")
+        for target in ("acknowledged", "resolved", "open"):
+            self.assertFalse(r.can_transition_to(target))
+        with self.assertRaises(ValueError):
+            r.resolve(self.curator)
+
+    def test_update_view_rejects_illegal_transition_without_500(self):
+        r = self._report("resolved")
+        self.client.login(username="e_curator", password="pass12345")
+        resp = self.client.post(reverse("emergency_update", args=[r.pk]), {"action": "acknowledge"})
+        self.assertEqual(resp.status_code, 302)
+        r.refresh_from_db()
+        self.assertEqual(r.status, "resolved")
+
+    def test_update_view_get_is_405_for_every_action(self):
+        r = self._report("open")
+        self.client.login(username="e_admin", password="pass12345")
+        self.assertEqual(self.client.get(reverse("emergency_update", args=[r.pk])).status_code, 405)
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class EmergencyNotificationFailureTests(TestCase):
+    def setUp(self):
+        self.admin, self.curator, self.volunteer, _, self.client_user = _emergency_users()
+        self.task = _active_task(self.client_user, self.volunteer)
+        mail.outbox.clear()
+
+    def test_zero_delivery_is_logged_and_report_stays_visible(self):
+        with mock.patch("myapp.services.emergency.notify_users", return_value=0) as nu:
+            with self.assertLogs("myapp.services.emergency", level="ERROR") as logs:
+                report, created = emergency.report_emergency(volunteer=self.volunteer, help_request=self.task)
+        nu.assert_called_once()
+        self.assertTrue(created)
+        report.refresh_from_db()
+        self.assertIsNotNone(report.notified_at)          # claimed, so no duplicate spam later
+        self.assertEqual(report.status, "open")           # still open
+        self.assertIn(report, list(emergency.open_reports()))  # still in the CRM queue
+        self.assertTrue(any("0 of" in m for m in logs.output))
+
+    def test_realert_resends_to_staff(self):
+        report, _ = emergency.report_emergency(volunteer=self.volunteer, help_request=self.task)
+        self.assertEqual(len(mail.outbox), 1)
+        self.client.login(username="e_curator", password="pass12345")
+        self.client.post(reverse("emergency_update", args=[report.pk]), {"action": "realert"})
+        self.assertEqual(len(mail.outbox), 2)
+
+    def test_realert_is_staff_only(self):
+        report, _ = emergency.report_emergency(volunteer=self.volunteer, help_request=self.task)
+        mail.outbox.clear()
+        self.client.login(username="e_vol", password="pass12345")
+        resp = self.client.post(reverse("emergency_update", args=[report.pk]), {"action": "realert"})
+        self.assertRedirects(resp, reverse("profile"))
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_realert_noop_on_closed_report(self):
+        report, _ = emergency.report_emergency(volunteer=self.volunteer, help_request=self.task)
+        report.resolve(self.curator)
+        mail.outbox.clear()
+        self.client.login(username="e_admin", password="pass12345")
+        self.client.post(reverse("emergency_update", args=[report.pk]), {"action": "realert"})
+        self.assertEqual(len(mail.outbox), 0)
+
+
+class EmergencyCoordinateValidationTests(TestCase):
+    def setUp(self):
+        self.admin, self.curator, self.volunteer, _, self.client_user = _emergency_users()
+
+    def test_out_of_range_and_non_numeric_coords_are_rejected(self):
+        task = _active_task(self.client_user, self.volunteer, latitude="38.50", longitude="68.70")
+        for bad_lat, bad_lng in [("800", "10"), ("10", "500"), ("abc", "xyz"), ("", "68.7")]:
+            report, _ = emergency.report_emergency(
+                volunteer=self.volunteer, help_request=_active_task(self.client_user, self.volunteer, latitude="38.50", longitude="68.70"),
+                latitude=bad_lat, longitude=bad_lng,
+            )
+            # never stores the bad value — falls back to the task's own coords
+            self.assertEqual((float(report.latitude), float(report.longitude)), (38.50, 68.70))
+
+    def test_valid_coords_from_post_are_stored(self):
+        task = _active_task(self.client_user, self.volunteer)
+        report, _ = emergency.report_emergency(
+            volunteer=self.volunteer, help_request=task, latitude="38.53", longitude="68.77"
+        )
+        self.assertEqual((float(report.latitude), float(report.longitude)), (38.53, 68.77))

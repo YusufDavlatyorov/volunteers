@@ -26,7 +26,7 @@ python manage.py run_telegram_bot    # long-polling Telegram bot (separate proce
 python manage.py geocode_missing [--limit N --dry-run --profiles]   # backfill lat/lng for HelpRequests (and --profiles) via Nominatim; sleeps 1.1s/row for the usage policy
 python manage.py check_overdue_tasks [--dry-run]        # alert curators/admins about tasks overdue past 3h; idempotent, runs on cron (see README "Background jobs")
 
-python manage.py test                                    # full suite (327 tests, ~80s)
+python manage.py test                                    # full suite (342 tests, ~90s)
 python manage.py test myapp.tests.MatchingAlgorithmTests  # one test class
 python manage.py test myapp.tests.MatchingAlgorithmTests.test_closer_volunteer_ranks_higher  # one test
 python manage.py test accounts                           # one app
@@ -133,6 +133,10 @@ A hardening pass added a cross-cutting layer that is easy to regress — keep it
   deliberately **not** a DB constraint — CRM/admin dispatch and matching's workload scoring
   legitimately model a volunteer holding several active tasks; "one active task" is a rule of
   the self-service accept flow only.
+- **Emergency dedup.** `EmergencyReport` *does* carry a partial `UniqueConstraint` on
+  `(help_request, volunteer)` for the open statuses — the LocMemCache cooldown alone can't span
+  Gunicorn workers, and a duplicate SOS row / duplicate staff alert is a real failure. The
+  service catches the resulting `IntegrityError` and returns the existing report.
 - **`_can_view_task`** (`myapp/views.py`) gates task-detail access: a volunteer sees only their
   own assigned tasks plus pending tasks that would show up in their region-filtered
   `task_list` — not every `status="pending"` row.
@@ -169,14 +173,19 @@ Business logic that needs to be unit-testable without the ORM or network lives h
   so concurrent sweeps never double-alert; idempotent by design.
 - **`emergency.py`** — volunteer SOS reports (`myapp/models/emergency.py::EmergencyReport`). A
   volunteer on an *active* task raises one via the danger button; `report_emergency()` dedupes
-  (a repeat press returns the existing open report — never a second row or a second staff
-  alert), resolves a location (explicit coords → task → volunteer profile → none, via
-  `geo.is_valid_coordinate`), and fans out to `staff_recipients()` once (idempotent via
-  `EmergencyReport.notified_at`). State transitions are **model methods**
-  (`.acknowledge()` / `.resolve()` / `.cancel()`, raising `ValueError` on an illegal move —
-  `open → acknowledged → resolved`, `cancelled` from either open state, both terminal); the
-  service wraps them to also notify the reporter. Curator/admin only for transitions;
-  `check_overdue`-style CRM at `/myapp/emergency/`.
+  in **three layers** — a fast check-then-create, a partial `UniqueConstraint` on
+  `(help_request, volunteer)` over the open statuses (a cross-worker guarantee, not just the
+  LocMemCache lock), and an `IntegrityError` handler that returns the row that won the race —
+  so a double-click / retry / concurrent POST never makes a second row or a second staff alert.
+  It resolves a location (explicit coords → task → volunteer profile → none, via
+  `geo.is_valid_coordinate` — invalid coords are dropped, never stored) and fans out to
+  `staff_recipients()` once (`notify_staff`, idempotent via `EmergencyReport.notified_at`). If
+  delivery reaches 0 recipients it's logged `ERROR` and the report stays `open`/visible; staff
+  have a manual **"Re-alert staff"** button (`notify_staff(force=True)`). State transitions are
+  **model methods** (`.acknowledge()` / `.resolve()` / `.cancel()`, raising `ValueError` on an
+  illegal move — `open → acknowledged → resolved`, `cancelled` from either open state, both
+  terminal); the service wraps them to also notify the reporter. Curator/admin only for
+  transitions; `check_overdue`-style CRM at `/myapp/emergency/`.
 - **`telegram_link.py`** — `redeem_link_code`, the verified-round-trip consumer for Telegram
   account binding (see **Telegram account linking**).
 

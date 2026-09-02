@@ -88,6 +88,11 @@
                     <button type="submit" name="action" value="cancel" class="button ghost" data-i18n="emg.action_cancel">Cancel report</button>
                 </div>
             </form>
+            <form method="post" action="{% url 'emergency_update' report.id %}" class="inline-form">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="realert">
+                <button type="submit" class="button ghost" data-i18n="emg.action_realert">Re-alert staff</button>
+            </form>
         </div>
     </div>
     {% endif %}
