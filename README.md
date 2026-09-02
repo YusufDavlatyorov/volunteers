@@ -124,6 +124,39 @@ Requires `TELEGRAM_BOT_TOKEN` in `.env`:
 python manage.py run_telegram_bot
 ```
 
+## Background jobs (production)
+
+There is **no Celery / Redis / task queue** — scheduled work is plain management
+commands driven by the system cron. Each command is idempotent and safe to run
+repeatedly.
+
+### Overdue help-request monitoring
+
+`check_overdue_tasks` finds help requests that have been *active* for more than
+3 hours (`OVERDUE_THRESHOLD`) without completing, emails/Telegrams the curators
+and admins once per task, and marks it (`alarm_sent`) so it is not reported
+again. This is the automated equivalent of the "Check overdue" button on the
+admin dashboard — both call `myapp.services.overdue.sweep_overdue_tasks()`.
+
+```bash
+python manage.py check_overdue_tasks            # run the sweep
+python manage.py check_overdue_tasks --dry-run  # list overdue tasks, send nothing
+```
+
+Add to the deploy user's crontab (`crontab -e`). Use **absolute paths** to the
+project's own virtualenv Python and `manage.py` — cron runs with a bare
+environment:
+
+```cron
+# Generation Connect — alert curators/admins about tasks overdue past 3h, every 15 min.
+*/15 * * * * cd /srv/generation-connect && /srv/generation-connect/.venv/bin/python manage.py check_overdue_tasks >> /var/log/generation-connect/cron.log 2>&1
+```
+
+Replace `/srv/generation-connect` with the deployment path (the directory
+containing `manage.py`) and `.venv` with the virtualenv location. `settings.py`
+loads `.env` by absolute path, so credentials are picked up regardless of cron's
+working directory; the `cd` is for `manage.py` and the log path.
+
 ## Running tests
 
 ```bash

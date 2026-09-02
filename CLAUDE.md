@@ -24,8 +24,9 @@ python manage.py migrate             # apply migrations
 python manage.py seed_demo           # demo data: admins/curators/volunteers/clients/tasks (now also sets coords, availability, priority, one overdue task)
 python manage.py run_telegram_bot    # long-polling Telegram bot (separate process, not part of the request cycle)
 python manage.py geocode_missing [--limit N --dry-run --profiles]   # backfill lat/lng for HelpRequests (and --profiles) via Nominatim; sleeps 1.1s/row for the usage policy
+python manage.py check_overdue_tasks [--dry-run]        # alert curators/admins about tasks overdue past 3h; idempotent, runs on cron (see README "Background jobs")
 
-python manage.py test                                    # full suite (261 tests, ~65s)
+python manage.py test                                    # full suite (272 tests, ~65s)
 python manage.py test myapp.tests.MatchingAlgorithmTests  # one test class
 python manage.py test myapp.tests.MatchingAlgorithmTests.test_closer_volunteer_ranks_higher  # one test
 python manage.py test accounts                           # one app
@@ -152,6 +153,10 @@ Business logic that needs to be unit-testable without the ORM or network lives h
 - **`analytics.py`** — aggregate CRM dashboard queries (`dashboard_stats`, `recent_activity`),
   built with annotated `Count`/`Q` aggregates rather than per-row Python loops, so query count
   stays constant regardless of data volume.
+- **`overdue.py`** — `sweep_overdue_tasks()`: the one overdue-detection + alerting path, shared
+  by `check_overdue_view` (admin button) and the `check_overdue_tasks` cron command. Claims each
+  task with a conditional `UPDATE ... WHERE alarm_sent=False` before notifying `staff_recipients()`,
+  so concurrent sweeps never double-alert; idempotent by design.
 - **`telegram_link.py`** — `redeem_link_code`, the verified-round-trip consumer for Telegram
   account binding (see **Telegram account linking**).
 
@@ -169,8 +174,10 @@ excluded entirely from matching, not merely scored low — and `skills` (a `JSON
 for the map and routing.
 
 `OVERDUE_THRESHOLD` (3 hours) is defined once in `myapp/models/help_requests.py` and reused by
-`HelpRequest.is_overdue`, `check_overdue_view`, and the analytics overdue count — don't
-reintroduce a second magic number for it.
+`HelpRequest.is_overdue`, `services/overdue.py`, and the analytics overdue count — don't
+reintroduce a second magic number for it. Automated monitoring is the `check_overdue_tasks`
+management command on a ~15-min cron (README → **Background jobs**), **not** Celery — there is
+no task queue in this project.
 
 ### Notifications
 

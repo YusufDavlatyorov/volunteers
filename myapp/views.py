@@ -35,8 +35,8 @@ from .models import (
     VolunteerApplication,
     WORK_STAGE_CHOICES,
 )
-from .notifications import notify_users, staff_recipients, volunteer_queryset_for_region
-from .services import analytics, maps
+from .notifications import notify_users, volunteer_queryset_for_region
+from .services import analytics, maps, overdue
 from .services.geo import get_route, is_valid_coordinate
 from .services.matching import location_freshness_label, recommend_volunteers
 
@@ -725,15 +725,10 @@ def volunteer_application_reject_view(request, pk):
 @role_required("admin", "curator")
 @require_POST
 def check_overdue_view(request):
-    overdue = list(
-        HelpRequest.objects.filter(status="active", alarm_sent=False, accepted_at__lt=timezone.now() - OVERDUE_THRESHOLD)
-    )
-    curators = staff_recipients()
-    for task in overdue:
-        notify_users(curators, "Просроченный запрос", f"Запрос #{task.id} в работе больше 3 часов. Волонтер: {task.volunteer}")
-        task.alarm_sent = True
-        task.save(update_fields=["alarm_sent"])
-    messages.info(request, f"Проверено. Просроченных запросов: {len(overdue)}.")
+    """Manual trigger for the overdue sweep (the same one the check_overdue_tasks
+    cron command runs). Idempotent — alerts each overdue task once."""
+    alerted = overdue.sweep_overdue_tasks()
+    messages.info(request, f"Проверено. Просроченных запросов: {len(alerted)}.")
     return redirect("admin_panel")
 
 

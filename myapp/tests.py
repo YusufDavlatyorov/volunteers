@@ -9,6 +9,7 @@ from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
 from django.core import mail
 from django.core.cache import cache
+from django.core.management import call_command
 from django.core.exceptions import ImproperlyConfigured
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError, OperationalError, connection, transaction
@@ -20,7 +21,7 @@ from accounts.models import Users, hash_token
 from .forms import HelpRequestForm, PhotoReportForm
 from .models import HelpRequest, PhotoReport, VolunteerApplication
 from .notifications import notify_users
-from .services import analytics, maps
+from .services import analytics, maps, overdue
 from .services.geo import get_route, haversine_km, is_valid_coordinate
 from .services.matching import recommend_volunteers
 from .services.telegram_link import LINK_ATTEMPT_LIMIT, redeem_link_code
@@ -2061,6 +2062,7 @@ class AcceptTaskConcurrencyTests(TransactionTestCase):
         self.assertEqual(HelpRequest.objects.filter(pk=task.pk, status="active").count(), 1)
 
 
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
 class CheckOverdueMethodTests(TestCase):
     """MEDIUM: GET /myapp/archive/check-overdue/ performed a state change
     (sending curator alerts, flipping alarm_sent) from a plain link, with no
@@ -2078,6 +2080,163 @@ class CheckOverdueMethodTests(TestCase):
         self.client.login(username="co_admin", password="pass12345")
         response = self.client.post(reverse("check_overdue"))
         self.assertRedirects(response, reverse("admin_panel"))
+
+    def test_post_check_overdue_alerts_once_then_is_idempotent(self):
+        """The POST view routes through services.overdue: an overdue task is
+        alerted on exactly once, and a second POST is a no-op."""
+        self.client.login(username="co_admin", password="pass12345")
+        volunteer = Users.objects.create_user(
+            username="co_vol", email="co_vol@example.com", password="pass12345",
+            is_volunteer=True, region="dushanbe",
+        )
+        client_user = Users.objects.create_user(
+            username="co_client", email="co_client@example.com", password="pass12345",
+            is_client=True, region="dushanbe",
+        )
+        task = HelpRequest.objects.create(
+            client=client_user, volunteer=volunteer, help_type="grocery", description="x",
+            address="a", phone="p", region="dushanbe", status="active",
+            accepted_at=timezone.now() - timezone.timedelta(hours=4),
+        )
+        mail.outbox.clear()
+
+        self.client.post(reverse("check_overdue"))
+        task.refresh_from_db()
+        self.assertTrue(task.alarm_sent)
+        self.assertEqual(len(mail.outbox), 1)
+
+        mail.outbox.clear()
+        self.client.post(reverse("check_overdue"))
+        self.assertEqual(len(mail.outbox), 0)
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class OverdueSweepServiceTests(TestCase):
+    """myapp.services.overdue — the single overdue-detection + alerting path
+    shared by check_overdue_view and the check_overdue_tasks command."""
+
+    def setUp(self):
+        self.admin = Users.objects.create_superuser(
+            username="ov_admin", email="ov_admin@example.com", password="pass12345"
+        )
+        self.curator = Users.objects.create_user(
+            username="ov_curator", email="ov_curator@example.com", password="pass12345", is_curator=True
+        )
+        self.volunteer = Users.objects.create_user(
+            username="ov_vol", email="ov_vol@example.com", password="pass12345",
+            is_volunteer=True, region="dushanbe",
+        )
+        self.client_user = Users.objects.create_user(
+            username="ov_client", email="ov_client@example.com", password="pass12345",
+            is_client=True, region="dushanbe",
+        )
+        mail.outbox.clear()
+
+    def _task(self, *, status="active", hours_ago=4, alarm_sent=False, accepted=True):
+        return HelpRequest.objects.create(
+            client=self.client_user,
+            volunteer=self.volunteer if accepted else None,
+            help_type="grocery", description="x", address="a", phone="p", region="dushanbe",
+            status=status, alarm_sent=alarm_sent,
+            accepted_at=timezone.now() - timezone.timedelta(hours=hours_ago) if accepted else None,
+        )
+
+    def test_detects_active_task_past_threshold(self):
+        task = self._task(hours_ago=4)
+        self.assertEqual(list(overdue.find_overdue_tasks()), [task])
+
+    def test_sweep_alerts_staff_once_and_sets_alarm_sent(self):
+        task = self._task(hours_ago=4)
+        alerted = overdue.sweep_overdue_tasks()
+        self.assertEqual(alerted, [task])
+        task.refresh_from_db()
+        self.assertTrue(task.alarm_sent)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].subject, "Просроченный запрос")
+        self.assertIn(str(task.id), mail.outbox[0].body)
+        self.assertCountEqual(mail.outbox[0].to, [self.admin.email, self.curator.email])
+
+    def test_second_sweep_is_a_noop(self):
+        self._task(hours_ago=4)
+        overdue.sweep_overdue_tasks()
+        mail.outbox.clear()
+        self.assertEqual(overdue.sweep_overdue_tasks(), [])
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_task_within_threshold_is_ignored(self):
+        self._task(hours_ago=2)
+        self.assertEqual(overdue.sweep_overdue_tasks(), [])
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_completed_and_cancelled_tasks_are_ignored(self):
+        self._task(status="completed", hours_ago=9)
+        self._task(status="cancelled", hours_ago=9)
+        self.assertEqual(list(overdue.find_overdue_tasks()), [])
+        self.assertEqual(overdue.sweep_overdue_tasks(), [])
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_already_alarmed_task_is_ignored(self):
+        self._task(hours_ago=4, alarm_sent=True)
+        self.assertEqual(overdue.sweep_overdue_tasks(), [])
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_pending_task_is_never_overdue(self):
+        self._task(status="pending", accepted=False)
+        self.assertEqual(overdue.sweep_overdue_tasks(), [])
+        self.assertEqual(len(mail.outbox), 0)
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class CheckOverdueTasksCommandTests(TestCase):
+    """The check_overdue_tasks management command is a thin wrapper over
+    services.overdue and must be safe to run repeatedly (cron)."""
+
+    def setUp(self):
+        self.admin = Users.objects.create_superuser(
+            username="cmd_admin", email="cmd_admin@example.com", password="pass12345"
+        )
+        self.volunteer = Users.objects.create_user(
+            username="cmd_vol", email="cmd_vol@example.com", password="pass12345",
+            is_volunteer=True, region="dushanbe",
+        )
+        self.client_user = Users.objects.create_user(
+            username="cmd_client", email="cmd_client@example.com", password="pass12345",
+            is_client=True, region="dushanbe",
+        )
+        self.task = HelpRequest.objects.create(
+            client=self.client_user, volunteer=self.volunteer, help_type="grocery",
+            description="x", address="a", phone="p", region="dushanbe", status="active",
+            accepted_at=timezone.now() - timezone.timedelta(hours=4),
+        )
+        mail.outbox.clear()
+
+    def _run(self, *args):
+        out = io.StringIO()
+        call_command("check_overdue_tasks", *args, stdout=out)
+        return out.getvalue()
+
+    def test_command_alerts_overdue_task(self):
+        output = self._run()
+        self.task.refresh_from_db()
+        self.assertTrue(self.task.alarm_sent)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn(f"#{self.task.id}", output)
+        self.assertIn("1 task(s) newly alerted", output)
+
+    def test_repeated_run_does_not_duplicate_notifications(self):
+        self._run()
+        mail.outbox.clear()
+        output = self._run()
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertIn("0 task(s) newly alerted", output)
+
+    def test_dry_run_reports_without_side_effects(self):
+        output = self._run("--dry-run")
+        self.task.refresh_from_db()
+        self.assertFalse(self.task.alarm_sent)
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertIn("dry-run", output)
+        self.assertIn(f"#{self.task.id}", output)
 
 
 class HelpRequestFormCoordinateValidationTests(TestCase):

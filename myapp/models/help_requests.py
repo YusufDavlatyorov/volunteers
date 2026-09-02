@@ -6,9 +6,10 @@ from django.utils import timezone
 from accounts.models import REGION_CHOICES, Users
 
 
-# Single source of truth for the "task in progress too long" threshold, reused by
-# check_overdue_view, the check_overdue_tasks management command, and this model's
-# is_overdue property so the number never drifts between them.
+# Single source of truth for the "task in progress too long" threshold. The
+# overdue sweep (myapp.services.overdue, run by both check_overdue_view and the
+# check_overdue_tasks cron command), the HelpRequest.is_overdue property, and the
+# analytics overdue count all read it here, so the number never drifts.
 OVERDUE_THRESHOLD = timedelta(hours=3)
 
 
