@@ -25,6 +25,7 @@ from .forms import (
 )
 from .models import (
     Broadcast,
+    EmergencyReport,
     Event,
     HELP_TYPE_CHOICES,
     HelpRequest,
@@ -35,8 +36,9 @@ from .models import (
     VolunteerApplication,
     WORK_STAGE_CHOICES,
 )
+from .models.emergency import STATUS_CHOICES as EMERGENCY_STATUS_CHOICES
 from .notifications import notify_users, volunteer_queryset_for_region
-from .services import analytics, maps, overdue
+from .services import analytics, emergency, maps, overdue
 from .services.geo import get_route, is_valid_coordinate
 from .services.matching import location_freshness_label, recommend_volunteers
 
@@ -112,6 +114,7 @@ def admin_panel_view(request):
         # both computed in myapp.services.analytics so this view stays thin.
         "stats": analytics.dashboard_stats(),
         "recent_activity": analytics.recent_activity(limit=8),
+        "open_emergencies": emergency.open_reports()[:5],
     }
     if request.user.is_superuser:
         context["recent_applications"] = VolunteerApplication.objects.select_related("user").order_by("-created_at")[:5]
@@ -358,6 +361,12 @@ def task_detail_view(request, pk):
         if current_idx + 1 < len(order):
             next_stage = {"key": order[current_idx + 1], "label": labels[order[current_idx + 1]]}
 
+    active_emergency = (
+        task.emergency_reports.filter(status__in=EmergencyReport.OPEN_STATUSES)
+        .order_by("-created_at")
+        .first()
+    )
+
     return render(
         request,
         "myapp/task_detail.html",
@@ -370,6 +379,8 @@ def task_detail_view(request, pk):
             "work_stage_steps": work_stage_steps,
             "next_stage": next_stage,
             "can_advance_stage": task.status == "active" and (user == task.volunteer or is_crm_staff),
+            "can_report_emergency": user == task.volunteer and task.status == "active",
+            "active_emergency": active_emergency,
         },
     )
 
@@ -810,6 +821,27 @@ def map_data_view(request):
                 "color": availability_colors.get(profile.availability_status, "--muted"),
                 "glyph": "V",
             })
+
+        emergencies = (
+            EmergencyReport.objects.filter(
+                status__in=EmergencyReport.OPEN_STATUSES, latitude__isnull=False
+            )
+            .select_related("help_request", "volunteer")
+        )
+        for report in emergencies:
+            points.append({
+                "id": report.pk,
+                "kind": "emergency",
+                "lat": float(report.latitude),
+                "lng": float(report.longitude),
+                "title": "Сигнал опасности",
+                "subtitle": f"{report.volunteer.username} · запрос #{report.help_request_id}",
+                "status": report.status,
+                "region": report.region,
+                "color": "--danger",
+                "glyph": "!",
+                "url": reverse("emergency_detail", args=[report.pk]),
+            })
     elif user.is_volunteer:
         tasks = HelpRequest.objects.filter(status="pending").exclude(latitude__isnull=True).select_related("client")
         if user.region:
@@ -983,3 +1015,152 @@ def task_assign_volunteer_view(request, pk, volunteer_id):
     )
     notify_users([volunteer, task.client], "Вам назначен запрос помощи", message)
     return JsonResponse({"success": True})
+
+
+# ============================================================================
+# Emergency / SOS
+# ============================================================================
+
+EMERGENCY_REPORT_LOCK_SECONDS = 30
+
+
+def _can_view_emergency(user, report):
+    """Staff see every report; a volunteer sees only their own."""
+    return user.is_superuser or user.is_curator or report.volunteer_id == user.id
+
+
+@role_required("volunteer")
+@require_POST
+def emergency_report_view(request, task_pk):
+    """A volunteer raises an SOS on the active task assigned to them."""
+    task = get_object_or_404(
+        HelpRequest.objects.select_related("client"),
+        pk=task_pk, volunteer=request.user, status="active",
+    )
+
+    # Short per-(volunteer, task) cooldown: a rapid second submit is bounced to
+    # the existing report instead of hitting the create path again. It expires on
+    # its own — the service-level dedup is the real duplicate guard.
+    lock_key = f"emergency_report_lock:{request.user.pk}:{task.pk}"
+    if not cache.add(lock_key, "1", EMERGENCY_REPORT_LOCK_SECONDS):
+        existing = (
+            EmergencyReport.objects.filter(
+                help_request=task, volunteer=request.user, status__in=EmergencyReport.OPEN_STATUSES
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        if existing:
+            messages.info(request, "У вас уже есть открытый сигнал по этому запросу.")
+            return redirect("emergency_detail", pk=existing.pk)
+        messages.info(request, "Сигнал уже обрабатывается…")
+        return redirect("task_detail", pk=task.pk)
+
+    report, created = emergency.report_emergency(
+        volunteer=request.user,
+        help_request=task,
+        reason=request.POST.get("reason", ""),
+        latitude=request.POST.get("latitude") or None,
+        longitude=request.POST.get("longitude") or None,
+    )
+    if created:
+        messages.success(request, "Сигнал отправлен. Куратор и администратор уведомлены.")
+    else:
+        messages.info(request, "У вас уже есть открытый сигнал по этому запросу.")
+    return redirect("emergency_detail", pk=report.pk)
+
+
+@role_required("admin", "curator")
+def emergency_list_view(request):
+    """CRM: every SOS report — filterable by status tab, region and free text."""
+    status_filter = request.GET.get("status", "")
+    region_filter = request.GET.get("region", "")
+    search_query = request.GET.get("q", "").strip()
+
+    reports = EmergencyReport.objects.select_related(
+        "help_request", "help_request__client", "volunteer"
+    )
+    valid_statuses = {value for value, _ in EMERGENCY_STATUS_CHOICES}
+    if status_filter in valid_statuses:
+        reports = reports.filter(status=status_filter)
+    if region_filter:
+        reports = reports.filter(region=region_filter)
+    if search_query:
+        reports = reports.filter(
+            Q(volunteer__username__icontains=search_query)
+            | Q(help_request__client__username__icontains=search_query)
+            | Q(reason__icontains=search_query)
+        )
+
+    paginator = Paginator(reports, 20)
+    page_obj = paginator.get_page(request.GET.get("page"))
+    querystring = request.GET.copy()
+    querystring.pop("page", None)
+
+    counts = EmergencyReport.objects.aggregate(
+        total=Count("id"),
+        open=Count("id", filter=Q(status=EmergencyReport.STATUS_OPEN)),
+        acknowledged=Count("id", filter=Q(status=EmergencyReport.STATUS_ACKNOWLEDGED)),
+        resolved=Count("id", filter=Q(status=EmergencyReport.STATUS_RESOLVED)),
+        cancelled=Count("id", filter=Q(status=EmergencyReport.STATUS_CANCELLED)),
+    )
+
+    return render(request, "myapp/emergency_list.html", {
+        "page_obj": page_obj,
+        "status_filter": status_filter,
+        "region_filter": region_filter,
+        "search_query": search_query,
+        "querystring": querystring.urlencode(),
+        "counts": counts,
+        "region_choices": REGION_CHOICES,
+        "status_choices": EMERGENCY_STATUS_CHOICES,
+    })
+
+
+@login_required
+def emergency_detail_view(request, pk):
+    report = get_object_or_404(
+        EmergencyReport.objects.select_related(
+            "help_request", "help_request__client", "help_request__volunteer",
+            "volunteer", "acknowledged_by", "resolved_by", "cancelled_by",
+        ),
+        pk=pk,
+    )
+    if not _can_view_emergency(request.user, report):
+        messages.error(request, "У вас нет доступа к этой странице")
+        return redirect("profile")
+
+    is_staff = request.user.is_superuser or request.user.is_curator
+    return render(request, "myapp/emergency_detail.html", {
+        "report": report,
+        "is_staff": is_staff,
+        "can_act": is_staff and report.is_open,
+        "show_location_map": report.has_location,
+    })
+
+
+_EMERGENCY_ACTIONS = {
+    "acknowledge": lambda report, actor, note: emergency.acknowledge(report, actor=actor),
+    "resolve": lambda report, actor, note: emergency.resolve(report, actor=actor, note=note),
+    "cancel": lambda report, actor, note: emergency.cancel(report, actor=actor, note=note),
+}
+
+
+@role_required("admin", "curator")
+@require_POST
+def emergency_update_view(request, pk):
+    """Curator/admin moves a report forward: acknowledge / resolve / cancel."""
+    report = get_object_or_404(
+        EmergencyReport.objects.select_related("volunteer", "help_request"), pk=pk
+    )
+    handler = _EMERGENCY_ACTIONS.get(request.POST.get("action", ""))
+    if handler is None:
+        messages.warning(request, "Неизвестное действие.")
+        return redirect("emergency_detail", pk=pk)
+    try:
+        handler(report, request.user, request.POST.get("note", "").strip()[:2000])
+    except ValueError:
+        messages.warning(request, "Это действие недоступно для текущего статуса сигнала.")
+        return redirect("emergency_detail", pk=pk)
+    messages.success(request, "Статус сигнала обновлён.")
+    return redirect("emergency_detail", pk=pk)

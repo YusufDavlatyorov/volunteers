@@ -185,6 +185,7 @@ const GCMap = {
        controller object; does not fetch data itself (the page owns the fetch). */
     _opsStyle(point) {
         if (point.kind === 'me') return { color: '--primary', glyph: '•', cls: '' };
+        if (point.kind === 'emergency') return { color: '--danger', glyph: '!', cls: 'gc-pin--emergency' };
         if (point.kind === 'volunteer') {
             return ({
                 available: { color: '--ok', glyph: 'V', cls: '' },

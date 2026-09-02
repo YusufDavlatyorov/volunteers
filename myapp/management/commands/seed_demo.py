@@ -8,7 +8,7 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from accounts.models import Profile
-from myapp.models import Broadcast, Event, HelpRequest, PhotoReport
+from myapp.models import Broadcast, EmergencyReport, Event, HelpRequest, PhotoReport
 
 
 User = get_user_model()
@@ -120,9 +120,10 @@ class Command(BaseCommand):
         requests = self._create_requests(clients, volunteers)
         self._create_broadcasts(admin, curators)
         self._create_reports(volunteers, events, requests)
+        self._create_emergencies(requests, admin)
 
         self.stdout.write(self.style.SUCCESS("Demo data ready."))
-        self.stdout.write(f"Users: {User.objects.count()} | Events: {Event.objects.count()} | Requests: {HelpRequest.objects.count()} | Reports: {PhotoReport.objects.count()}")
+        self.stdout.write(f"Users: {User.objects.count()} | Events: {Event.objects.count()} | Requests: {HelpRequest.objects.count()} | Reports: {PhotoReport.objects.count()} | Emergencies: {EmergencyReport.objects.count()}")
         self.stdout.write(f"Demo password for all demo users: {PASSWORD}")
 
     def _upsert_user(self, username, full_name, email, region, is_superuser=False, is_curator=False, is_volunteer=False, is_client=False, bio="", age=None):
@@ -243,6 +244,42 @@ class Command(BaseCommand):
             )
             result.append(item)
         return result
+
+    def _create_emergencies(self, requests, admin):
+        """One open + one resolved SOS on active tasks, so the CRM isn't empty."""
+        active = [r for r in requests if r.status == "active" and r.volunteer]
+        if not active:
+            return
+        open_task = active[0]
+        EmergencyReport.objects.get_or_create(
+            help_request=open_task,
+            volunteer=open_task.volunteer,
+            status=EmergencyReport.STATUS_OPEN,
+            defaults={
+                "reason": "Клиент не открывает дверь, соседи говорят о шуме внутри.",
+                "region": open_task.region,
+                "latitude": open_task.latitude,
+                "longitude": open_task.longitude,
+                "notified_at": timezone.now(),
+            },
+        )
+        if len(active) > 1:
+            done_task = active[1]
+            EmergencyReport.objects.get_or_create(
+                help_request=done_task,
+                volunteer=done_task.volunteer,
+                status=EmergencyReport.STATUS_RESOLVED,
+                defaults={
+                    "reason": "Плохое самочувствие клиента.",
+                    "region": done_task.region,
+                    "notified_at": timezone.now() - timedelta(hours=2),
+                    "acknowledged_at": timezone.now() - timedelta(hours=2),
+                    "acknowledged_by": admin,
+                    "resolved_at": timezone.now() - timedelta(hours=1),
+                    "resolved_by": admin,
+                    "resolution_note": "Вызвали 103, клиент осмотрен, всё в порядке.",
+                },
+            )
 
     def _create_broadcasts(self, admin, curators):
         Broadcast.objects.update_or_create(

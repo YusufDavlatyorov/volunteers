@@ -12,10 +12,13 @@ Built for the 5 regions of Tajikistan: Dushanbe, Sogd, Khatlon, GBAO and RRP.
 3. On completion the volunteer earns rating points, and the client is notified.
 4. **Curators / admins** manage events, send broadcasts to volunteers, review the archive and flag
    overdue tasks.
-5. Participants are notified by **email and Telegram**.
-6. An **AI assistant** (Groq, OpenAI-compatible API) gives context-aware advice — gentle for clients,
+5. A volunteer working an active request can raise an **SOS / danger report** — curators and
+   admins are alerted immediately and manage it through the emergency CRM
+   (`open → acknowledged → resolved`).
+6. Participants are notified by **email and Telegram**.
+7. An **AI assistant** (Groq, OpenAI-compatible API) gives context-aware advice — gentle for clients,
    practical for volunteers — and gracefully falls back to a canned tip when no API key is set.
-7. A **Telegram bot** lets users link their chat ID to receive notifications.
+8. A **Telegram bot** lets users link their chat ID to receive notifications.
 
 ## Tech stack
 

@@ -19,9 +19,9 @@ from django.utils import timezone
 
 from accounts.models import Users, hash_token
 from .forms import HelpRequestForm, PhotoReportForm
-from .models import HelpRequest, PhotoReport, VolunteerApplication
+from .models import EmergencyReport, HelpRequest, PhotoReport, VolunteerApplication
 from .notifications import notify_users
-from .services import analytics, maps, overdue
+from .services import analytics, emergency, maps, overdue
 from .services.geo import get_route, haversine_km, is_valid_coordinate
 from .services.matching import recommend_volunteers
 from .services.telegram_link import LINK_ATTEMPT_LIMIT, redeem_link_code
@@ -2515,3 +2515,469 @@ class TelegramBotCommandTests(TestCase):
     def test_id_command_still_returns_the_chat_id(self):
         self.cmd._handle_message(4242, "/id")
         self.assertIn("4242", self.sent[-1][1])
+
+
+# ============================================================================
+# Emergency / SOS (Stage 4)
+# ============================================================================
+
+def _emergency_users():
+    admin = Users.objects.create_superuser(username="e_admin", email="e_admin@example.com", password="pass12345")
+    curator = Users.objects.create_user(username="e_curator", email="e_curator@example.com", password="pass12345", is_curator=True)
+    volunteer = Users.objects.create_user(username="e_vol", email="e_vol@example.com", password="pass12345", is_volunteer=True, region="dushanbe")
+    other_vol = Users.objects.create_user(username="e_vol2", email="e_vol2@example.com", password="pass12345", is_volunteer=True, region="dushanbe")
+    client_user = Users.objects.create_user(username="e_client", email="e_client@example.com", password="pass12345", is_client=True, region="dushanbe")
+    return admin, curator, volunteer, other_vol, client_user
+
+
+def _active_task(client_user, volunteer, **extra):
+    defaults = dict(
+        client=client_user, volunteer=volunteer, help_type="grocery", description="x",
+        address="ул. Рудаки 1", phone="+992900000000", region="dushanbe", status="active",
+        accepted_at=timezone.now() - timezone.timedelta(minutes=20),
+    )
+    defaults.update(extra)
+    return HelpRequest.objects.create(**defaults)
+
+
+class EmergencyModelTests(TestCase):
+    def setUp(self):
+        _, _, self.volunteer, _, self.client_user = _emergency_users()
+        self.task = _active_task(self.client_user, self.volunteer)
+        self.report = EmergencyReport.objects.create(help_request=self.task, volunteer=self.volunteer)
+
+    def test_defaults(self):
+        self.assertEqual(self.report.status, "open")
+        self.assertTrue(self.report.is_open)
+        self.assertFalse(self.report.has_location)
+        self.assertEqual(self.report.client, self.client_user)
+
+    def test_valid_transition_chain(self):
+        self.report.acknowledge(self.volunteer)  # actor identity is enforced in the view, not the model
+        self.assertEqual(self.report.status, "acknowledged")
+        self.assertIsNotNone(self.report.acknowledged_at)
+        self.report.resolve(self.volunteer, note="done")
+        self.assertEqual(self.report.status, "resolved")
+        self.assertEqual(self.report.resolution_note, "done")
+        self.assertFalse(self.report.is_open)
+
+    def test_open_can_go_straight_to_resolved_or_cancelled(self):
+        self.assertTrue(self.report.can_transition_to("resolved"))
+        self.assertTrue(self.report.can_transition_to("cancelled"))
+
+    def test_invalid_transitions_raise(self):
+        self.report.resolve(self.volunteer)
+        with self.assertRaises(ValueError):
+            self.report.acknowledge(self.volunteer)
+        with self.assertRaises(ValueError):
+            self.report.cancel(self.volunteer)
+
+    def test_cannot_reopen_or_go_backwards(self):
+        self.report.acknowledge(self.volunteer)
+        self.assertFalse(self.report.can_transition_to("open"))
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class EmergencyServiceTests(TestCase):
+    def setUp(self):
+        self.admin, self.curator, self.volunteer, _, self.client_user = _emergency_users()
+        self.task = _active_task(self.client_user, self.volunteer, latitude="38.560000", longitude="68.780000")
+        mail.outbox.clear()
+
+    def test_report_creates_and_links(self):
+        report, created = emergency.report_emergency(volunteer=self.volunteer, help_request=self.task, reason="  help  ")
+        self.assertTrue(created)
+        self.assertEqual(report.help_request, self.task)
+        self.assertEqual(report.volunteer, self.volunteer)
+        self.assertEqual(report.reason, "help")
+        self.assertEqual(report.region, "dushanbe")
+
+    def test_dedup_returns_existing_open_report(self):
+        first, c1 = emergency.report_emergency(volunteer=self.volunteer, help_request=self.task)
+        second, c2 = emergency.report_emergency(volunteer=self.volunteer, help_request=self.task, reason="again")
+        self.assertTrue(c1)
+        self.assertFalse(c2)
+        self.assertEqual(first.pk, second.pk)
+        self.assertEqual(EmergencyReport.objects.count(), 1)
+        self.assertEqual(len(mail.outbox), 1)  # only the first press alerted staff
+
+    def test_location_explicit_coords(self):
+        report, _ = emergency.report_emergency(
+            volunteer=self.volunteer, help_request=self.task, latitude="39.0", longitude="69.0"
+        )
+        self.assertEqual((float(report.latitude), float(report.longitude)), (39.0, 69.0))
+
+    def test_location_falls_back_to_task(self):
+        report, _ = emergency.report_emergency(volunteer=self.volunteer, help_request=self.task)
+        self.assertEqual((float(report.latitude), float(report.longitude)), (38.56, 68.78))
+
+    def test_location_falls_back_to_profile_then_none(self):
+        task = _active_task(self.client_user, self.volunteer)  # no coords
+        self.volunteer.profile.latitude = "40.10"
+        self.volunteer.profile.longitude = "70.20"
+        self.volunteer.profile.save()
+        report, _ = emergency.report_emergency(volunteer=self.volunteer, help_request=task)
+        self.assertEqual((float(report.latitude), float(report.longitude)), (40.10, 70.20))
+
+    def test_location_invalid_coords_ignored(self):
+        task = _active_task(self.client_user, self.volunteer)
+        report, _ = emergency.report_emergency(
+            volunteer=self.volunteer, help_request=task, latitude="999", longitude="1"
+        )
+        self.assertIsNone(report.latitude)
+
+    def test_notify_staff_is_idempotent(self):
+        report, _ = emergency.report_emergency(volunteer=self.volunteer, help_request=self.task)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertFalse(emergency.notify_staff(report))  # already claimed
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_staff_notification_recipients_and_body(self):
+        emergency.report_emergency(volunteer=self.volunteer, help_request=self.task, reason="fell")
+        self.assertEqual(len(mail.outbox), 1)
+        msg = mail.outbox[0]
+        self.assertCountEqual(msg.to, [self.admin.email, self.curator.email])
+        self.assertIn(self.volunteer.username, msg.body)
+        self.assertIn(str(self.task.id), msg.body)
+        self.assertIn(self.client_user.username, msg.body)
+        self.assertIn("fell", msg.body)
+
+    def test_transitions_notify_reporter(self):
+        report, _ = emergency.report_emergency(volunteer=self.volunteer, help_request=self.task)
+        mail.outbox.clear()
+        emergency.acknowledge(report, actor=self.curator)
+        emergency.resolve(report, actor=self.curator, note="ok")
+        self.assertEqual(len(mail.outbox), 2)
+        self.assertEqual(mail.outbox[0].to, [self.volunteer.email])
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class EmergencyReportViewTests(TestCase):
+    def setUp(self):
+        self.admin, self.curator, self.volunteer, self.other_vol, self.client_user = _emergency_users()
+        self.task = _active_task(self.client_user, self.volunteer)
+        mail.outbox.clear()
+        cache.clear()
+
+    def _url(self, task=None):
+        return reverse("emergency_report", args=[(task or self.task).pk])
+
+    def test_volunteer_creates_emergency(self):
+        self.client.login(username="e_vol", password="pass12345")
+        resp = self.client.post(self._url(), {"reason": "unsafe"})
+        report = EmergencyReport.objects.get()
+        self.assertRedirects(resp, reverse("emergency_detail", args=[report.pk]))
+        self.assertEqual(report.volunteer, self.volunteer)
+        self.assertEqual(report.help_request, self.task)
+        self.assertEqual(report.reason, "unsafe")
+        self.assertEqual(report.status, "open")
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_get_is_rejected(self):
+        self.client.login(username="e_vol", password="pass12345")
+        self.assertEqual(self.client.get(self._url()).status_code, 405)
+        self.assertEqual(EmergencyReport.objects.count(), 0)
+
+    def test_csrf_required(self):
+        csrf_client = Client(enforce_csrf_checks=True)
+        csrf_client.login(username="e_vol", password="pass12345")
+        resp = csrf_client.post(self._url(), {"reason": "x"})
+        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(EmergencyReport.objects.count(), 0)
+
+    def test_anonymous_redirected_to_login(self):
+        resp = self.client.post(self._url())
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn("/login", resp.url)
+
+    def test_client_cannot_create(self):
+        self.client.login(username="e_client", password="pass12345")
+        resp = self.client.post(self._url())
+        self.assertEqual(EmergencyReport.objects.count(), 0)
+        self.assertRedirects(resp, reverse("profile"))
+
+    def test_volunteer_cannot_report_on_another_volunteers_task(self):
+        self.client.login(username="e_vol2", password="pass12345")
+        resp = self.client.post(self._url())
+        self.assertEqual(resp.status_code, 404)
+        self.assertEqual(EmergencyReport.objects.count(), 0)
+
+    def test_cannot_report_on_non_active_task(self):
+        pending = HelpRequest.objects.create(
+            client=self.client_user, help_type="grocery", description="x", address="a",
+            phone="p", region="dushanbe", status="pending",
+        )
+        self.client.login(username="e_vol", password="pass12345")
+        self.assertEqual(self.client.post(reverse("emergency_report", args=[pending.pk])).status_code, 404)
+
+    def test_duplicate_press_does_not_spam(self):
+        self.client.login(username="e_vol", password="pass12345")
+        self.client.post(self._url(), {"reason": "one"})
+        cache.clear()  # bypass the short cooldown lock to hit the DB-level dedup
+        self.client.post(self._url(), {"reason": "two"})
+        self.assertEqual(EmergencyReport.objects.count(), 1)
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_rapid_double_submit_bounces_to_existing_report(self):
+        self.client.login(username="e_vol", password="pass12345")
+        self.client.post(self._url())
+        report = EmergencyReport.objects.get()
+        resp = self.client.post(self._url())  # cooldown still held
+        self.assertRedirects(resp, reverse("emergency_detail", args=[report.pk]))
+        self.assertEqual(EmergencyReport.objects.count(), 1)
+        self.assertEqual(len(mail.outbox), 1)
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class EmergencyUpdateViewTests(TestCase):
+    def setUp(self):
+        self.admin, self.curator, self.volunteer, self.other_vol, self.client_user = _emergency_users()
+        self.task = _active_task(self.client_user, self.volunteer)
+        self.report = EmergencyReport.objects.create(help_request=self.task, volunteer=self.volunteer)
+        mail.outbox.clear()
+
+    def _post(self, username, action, note=""):
+        self.client.login(username=username, password="pass12345")
+        return self.client.post(reverse("emergency_update", args=[self.report.pk]), {"action": action, "note": note})
+
+    def test_curator_can_acknowledge(self):
+        resp = self._post("e_curator", "acknowledge")
+        self.report.refresh_from_db()
+        self.assertRedirects(resp, reverse("emergency_detail", args=[self.report.pk]))
+        self.assertEqual(self.report.status, "acknowledged")
+        self.assertEqual(self.report.acknowledged_by, self.curator)
+
+    def test_curator_can_resolve(self):
+        self._post("e_curator", "resolve", note="handled")
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.status, "resolved")
+        self.assertEqual(self.report.resolution_note, "handled")
+
+    def test_admin_can_cancel(self):
+        self._post("e_admin", "cancel")
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.status, "cancelled")
+        self.assertEqual(self.report.cancelled_by, self.admin)
+
+    def test_volunteer_cannot_acknowledge_or_resolve(self):
+        for actor in ("e_vol", "e_vol2"):
+            resp = self._post(actor, "acknowledge")
+            self.report.refresh_from_db()
+            self.assertEqual(self.report.status, "open")
+            self.assertRedirects(resp, reverse("profile"))
+
+    def test_client_cannot_update(self):
+        self._post("e_client", "resolve")
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.status, "open")
+
+    def test_get_cannot_mutate(self):
+        self.client.login(username="e_curator", password="pass12345")
+        resp = self.client.get(reverse("emergency_update", args=[self.report.pk]))
+        self.assertEqual(resp.status_code, 405)
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.status, "open")
+
+    def test_invalid_transition_is_handled_gracefully(self):
+        self.report.resolve(self.admin)
+        resp = self._post("e_curator", "acknowledge")
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.status, "resolved")
+        self.assertEqual(resp.status_code, 302)  # redirect with a warning message, not a 500
+
+    def test_unknown_action_is_rejected(self):
+        resp = self._post("e_curator", "explode")
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.status, "open")
+        self.assertEqual(resp.status_code, 302)
+
+
+class EmergencyDetailAccessTests(TestCase):
+    def setUp(self):
+        self.admin, self.curator, self.volunteer, self.other_vol, self.client_user = _emergency_users()
+        self.task = _active_task(self.client_user, self.volunteer)
+        self.report = EmergencyReport.objects.create(help_request=self.task, volunteer=self.volunteer)
+
+    def _get(self, username):
+        self.client.login(username=username, password="pass12345")
+        return self.client.get(reverse("emergency_detail", args=[self.report.pk]))
+
+    def test_reporter_sees_own_without_action_controls(self):
+        resp = self._get("e_vol")
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotContains(resp, reverse("emergency_update", args=[self.report.pk]))
+
+    def test_other_volunteer_denied(self):
+        resp = self._get("e_vol2")
+        self.assertRedirects(resp, reverse("profile"))
+
+    def test_client_denied(self):
+        self.assertRedirects(self._get("e_client"), reverse("profile"))
+
+    def test_staff_see_action_controls(self):
+        resp = self._get("e_curator")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, reverse("emergency_update", args=[self.report.pk]))
+
+    def test_anonymous_redirected(self):
+        resp = self.client.get(reverse("emergency_detail", args=[self.report.pk]))
+        self.assertEqual(resp.status_code, 302)
+
+
+class EmergencyCrmListTests(TestCase):
+    def setUp(self):
+        self.admin, self.curator, self.volunteer, self.other_vol, self.client_user = _emergency_users()
+        self.t1 = _active_task(self.client_user, self.volunteer, region="dushanbe")
+        self.t2 = _active_task(self.client_user, self.other_vol, region="sogd")
+        self.open_report = EmergencyReport.objects.create(help_request=self.t1, volunteer=self.volunteer, region="dushanbe", reason="door locked")
+        self.resolved_report = EmergencyReport.objects.create(
+            help_request=self.t2, volunteer=self.other_vol, region="sogd", status="resolved"
+        )
+
+    def test_requires_staff(self):
+        self.client.login(username="e_vol", password="pass12345")
+        self.assertRedirects(self.client.get(reverse("emergency_list")), reverse("profile"))
+        self.client.login(username="e_client", password="pass12345")
+        self.assertRedirects(self.client.get(reverse("emergency_list")), reverse("profile"))
+
+    def test_open_report_appears_for_staff(self):
+        self.client.login(username="e_curator", password="pass12345")
+        resp = self.client.get(reverse("emergency_list"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "#%d" % self.open_report.id)
+        self.assertEqual(resp.context["counts"]["open"], 1)
+        self.assertEqual(resp.context["counts"]["resolved"], 1)
+        self.assertEqual(resp.context["counts"]["total"], 2)
+
+    def test_status_tab_filter(self):
+        self.client.login(username="e_admin", password="pass12345")
+        ids = [r.id for r in self.client.get(reverse("emergency_list"), {"status": "open"}).context["page_obj"]]
+        self.assertEqual(ids, [self.open_report.id])
+
+    def test_region_filter(self):
+        self.client.login(username="e_admin", password="pass12345")
+        ids = [r.id for r in self.client.get(reverse("emergency_list"), {"region": "sogd"}).context["page_obj"]]
+        self.assertEqual(ids, [self.resolved_report.id])
+
+    def test_search_by_volunteer(self):
+        self.client.login(username="e_admin", password="pass12345")
+        ids = [r.id for r in self.client.get(reverse("emergency_list"), {"q": "e_vol2"}).context["page_obj"]]
+        self.assertEqual(ids, [self.resolved_report.id])
+
+    def test_pagination(self):
+        for _ in range(25):
+            EmergencyReport.objects.create(help_request=self.t1, volunteer=self.volunteer, status="cancelled")
+        self.client.login(username="e_admin", password="pass12345")
+        page1 = self.client.get(reverse("emergency_list"))
+        self.assertEqual(page1.context["page_obj"].paginator.num_pages, 2)
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class EmergencyDashboardTests(TestCase):
+    def setUp(self):
+        self.admin, self.curator, self.volunteer, self.other_vol, self.client_user = _emergency_users()
+        self.task = _active_task(self.client_user, self.volunteer)
+
+    def test_dashboard_stats_counts(self):
+        self.assertEqual(analytics.dashboard_stats()["emergencies_open"], 0)
+        EmergencyReport.objects.create(help_request=self.task, volunteer=self.volunteer)
+        EmergencyReport.objects.create(help_request=self.task, volunteer=self.volunteer, status="acknowledged")
+        EmergencyReport.objects.create(help_request=self.task, volunteer=self.volunteer, status="resolved")
+        stats = analytics.dashboard_stats()
+        self.assertEqual(stats["emergencies_open"], 1)
+        self.assertEqual(stats["emergencies_acknowledged"], 1)
+        self.assertEqual(stats["emergencies_active"], 2)
+
+    def test_admin_panel_shows_open_emergencies(self):
+        EmergencyReport.objects.create(help_request=self.task, volunteer=self.volunteer, reason="urgent")
+        self.client.login(username="e_curator", password="pass12345")
+        resp = self.client.get(reverse("admin_panel"))
+        self.assertEqual(len(resp.context["open_emergencies"]), 1)
+        self.assertContains(resp, reverse("emergency_list"))
+
+    def test_volunteer_dashboard_has_sos_button(self):
+        self.client.login(username="e_vol", password="pass12345")
+        resp = self.client.get(reverse("profile"))
+        self.assertContains(resp, reverse("emergency_report", args=[self.task.pk]))
+
+    def test_volunteer_dashboard_shows_notice_when_report_open(self):
+        report = EmergencyReport.objects.create(help_request=self.task, volunteer=self.volunteer)
+        self.client.login(username="e_vol", password="pass12345")
+        resp = self.client.get(reverse("profile"))
+        self.assertNotContains(resp, reverse("emergency_report", args=[self.task.pk]))
+        self.assertContains(resp, reverse("emergency_detail", args=[report.pk]))
+
+    def test_client_dashboard_has_no_sos_button(self):
+        self.client.login(username="e_client", password="pass12345")
+        resp = self.client.get(reverse("profile"))
+        self.assertNotContains(resp, "emergency/report/")
+
+    def test_staff_dashboard_shows_open_count(self):
+        EmergencyReport.objects.create(help_request=self.task, volunteer=self.volunteer)
+        self.client.login(username="e_curator", password="pass12345")
+        resp = self.client.get(reverse("profile"))
+        self.assertEqual(resp.context["open_emergency_count"], 1)
+
+    def test_task_detail_sos_button_for_assigned_volunteer_only(self):
+        self.client.login(username="e_vol", password="pass12345")
+        resp = self.client.get(reverse("task_detail", args=[self.task.pk]))
+        self.assertContains(resp, reverse("emergency_report", args=[self.task.pk]))
+        self.client.login(username="e_curator", password="pass12345")
+        resp = self.client.get(reverse("task_detail", args=[self.task.pk]))
+        self.assertNotContains(resp, reverse("emergency_report", args=[self.task.pk]))
+
+
+class EmergencyMapDataTests(TestCase):
+    def setUp(self):
+        self.admin, self.curator, self.volunteer, self.other_vol, self.client_user = _emergency_users()
+        self.task = _active_task(self.client_user, self.volunteer, latitude="38.56", longitude="68.78")
+        self.open_located = EmergencyReport.objects.create(
+            help_request=self.task, volunteer=self.volunteer, latitude="38.57", longitude="68.79",
+        )
+        self.open_no_loc = EmergencyReport.objects.create(help_request=self.task, volunteer=self.other_vol)
+        self.resolved = EmergencyReport.objects.create(
+            help_request=self.task, volunteer=self.volunteer, status="resolved",
+            latitude="38.58", longitude="68.80",
+        )
+
+    def _points(self, username):
+        self.client.login(username=username, password="pass12345")
+        return self.client.get(reverse("map_data")).json()["points"]
+
+    def test_staff_map_data_includes_open_located_emergency(self):
+        emg = [p for p in self._points("e_curator") if p["kind"] == "emergency"]
+        self.assertEqual(len(emg), 1)
+        self.assertEqual(emg[0]["id"], self.open_located.id)
+        self.assertEqual(emg[0]["status"], "open")
+        self.assertEqual(emg[0]["url"], reverse("emergency_detail", args=[self.open_located.id]))
+
+    def test_resolved_and_unlocated_excluded(self):
+        emg_ids = [p["id"] for p in self._points("e_admin") if p["kind"] == "emergency"]
+        self.assertNotIn(self.resolved.id, emg_ids)
+        self.assertNotIn(self.open_no_loc.id, emg_ids)
+
+    def test_volunteer_map_data_has_no_emergency_points(self):
+        self.assertFalse(any(p["kind"] == "emergency" for p in self._points("e_vol")))
+
+    def test_client_map_data_has_no_emergency_points(self):
+        self.assertFalse(any(p["kind"] == "emergency" for p in self._points("e_client")))
+
+
+class EmergencyWithoutCoordinatesTests(TestCase):
+    def setUp(self):
+        self.admin, self.curator, self.volunteer, _, self.client_user = _emergency_users()
+        self.task = _active_task(self.client_user, self.volunteer)  # no coords, no profile location
+
+    def test_report_works_without_any_location(self):
+        report, created = emergency.report_emergency(volunteer=self.volunteer, help_request=self.task)
+        self.assertTrue(created)
+        self.assertIsNone(report.latitude)
+        self.assertIsNone(report.longitude)
+        self.assertFalse(report.has_location)
+
+    def test_detail_page_renders_without_location(self):
+        report, _ = emergency.report_emergency(volunteer=self.volunteer, help_request=self.task)
+        self.client.login(username="e_curator", password="pass12345")
+        resp = self.client.get(reverse("emergency_detail", args=[report.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotContains(resp, 'id="locationMap"')

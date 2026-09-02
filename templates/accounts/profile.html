@@ -38,6 +38,17 @@
                         <div class="button-row">
                             <a class="button primary" href="{% url 'task_detail' active_task.id %}" data-i18n="dash.view_task">View Task</a>
                         </div>
+                        {% if active_task_emergency %}
+                            <div class="emergency-notice">
+                                <div>
+                                    {% include "myapp/_emergency_status_tag.html" with status=active_task_emergency.status status_display=active_task_emergency.get_status_display %}
+                                    <p data-i18n="emg.notice_active">An SOS report is open for this task.</p>
+                                </div>
+                                <a class="button ghost" href="{% url 'emergency_detail' active_task_emergency.id %}" data-i18n="emg.notice_view">View SOS report</a>
+                            </div>
+                        {% else %}
+                            {% include "myapp/_emergency_button.html" with task=active_task %}
+                        {% endif %}
                     </div>
                 {% endif %}
             {% endif %}
@@ -53,12 +64,22 @@
             {% endif %}
 
             {% if user.is_superuser or user.is_curator %}
+                {% if open_emergency_count %}
+                <a class="emergency-banner emergency-banner--link" href="{% url 'emergency_list' %}?status=open">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"></path><path d="M12 9v4M12 17h.01"></path></svg>
+                    <div>
+                        <strong>{{ open_emergency_count }} <span data-i18n="emg.dash_open">open SOS report(s)</span></strong>
+                        <p data-i18n="emg.dash_cta">A volunteer needs help — open the emergency queue.</p>
+                    </div>
+                </a>
+                {% endif %}
                 <div class="card reveal">
                     <h3 data-i18n="admin.title">Admin Panel</h3>
                     <p data-i18n="admin.desc">Free and busy requests, live stats, and recent activity across the platform.</p>
                     <div class="button-row">
                         <a class="button primary" href="{% url 'admin_panel' %}" data-i18n="profile.admin">Admin Panel</a>
                         <a class="button ghost" href="{% url 'crm_tasks' %}" data-i18n="crm.tasks_title">Task Management</a>
+                        <a class="button ghost" href="{% url 'emergency_list' %}" data-i18n="emg.list_title">Emergencies</a>
                     </div>
                 </div>
             {% endif %}

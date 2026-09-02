@@ -11,7 +11,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import Profile, Users
-from ..models import HelpRequest, OVERDUE_THRESHOLD, VolunteerApplication
+from ..models import EmergencyReport, HelpRequest, OVERDUE_THRESHOLD, VolunteerApplication
 
 
 def volunteer_availability_breakdown():
@@ -46,12 +46,27 @@ def task_status_breakdown():
     return counts
 
 
+def emergency_breakdown():
+    """{'open': n, 'acknowledged': n, 'active': open+acknowledged} — the SOS
+    reports that still need staff attention."""
+    counts = EmergencyReport.objects.aggregate(
+        open=Count("id", filter=Q(status=EmergencyReport.STATUS_OPEN)),
+        acknowledged=Count("id", filter=Q(status=EmergencyReport.STATUS_ACKNOWLEDGED)),
+    )
+    counts["active"] = counts["open"] + counts["acknowledged"]
+    return counts
+
+
 def dashboard_stats():
     """Every number the CRM dashboard tiles need, in one call."""
     availability = volunteer_availability_breakdown()
     tasks = task_status_breakdown()
+    emergencies = emergency_breakdown()
     today_start = timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
     return {
+        "emergencies_open": emergencies["open"],
+        "emergencies_acknowledged": emergencies["acknowledged"],
+        "emergencies_active": emergencies["active"],
         "volunteers_total": sum(availability.values()),
         "volunteers_available": availability.get(Profile.AVAILABILITY_AVAILABLE, 0),
         "volunteers_busy": availability.get(Profile.AVAILABILITY_BUSY, 0),

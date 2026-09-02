@@ -1,7 +1,24 @@
 from django.contrib import admin, messages
 
-from .models import Broadcast, Event, HelpRequest, PhotoReport, VolunteerApplication
+from .models import Broadcast, EmergencyReport, Event, HelpRequest, PhotoReport, VolunteerApplication
 from .notifications import notify_users
+
+
+@admin.register(EmergencyReport)
+class EmergencyReportAdmin(admin.ModelAdmin):
+    list_display = ("id", "status", "volunteer", "help_request", "region", "created_at")
+    list_filter = ("status", "region", "created_at")
+    search_fields = ("volunteer__username", "help_request__client__username", "reason")
+    readonly_fields = (
+        "help_request", "volunteer", "reason", "region", "latitude", "longitude",
+        "created_at", "updated_at", "notified_at",
+        "acknowledged_at", "acknowledged_by", "resolved_at", "resolved_by",
+        "cancelled_at", "cancelled_by",
+    )
+
+    def has_add_permission(self, request):
+        # Reports are only ever created by a volunteer through the SOS action.
+        return False
 
 
 @admin.register(HelpRequest)

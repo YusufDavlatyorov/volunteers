@@ -16,6 +16,32 @@
         </form>
     </div>
 
+    {% if stats.emergencies_active %}
+    <a class="emergency-banner emergency-banner--link" href="{% url 'emergency_list' %}?status=open">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"></path><path d="M12 9v4M12 17h.01"></path></svg>
+        <div>
+            <strong>{{ stats.emergencies_open }} <span data-i18n="emg.dash_open">open SOS report(s)</span></strong>
+            <p data-i18n="emg.dash_cta">A volunteer needs help — open the emergency queue.</p>
+        </div>
+    </a>
+    {% endif %}
+
+    <p class="kpi-group-label" data-i18n="emg.kpi_group">Emergencies</p>
+    <div class="kpi-row">
+        <a class="card stat-card reveal {% if stats.emergencies_open %}stat-card--alert{% endif %}" href="{% url 'emergency_list' %}?status=open">
+            <span class="metric">{{ stats.emergencies_open }}</span>
+            <p data-i18n="emg.kpi_open">Open</p>
+        </a>
+        <a class="card stat-card reveal" href="{% url 'emergency_list' %}?status=acknowledged">
+            <span class="metric">{{ stats.emergencies_acknowledged }}</span>
+            <p data-i18n="emg.kpi_acknowledged">Acknowledged</p>
+        </a>
+        <a class="card stat-card reveal" href="{% url 'emergency_list' %}">
+            <span class="metric" data-i18n="common.view_all">View all</span>
+            <p data-i18n="emg.list_title">Emergencies</p>
+        </a>
+    </div>
+
     <p class="kpi-group-label" data-i18n="crm.kpi_volunteers">Volunteers &amp; clients</p>
     <div class="kpi-row">
         <a class="card stat-card reveal" href="{% url 'people_list' 'volunteer' %}">
@@ -71,6 +97,21 @@
 
 <section class="section section-xl alt">
     <div class="grid grid-top">
+        <div class="card reveal {% if open_emergencies %}card--alert{% endif %}">
+            <div class="section-head"><h3 data-i18n="emg.feed_title">Active emergencies</h3><a class="button ghost" href="{% url 'emergency_list' %}" data-i18n="common.view_all">View all</a></div>
+            {% if open_emergencies %}
+                <div class="mini-list">
+                    {% for report in open_emergencies %}
+                        <a class="mini-list-item mini-list-item--link" href="{% url 'emergency_detail' report.id %}">
+                            <h4>{% include "myapp/_emergency_status_tag.html" with status=report.status status_display=report.get_status_display %} {{ report.volunteer.username }}</h4>
+                            <p data-i18n-skip>#{{ report.help_request_id }} · {{ report.get_region_display|default:"—" }} · {{ report.created_at|timesince }} <span data-i18n="va.ago_suffix">ago</span></p>
+                        </a>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p class="opportunity-desc" data-i18n="emg.feed_empty">No active emergencies.</p>
+            {% endif %}
+        </div>
         <div class="card reveal">
             <div class="section-head"><h3 data-i18n="crm.activity_title">Recent Activity</h3></div>
             {% if recent_activity %}

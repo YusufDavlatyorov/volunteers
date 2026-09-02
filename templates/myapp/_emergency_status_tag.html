@@ -1,0 +1,9 @@
+{% comment %}
+Emergency status pill. Colour semantics match .tag.* in style.css:
+  open → urgent (clay-red) · acknowledged → info (blue) · resolved → success · cancelled → muted
+Usage: {% include "myapp/_emergency_status_tag.html" with status=report.status status_display=report.get_status_display %}
+{% endcomment %}
+{% if status == "open" %}<span class="tag urgent" data-i18n="emg.status_open">{{ status_display }}</span>
+{% elif status == "acknowledged" %}<span class="tag info" data-i18n="emg.status_acknowledged">{{ status_display }}</span>
+{% elif status == "resolved" %}<span class="tag success" data-i18n="emg.status_resolved">{{ status_display }}</span>
+{% else %}<span class="tag muted" data-i18n="emg.status_cancelled">{{ status_display }}</span>{% endif %}

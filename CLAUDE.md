@@ -26,7 +26,7 @@ python manage.py run_telegram_bot    # long-polling Telegram bot (separate proce
 python manage.py geocode_missing [--limit N --dry-run --profiles]   # backfill lat/lng for HelpRequests (and --profiles) via Nominatim; sleeps 1.1s/row for the usage policy
 python manage.py check_overdue_tasks [--dry-run]        # alert curators/admins about tasks overdue past 3h; idempotent, runs on cron (see README "Background jobs")
 
-python manage.py test                                    # full suite (272 tests, ~65s)
+python manage.py test                                    # full suite (327 tests, ~80s)
 python manage.py test myapp.tests.MatchingAlgorithmTests  # one test class
 python manage.py test myapp.tests.MatchingAlgorithmTests.test_closer_volunteer_ranks_higher  # one test
 python manage.py test accounts                           # one app
@@ -67,9 +67,9 @@ timestamp the review). See `myapp/models.py::VolunteerApplication` and the
 `volunteer_application*` views/URLs.
 
 State-changing actions (`accept_task`, `complete_task`, `task_advance_stage`,
-`task_assign_volunteer`, `task_notify_volunteer`, application approve/reject, `logout`,
-`check_overdue`, Telegram unlink) are `@require_POST`; templates must submit them as forms, not
-`<a href>` links.
+`task_assign_volunteer`, `task_notify_volunteer`, `emergency_report`, `emergency_update`,
+application approve/reject, `logout`, `check_overdue`, Telegram unlink) are `@require_POST`;
+templates must submit them as forms, not `<a href>` links.
 
 ### Task lifecycle (`HelpRequest`)
 
@@ -94,6 +94,16 @@ but leaves the task `pending` (they still self-accept); `task_assign_volunteer_v
 direct-assign — it flips the task to `active` with the **same conditional `UPDATE ... WHERE
 status='pending'`** guard as `accept_task_view`, so a curator assign and a volunteer self-accept
 can't both win.
+
+**Emergency / SOS** (`EmergencyReport`, always linked to one `HelpRequest`): the *assigned*
+volunteer of an *active* task raises one from the danger button (`emergency_report_view`, POST,
+`@role_required("volunteer")` + must be `task.volunteer` and `status="active"`). Lifecycle
+`open → acknowledged → resolved` (+ `cancelled` from either open state), transitions are
+`EmergencyReport` model methods, driven only by curator/admin through `emergency_update_view`
+(`action=acknowledge|resolve|cancel`). `_can_view_emergency` gates the detail page: staff see
+every report, a volunteer sees only their own (read-only, no controls). CRM list + tabs at
+`/myapp/emergency/`; open count on the admin dashboard; open+located reports show as `--danger`
+`gc-pin--emergency` markers in the staff branch of `map_data_view`. See `services/emergency.py`.
 
 ### Security & abuse controls
 
@@ -157,6 +167,16 @@ Business logic that needs to be unit-testable without the ORM or network lives h
   by `check_overdue_view` (admin button) and the `check_overdue_tasks` cron command. Claims each
   task with a conditional `UPDATE ... WHERE alarm_sent=False` before notifying `staff_recipients()`,
   so concurrent sweeps never double-alert; idempotent by design.
+- **`emergency.py`** — volunteer SOS reports (`myapp/models/emergency.py::EmergencyReport`). A
+  volunteer on an *active* task raises one via the danger button; `report_emergency()` dedupes
+  (a repeat press returns the existing open report — never a second row or a second staff
+  alert), resolves a location (explicit coords → task → volunteer profile → none, via
+  `geo.is_valid_coordinate`), and fans out to `staff_recipients()` once (idempotent via
+  `EmergencyReport.notified_at`). State transitions are **model methods**
+  (`.acknowledge()` / `.resolve()` / `.cancel()`, raising `ValueError` on an illegal move —
+  `open → acknowledged → resolved`, `cancelled` from either open state, both terminal); the
+  service wraps them to also notify the reporter. Curator/admin only for transitions;
+  `check_overdue`-style CRM at `/myapp/emergency/`.
 - **`telegram_link.py`** — `redeem_link_code`, the verified-round-trip consumer for Telegram
   account binding (see **Telegram account linking**).
 

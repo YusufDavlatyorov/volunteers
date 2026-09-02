@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}SOS #{{ report.id }} - Generation Connect{% endblock %}
+{% block extra_css %}
+{% if show_location_map %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+{% endif %}
+{% endblock %}
+{% block content %}
+<section class="section">
+    {% if is_staff %}
+        {% url 'emergency_list' as emergency_list_url %}
+        {% include "partials/_page_header.html" with title="SOS report" title_i18n="emg.detail_title" action_url=emergency_list_url action_label="All emergencies" action_i18n="emg.list_title" action_class="ghost" %}
+    {% else %}
+        {% include "partials/_page_header.html" with title="Your SOS report" title_i18n="emg.detail_title_own" %}
+    {% endif %}
+
+    {% if report.is_open %}
+    <div class="emergency-banner">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"></path><path d="M12 9v4M12 17h.01"></path></svg>
+        <div>
+            {% include "myapp/_emergency_status_tag.html" with status=report.status status_display=report.get_status_display %}
+            {% if is_staff %}
+                <p data-i18n="emg.banner_staff">A volunteer reported a problem while working. Respond as soon as possible.</p>
+            {% else %}
+                <p data-i18n="emg.banner_own">Your report has been sent. A coordinator has been notified and will contact you.</p>
+            {% endif %}
+        </div>
+    </div>
+    {% else %}
+    <p class="emergency-closed">
+        {% include "myapp/_emergency_status_tag.html" with status=report.status status_display=report.get_status_display %}
+        <span data-i18n="emg.closed_note">This report is closed.</span>
+    </p>
+    {% endif %}
+
+    <div class="card">
+        <div class="detail-meta">
+            <div><span class="meta-label" data-i18n="detail.volunteer">Volunteer</span><p>{{ report.volunteer.username }}</p></div>
+            <div><span class="meta-label" data-i18n="detail.client">Client</span><p>{{ report.help_request.client.username }}</p></div>
+            <div><span class="meta-label" data-i18n="tbl.task">Task</span><p><a href="{% url 'task_detail' report.help_request_id %}">#{{ report.help_request_id }} · {{ report.help_request.get_help_type_display }}</a></p></div>
+            {% if is_staff %}<div><span class="meta-label" data-i18n="detail.phone">Client phone</span><p>{{ report.help_request.phone }}</p></div>{% endif %}
+            <div><span class="meta-label" data-i18n="tbl.region">Region</span><p>{{ report.get_region_display|default:"—" }}</p></div>
+            <div><span class="meta-label" data-i18n="detail.address">Address</span><p>{{ report.help_request.address }}</p></div>
+            <div><span class="meta-label" data-i18n="tbl.created">Reported</span><p>{{ report.created_at|date:"d M Y, H:i" }}</p></div>
+            <div><span class="meta-label" data-i18n="emg.field_location">Location</span><p>{% if report.has_location %}{{ report.latitude }}, {{ report.longitude }}{% else %}<span data-i18n="emg.no_location">not provided</span>{% endif %}</p></div>
+        </div>
+        {% if report.reason %}
+        <div class="detail-reason">
+            <span class="meta-label" data-i18n="emg.field_reason">Reason</span>
+            <p>{{ report.reason }}</p>
+        </div>
+        {% endif %}
+        {% if report.resolution_note %}
+        <div class="detail-reason">
+            <span class="meta-label" data-i18n="emg.field_resolution">Resolution note</span>
+            <p>{{ report.resolution_note }}</p>
+        </div>
+        {% endif %}
+    </div>
+
+    {% if show_location_map %}
+    <div class="card reveal" id="locationMapCard" data-lat="{{ report.latitude }}" data-lng="{{ report.longitude }}">
+        <div class="section-head"><h2 data-i18n="emg.map_title">Reported location</h2></div>
+        <div id="locationMap" class="map-mini"></div>
+    </div>
+    {% endif %}
+
+    {% if can_act %}
+    <div class="card">
+        <div class="section-head"><h2 data-i18n="emg.actions_title">Actions</h2></div>
+        <div class="emergency-actions">
+            {% if report.status == "open" %}
+            <form method="post" action="{% url 'emergency_update' report.id %}" class="inline-form">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="acknowledge">
+                <button type="submit" class="button primary" data-i18n="emg.action_acknowledge">Acknowledge</button>
+            </form>
+            {% endif %}
+            <form method="post" action="{% url 'emergency_update' report.id %}" class="emergency-close-form">
+                {% csrf_token %}
+                <label class="field-group">
+                    <span data-i18n="emg.note_label">Note (optional)</span>
+                    <textarea name="note" rows="2" class="control" maxlength="2000"></textarea>
+                </label>
+                <div class="button-row">
+                    <button type="submit" name="action" value="resolve" class="button secondary" data-i18n="emg.action_resolve">Resolve</button>
+                    <button type="submit" name="action" value="cancel" class="button ghost" data-i18n="emg.action_cancel">Cancel report</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="card">
+        <div class="section-head"><h2 data-i18n="emg.timeline_title">Timeline</h2></div>
+        <div class="mini-list">
+            <div class="mini-list-item">
+                <h4 data-i18n="emg.tl_reported">Reported</h4>
+                <p>{{ report.created_at|date:"d M Y, H:i" }} · {{ report.volunteer.username }}</p>
+            </div>
+            {% if report.acknowledged_at %}
+            <div class="mini-list-item">
+                <h4 data-i18n="emg.tl_acknowledged">Acknowledged</h4>
+                <p>{{ report.acknowledged_at|date:"d M Y, H:i" }}{% if report.acknowledged_by %} · {{ report.acknowledged_by.username }}{% endif %}</p>
+            </div>
+            {% endif %}
+            {% if report.resolved_at %}
+            <div class="mini-list-item">
+                <h4 data-i18n="emg.tl_resolved">Resolved</h4>
+                <p>{{ report.resolved_at|date:"d M Y, H:i" }}{% if report.resolved_by %} · {{ report.resolved_by.username }}{% endif %}</p>
+            </div>
+            {% endif %}
+            {% if report.cancelled_at %}
+            <div class="mini-list-item">
+                <h4 data-i18n="emg.tl_cancelled">Cancelled</h4>
+                <p>{{ report.cancelled_at|date:"d M Y, H:i" }}{% if report.cancelled_by %} · {{ report.cancelled_by.username }}{% endif %}</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</section>
+{% endblock %}
+{% block extra_js %}
+{% if show_location_map %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="{% static 'js/map.js' %}"></script>
+<script>
+(function () {
+    const card = document.getElementById('locationMapCard');
+    if (!card || typeof L === 'undefined') return;
+    const lat = parseFloat(card.dataset.lat);
+    const lng = parseFloat(card.dataset.lng);
+    if (Number.isNaN(lat) || Number.isNaN(lng)) return;
+    const map = L.map('locationMap').setView([lat, lng], 15);
+    GCMap.tileLayer(map);
+    L.marker([lat, lng], { icon: GCMap.pinIcon('--danger', '!', 'gc-pin--emergency') }).addTo(map);
+})();
+</script>
+{% endif %}
+{% endblock %}

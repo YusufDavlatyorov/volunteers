@@ -9,6 +9,10 @@ from .views import (
     create_request_view,
     crm_tasks_view,
     crm_volunteer_detail_view,
+    emergency_detail_view,
+    emergency_list_view,
+    emergency_report_view,
+    emergency_update_view,
     task_detail_view,
     completed_tasks_view,
     event_list_view,
@@ -87,6 +91,12 @@ urlpatterns = [
     # CRM
     path('crm/tasks/', crm_tasks_view, name='crm_tasks'),
     path('crm/volunteers/<int:pk>/', crm_volunteer_detail_view, name='crm_volunteer_detail'),
+
+    # Emergency / SOS
+    path('emergency/', emergency_list_view, name='emergency_list'),
+    path('emergency/report/<int:task_pk>/', emergency_report_view, name='emergency_report'),
+    path('emergency/<int:pk>/', emergency_detail_view, name='emergency_detail'),
+    path('emergency/<int:pk>/update/', emergency_update_view, name='emergency_update'),
 
     # Map
     path('map/', map_view, name='map'),

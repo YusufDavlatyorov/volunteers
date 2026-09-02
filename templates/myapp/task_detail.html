@@ -68,6 +68,22 @@
         </div>
     </div>
 
+    {% if active_emergency %}
+    <div class="card emergency-notice">
+        <div>
+            {% include "myapp/_emergency_status_tag.html" with status=active_emergency.status status_display=active_emergency.get_status_display %}
+            <p data-i18n="emg.notice_active">An SOS report is open for this task.</p>
+        </div>
+        <a class="button ghost" href="{% url 'emergency_detail' active_emergency.id %}" data-i18n="emg.notice_view">View SOS report</a>
+    </div>
+    {% elif can_report_emergency %}
+    <div class="card emergency-card">
+        <div class="section-head"><h2 data-i18n="emg.card_title">Something wrong or unsafe?</h2></div>
+        <p class="field-hint" data-i18n="emg.card_lede">Use this only for a real problem during the visit. It alerts a coordinator right away.</p>
+        {% include "myapp/_emergency_button.html" with task=task %}
+    </div>
+    {% endif %}
+
     {% if show_location_map %}
     <div class="card reveal" id="locationMapCard" data-lat="{{ task.latitude }}" data-lng="{{ task.longitude }}">
         <div class="section-head"><h2 data-i18n="crm.task_location">Task location</h2></div>
@@ -161,6 +177,30 @@
 </section>
 {% endblock %}
 {% block extra_js %}
+<script>
+/* SOS: best-effort fill of the hidden coords from the volunteer's live location
+   just before the report is sent. Falls back silently to the task's own
+   coordinates (already in the hidden inputs) if geolocation is unavailable. */
+(function () {
+    const form = document.getElementById('emergencySosForm');
+    if (!form || !navigator.geolocation) return;
+    let located = false;
+    form.addEventListener('submit', (e) => {
+        if (located) return;
+        e.preventDefault();
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                document.getElementById('emgLat').value = pos.coords.latitude.toFixed(6);
+                document.getElementById('emgLng').value = pos.coords.longitude.toFixed(6);
+                located = true;
+                form.submit();
+            },
+            () => { located = true; form.submit(); },
+            { enableHighAccuracy: true, timeout: 8000 },
+        );
+    });
+})();
+</script>
 {% if show_recommendations %}
 <script>
 (function () {

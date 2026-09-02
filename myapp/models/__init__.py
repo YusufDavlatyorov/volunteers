@@ -9,6 +9,11 @@ New domain areas (emergency, donations, lost & found pets) get their own module
 in this package plus an entry below.
 """
 
+from .emergency import (
+    ALLOWED_TRANSITIONS as EMERGENCY_ALLOWED_TRANSITIONS,
+    EmergencyReport,
+    OPEN_STATUSES as EMERGENCY_OPEN_STATUSES,
+)
 from .events import EVENT_REGION_CHOICES, Broadcast, Event
 from .help_requests import (
     HELP_TYPE_CHOICES,
@@ -53,4 +58,8 @@ __all__ = [
     "VolunteerApplication",
     # photo_reports
     "PhotoReport",
+    # emergency
+    "EmergencyReport",
+    "EMERGENCY_OPEN_STATUSES",
+    "EMERGENCY_ALLOWED_TRANSITIONS",
 ]

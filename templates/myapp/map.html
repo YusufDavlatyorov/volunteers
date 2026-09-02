@@ -15,6 +15,7 @@
                 <option value="" data-i18n="map.filter_any">Any</option>
                 {% for value, label in status_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
                 <option value="overdue" data-i18n="map.legend_overdue">Overdue</option>
+                {% if is_ops_staff %}<option value="emergency" data-i18n="map.legend_sos">SOS report</option>{% endif %}
             </select>
         </div>
         <div class="field-group">
@@ -44,6 +45,7 @@
 
     <div class="map-legend">
         {% if is_ops_staff %}
+            <span class="map-legend-item"><span class="map-legend-dot map-legend-dot--urgent"></span><span data-i18n="map.legend_sos">SOS report</span></span>
             <span class="map-legend-item"><span class="map-legend-dot map-legend-dot--pending"></span><span data-i18n="map.legend_task_pending">Free request</span></span>
             <span class="map-legend-item"><span class="map-legend-dot map-legend-dot--active"></span><span data-i18n="map.legend_task_active">In progress</span></span>
             <span class="map-legend-item"><span class="map-legend-dot map-legend-dot--urgent"></span><span data-i18n="map.legend_emergency">Emergency</span></span>
@@ -95,11 +97,26 @@
         return me ? [me.lat, me.lng] : null;
     }
 
+    const emgStatusLabel = {
+        open: I('emg.status_open', 'Open'), acknowledged: I('emg.status_acknowledged', 'Acknowledged'),
+        resolved: I('emg.status_resolved', 'Resolved'), cancelled: I('emg.status_cancelled', 'Cancelled'),
+    };
+
     function renderPanel(point) {
         function maybeScroll() {
             if (window.matchMedia('(max-width: 860px)').matches) {
                 panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
             }
+        }
+        if (point.kind === 'emergency') {
+            panel.hidden = false;
+            panel.innerHTML = `
+                <h3 class="ops-panel__title">${point.title}</h3>
+                <div class="ops-panel__badges"><span class="tag urgent">${emgStatusLabel[point.status] || point.status}</span></div>
+                <p class="ops-panel__sub">${point.subtitle || ''}</p>
+                <div class="ops-panel__actions"><a class="button danger" href="${point.url}">${I('emg.notice_view', 'View SOS report')}</a></div>`;
+            maybeScroll();
+            return;
         }
         if (point.kind !== 'task') {
             panel.hidden = false;
@@ -157,6 +174,7 @@
         const region = document.getElementById('opsFilterRegion').value;
         const type = document.getElementById('opsFilterType').value;
         return (p) => {
+            if (status === 'emergency') return p.kind === 'emergency';
             if (p.kind !== 'task') return true;
             if (status === 'overdue' && !p.is_overdue) return false;
             if (status && status !== 'overdue' && p.status !== status) return false;

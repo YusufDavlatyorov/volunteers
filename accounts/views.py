@@ -12,7 +12,7 @@ from django.views.decorators.http import require_POST
 
 from .forms import ForgotPasswordForm, LoginForm, ProfileForm, RegistrationForm, ResetPasswordForm, UserUpdateForm
 from .models import Profile, Users, hash_token, validate_file_size
-from myapp.models import VolunteerApplication
+from myapp.models import EmergencyReport, VolunteerApplication
 from myapp.notifications import notify_users
 
 
@@ -121,10 +121,23 @@ def profile_view(request):
     context = {"profile": profile, "greeting": greeting}
     if request.user.is_volunteer:
         context["my_tasks"] = request.user.volunteer_tasks.all()[:5]
-        context["active_task"] = request.user.volunteer_tasks.filter(status="active").first()
+        active_task = request.user.volunteer_tasks.filter(status="active").first()
+        context["active_task"] = active_task
         context["completed_count"] = request.user.volunteer_tasks.filter(status="completed").count()
+        if active_task:
+            context["active_task_emergency"] = (
+                EmergencyReport.objects.filter(
+                    help_request=active_task, status__in=EmergencyReport.OPEN_STATUSES
+                )
+                .order_by("-created_at")
+                .first()
+            )
     if request.user.is_client:
         context["my_requests"] = request.user.client_requests.all()[:5]
+    if request.user.is_superuser or request.user.is_curator:
+        context["open_emergency_count"] = EmergencyReport.objects.filter(
+            status__in=EmergencyReport.OPEN_STATUSES
+        ).count()
     context["volunteer_application"] = VolunteerApplication.objects.filter(user=request.user).first()
     return render(request, "accounts/profile.html", context)
 
