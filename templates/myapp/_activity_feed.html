@@ -1,0 +1,20 @@
+{% comment %}
+Shared recent-activity feed. Requires `recent_activity` in context — a list of
+{type, message, timestamp, url} dicts from services.analytics.recent_activity().
+Wrap it in a `.card` with its own heading at the call site.
+{% endcomment %}
+{% if recent_activity %}
+    <div class="activity-feed">
+        {% for event in recent_activity %}
+            <a class="activity-item" href="{{ event.url }}">
+                <span class="activity-dot {% if event.type == 'task_overdue' %}is-urgent{% elif event.type == 'task_completed' %}is-success{% endif %}"></span>
+                <div class="activity-body">
+                    <p>{{ event.message }}</p>
+                    <span class="activity-time">{{ event.timestamp|timesince }} <span data-i18n="va.ago_suffix">ago</span></span>
+                </div>
+            </a>
+        {% endfor %}
+    </div>
+{% else %}
+    <p class="opportunity-desc" data-i18n="crm.no_activity">No recent activity yet.</p>
+{% endif %}

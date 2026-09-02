@@ -38,6 +38,19 @@ def find_overdue_tasks():
     ).select_related("volunteer")
 
 
+def currently_overdue_tasks():
+    """Every active help request past ``OVERDUE_THRESHOLD`` — regardless of
+    ``alarm_sent``. This is the "what is overdue right now" view for the CRM /
+    curator dashboard; ``find_overdue_tasks()`` is the narrower "still needs a
+    first alert" set used by the sweep."""
+    cutoff = timezone.now() - OVERDUE_THRESHOLD
+    return (
+        HelpRequest.objects.filter(status="active", accepted_at__lt=cutoff)
+        .select_related("client", "volunteer")
+        .order_by("accepted_at")
+    )
+
+
 def sweep_overdue_tasks():
     """Alert curators/admins about every newly-overdue task, exactly once each,
     and flag it so a later run is a no-op. Returns the tasks alerted on this run.

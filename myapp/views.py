@@ -73,14 +73,9 @@ def about_view(request):
 
 @login_required
 def dashboard_view(request):
-    user = request.user
-    if user.is_client:
-        return redirect("create_request")
-    if user.is_volunteer:
-        return redirect("task_list")
-    if VolunteerApplication.objects.filter(user=user).exists():
-        return redirect("volunteer_application")
-    return redirect("admin_panel")
+    # There is one canonical dashboard now (the role-aware profile view, Stage 5).
+    # This route is kept for backwards compatibility with any bookmarked link.
+    return redirect("profile")
 
 
 @role_required("admin", "curator")

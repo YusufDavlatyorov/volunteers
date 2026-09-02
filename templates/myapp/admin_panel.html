@@ -114,21 +114,7 @@
         </div>
         <div class="card reveal">
             <div class="section-head"><h3 data-i18n="crm.activity_title">Recent Activity</h3></div>
-            {% if recent_activity %}
-                <div class="activity-feed">
-                    {% for event in recent_activity %}
-                        <a class="activity-item" href="{{ event.url }}">
-                            <span class="activity-dot {% if event.type == 'task_overdue' %}is-urgent{% elif event.type == 'task_completed' %}is-success{% endif %}"></span>
-                            <div class="activity-body">
-                                <p>{{ event.message }}</p>
-                                <span class="activity-time">{{ event.timestamp|timesince }} <span data-i18n="va.ago_suffix">ago</span></span>
-                            </div>
-                        </a>
-                    {% endfor %}
-                </div>
-            {% else %}
-                <p class="opportunity-desc" data-i18n="crm.no_activity">No recent activity yet.</p>
-            {% endif %}
+            {% include "myapp/_activity_feed.html" %}
         </div>
         {% if user.is_superuser %}
             <div class="card reveal">

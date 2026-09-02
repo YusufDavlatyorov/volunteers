@@ -13,6 +13,7 @@ from django.db.models import Count, Q
 from django.utils import timezone
 
 from accounts.models import Profile, Users
+from ..models import HelpRequest
 from .geo import haversine_km
 
 # How much each signal contributes to the final 0-100 score. Urgent tasks
@@ -184,4 +185,101 @@ def recommend_volunteers(task, limit=5):
                 item["reasons"].insert(0, "Ближайший подходящий волонтёр")
 
     ranked.sort(key=lambda item: (-item["score"], item["distance_km"]))
+    return ranked[:limit]
+
+
+# ---------------------------------------------------------------------------
+# Volunteer -> task adapter
+# ---------------------------------------------------------------------------
+# recommend_tasks(volunteer) is the mirror image of recommend_volunteers(task):
+# given a volunteer, which nearby *pending* requests are the best pick for them
+# right now. It is NOT a second matching algorithm — it reuses the exact same
+# primitives (_distance_score, _skill_score, haversine_km, AVERAGE_SPEED_KMH,
+# CLOSE_KM / NEARBY_KM / DISTANCE_CAP_KM) and the same distance/skill semantics.
+# It only drops the components that don't apply from the volunteer's own point
+# of view (their availability / workload / location freshness are not signals
+# about a task) and adds two task-side signals: the request's priority and how
+# long it has been waiting. Read-only; never accepts or assigns anything —
+# accepting stays the explicit accept_task_view flow.
+
+TASK_REC_WEIGHTS = {"distance": 0.55, "skills": 0.25, "urgency": 0.15, "recency": 0.05}
+TASK_REC_CANDIDATE_CAP = 30  # never score more than this many nearby pending tasks
+
+_PRIORITY_SCORE = {
+    HelpRequest.PRIORITY_EMERGENCY: 1.0,
+    HelpRequest.PRIORITY_HIGH: 0.7,
+    HelpRequest.PRIORITY_NORMAL: 0.3,
+}
+
+
+def _recency_score(age):
+    """A request that has been waiting longer scores slightly higher, so the
+    dashboard surfaces things at risk of being forgotten. Bounded 0.4..1.0."""
+    age_days = max(0.0, age.total_seconds() / 86400)
+    return min(1.0, 0.4 + 0.15 * age_days)  # ~1.0 once it has waited ~4 days
+
+
+def _task_reasons(distance_km, skill_label, task, age):
+    reasons = []
+    if distance_km <= CLOSE_KM:
+        reasons.append("Совсем рядом с вами")
+    elif distance_km <= NEARBY_KM:
+        reasons.append("Недалеко от вас")
+    if skill_label == "match":
+        reasons.append("Подходит по вашим навыкам")
+    if task.priority == HelpRequest.PRIORITY_EMERGENCY:
+        reasons.append("Экстренный запрос")
+    elif task.priority == HelpRequest.PRIORITY_HIGH:
+        reasons.append("Высокий приоритет")
+    if age >= timezone.timedelta(days=1):
+        reasons.append("Ждёт волонтёра больше суток")
+    return reasons
+
+
+def recommend_tasks(volunteer, limit=3):
+    """Rank nearby pending help requests for `volunteer`. Read-only.
+
+    Returns a list of dicts (best first, at most `limit`):
+      task, distance_km, estimated_minutes, score (0-100), skill_match, reasons.
+
+    Returns [] when the volunteer has no saved location (distance ranking is
+    meaningless) or has no region-eligible pending task with coordinates.
+    """
+    profile = getattr(volunteer, "profile", None)
+    if not profile or not profile.has_location:
+        return []
+
+    candidates = HelpRequest.objects.filter(
+        status="pending", latitude__isnull=False, longitude__isnull=False
+    ).select_related("client")
+    if volunteer.region:
+        candidates = candidates.filter(Q(region=volunteer.region) | Q(region=""))
+    candidates = list(candidates.order_by("-is_urgent", "-created_at")[:TASK_REC_CANDIDATE_CAP])
+    if not candidates:
+        return []
+
+    now = timezone.now()
+    v_lat, v_lng = float(profile.latitude), float(profile.longitude)
+    ranked = []
+    for task in candidates:
+        distance_km = round(haversine_km(v_lat, v_lng, float(task.latitude), float(task.longitude)), 2)
+        skill_score, skill_label = _skill_score(profile.skills, task.help_type)
+        age = now - task.created_at
+        components = {
+            "distance": _distance_score(distance_km),
+            "skills": skill_score,
+            "urgency": _PRIORITY_SCORE.get(task.priority, 0.3),
+            "recency": _recency_score(age),
+        }
+        score = round(sum(components[key] * TASK_REC_WEIGHTS[key] for key in TASK_REC_WEIGHTS) * 100, 1)
+        ranked.append({
+            "task": task,
+            "distance_km": distance_km,
+            "estimated_minutes": round((distance_km / AVERAGE_SPEED_KMH) * 60, 1),
+            "score": score,
+            "skill_match": skill_label,
+            "reasons": _task_reasons(distance_km, skill_label, task, age),
+        })
+
+    ranked.sort(key=lambda item: (-item["score"], item["distance_km"], item["task"].id))
     return ranked[:limit]

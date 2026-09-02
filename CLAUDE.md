@@ -26,7 +26,7 @@ python manage.py run_telegram_bot    # long-polling Telegram bot (separate proce
 python manage.py geocode_missing [--limit N --dry-run --profiles]   # backfill lat/lng for HelpRequests (and --profiles) via Nominatim; sleeps 1.1s/row for the usage policy
 python manage.py check_overdue_tasks [--dry-run]        # alert curators/admins about tasks overdue past 3h; idempotent, runs on cron (see README "Background jobs")
 
-python manage.py test                                    # full suite (342 tests, ~90s)
+python manage.py test                                    # full suite (369 tests, ~100s)
 python manage.py test myapp.tests.MatchingAlgorithmTests  # one test class
 python manage.py test myapp.tests.MatchingAlgorithmTests.test_closer_volunteer_ranks_higher  # one test
 python manage.py test accounts                           # one app
@@ -157,20 +157,33 @@ Business logic that needs to be unit-testable without the ORM or network lives h
   one `.env` change (`MAPS_PROVIDER`: `osm` default/keyless, `mapbox` raster + `MAPS_API_KEY`,
   `google` raises — needs the JS SDK). Same discipline as `geo.py`: pure I/O, never raises for an
   expected failure. **New map/route/geocode code calls `maps.*`, not `geo.*` directly.**
-- **`matching.py`** — `recommend_volunteers(task)`: deterministic, explainable 0–100 scoring
-  (distance/availability/workload/region/**skills**/freshness, urgent tasks weight distance
-  higher) for admin/curator dispatch. Read-only — it ranks candidates but never assigns or
-  notifies; assignment is the explicit `task_assign_volunteer_view` (see **Task lifecycle**).
-  `location_freshness_label()` is a public wrapper reusing the same freshness thresholds for
-  display. Distinct from the Groq-based conversational AI assistant in `views.py::ai_chat_view` —
-  do not conflate the two "AI"s.
-- **`analytics.py`** — aggregate CRM dashboard queries (`dashboard_stats`, `recent_activity`),
+- **`matching.py`** — two directions, one algorithm. `recommend_volunteers(task)`: deterministic,
+  explainable 0–100 scoring (distance/availability/workload/region/**skills**/freshness, urgent
+  tasks weight distance higher) for admin/curator dispatch. `recommend_tasks(volunteer)`: the
+  **mirror adapter** for the volunteer dashboard — reuses the exact same primitives
+  (`_distance_score`, `_skill_score`, `haversine_km`, the km caps) from the volunteer's point of
+  view over *pending* tasks, dropping the components that aren't task signals and adding priority +
+  wait-time. Both are read-only and never assign/notify. `location_freshness_label()` is a public
+  wrapper reusing the freshness thresholds. Distinct from the Groq-based conversational AI
+  assistant in `views.py::ai_chat_view` — do not conflate the two "AI"s.
+- **`analytics.py`** — aggregate CRM dashboard queries (`dashboard_stats`, `recent_activity`,
+  `users_by_role`, `region_task_breakdown`, `platform_totals`, availability/task breakdowns),
   built with annotated `Count`/`Q` aggregates rather than per-row Python loops, so query count
   stays constant regardless of data volume.
+- **`dashboard.py`** — `for_user(user)`: the one role-aware dashboard payload, dispatched on
+  `user.role`, **every query scoped to the passed user**. Composes `analytics` / `emergency` /
+  `overdue` / `matching` — no aggregation is duplicated. Rendered by `accounts/profile.html`
+  (the single dashboard; `dashboard_view` at `/myapp/dashboard/` just `redirect`s there) via
+  `templates/myapp/dashboard/_<role>.html` partials. `admin_panel_view` stays the deep CRM
+  console; the curator/admin dashboard is the attention-triage summary that links into it.
+  `_public_volunteer()` is the only volunteer data a client's dashboard may show (name + region,
+  never contact details).
 - **`overdue.py`** — `sweep_overdue_tasks()`: the one overdue-detection + alerting path, shared
   by `check_overdue_view` (admin button) and the `check_overdue_tasks` cron command. Claims each
   task with a conditional `UPDATE ... WHERE alarm_sent=False` before notifying `staff_recipients()`,
-  so concurrent sweeps never double-alert; idempotent by design.
+  so concurrent sweeps never double-alert; idempotent by design. `find_overdue_tasks()` is the
+  sweep's "still needs a first alert" set (`alarm_sent=False`); `currently_overdue_tasks()` is the
+  broader "overdue right now" set for the CRM/dashboard.
 - **`emergency.py`** — volunteer SOS reports (`myapp/models/emergency.py::EmergencyReport`). A
   volunteer on an *active* task raises one via the danger button; `report_emergency()` dedupes
   in **three layers** — a fast check-then-create, a partial `UniqueConstraint` on

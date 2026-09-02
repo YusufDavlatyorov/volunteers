@@ -5,8 +5,9 @@ or that would otherwise bloat views.py — lives here, one module per concern:
 
     geo            pure (lat, lng) math + the OSRM routing client (never raises)
     maps           provider-agnostic facade over tiles / routing / geocoding
-    matching       deterministic, explainable volunteer<->task scoring
+    matching       deterministic, explainable volunteer<->task scoring (both directions)
     analytics      read-only CRM aggregate queries
+    dashboard      role-scoped dashboard payloads (composes analytics/emergency/overdue/matching)
     overdue        detection + alerting for tasks active past the 3h threshold
     emergency      volunteer SOS reports: dedup, location, notification fan-out
     telegram_link  redemption of one-time Telegram account-link codes

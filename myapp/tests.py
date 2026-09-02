@@ -21,9 +21,9 @@ from accounts.models import Users, hash_token
 from .forms import HelpRequestForm, PhotoReportForm
 from .models import EmergencyReport, HelpRequest, PhotoReport, VolunteerApplication
 from .notifications import notify_users
-from .services import analytics, emergency, maps, overdue
+from .services import analytics, dashboard, emergency, maps, overdue
 from .services.geo import get_route, haversine_km, is_valid_coordinate
-from .services.matching import recommend_volunteers
+from .services.matching import recommend_tasks, recommend_volunteers
 from .services.telegram_link import LINK_ATTEMPT_LIMIT, redeem_link_code
 
 
@@ -3138,3 +3138,281 @@ class EmergencyCoordinateValidationTests(TestCase):
             volunteer=self.volunteer, help_request=task, latitude="38.53", longitude="68.77"
         )
         self.assertEqual((float(report.latitude), float(report.longitude)), (38.53, 68.77))
+
+
+# ============================================================================
+# Role-based dashboards (Stage 5)
+# ============================================================================
+
+def _dash_users():
+    admin = Users.objects.create_superuser(username="d5_admin", email="d5_admin@example.com", password="pass12345")
+    curator = Users.objects.create_user(username="d5_curator", email="d5_curator@example.com", password="pass12345", is_curator=True)
+    vol_a = Users.objects.create_user(username="d5_vol_a", email="d5_vol_a@example.com", password="pass12345", is_volunteer=True, region="dushanbe")
+    vol_b = Users.objects.create_user(username="d5_vol_b", email="d5_vol_b@example.com", password="pass12345", is_volunteer=True, region="dushanbe")
+    cli_a = Users.objects.create_user(username="d5_cli_a", email="d5_cli_a@example.com", password="pass12345", is_client=True, region="dushanbe")
+    cli_b = Users.objects.create_user(username="d5_cli_b", email="d5_cli_b@example.com", password="pass12345", is_client=True, region="dushanbe")
+    return admin, curator, vol_a, vol_b, cli_a, cli_b
+
+
+def _hr(client_user, **kw):
+    data = dict(help_type="grocery", description="desc", address="a", phone="p", region="dushanbe", status="pending")
+    data.update(kw)
+    return HelpRequest.objects.create(client=client_user, **data)
+
+
+class RecommendTasksAdapterTests(TestCase):
+    """matching.recommend_tasks — the volunteer->task adapter. Reuses the
+    task->volunteer scoring primitives, never assigns."""
+
+    def setUp(self):
+        _, _, self.vol, _, self.client_user, _ = _dash_users()
+        self.vol.profile.latitude = "38.5600"
+        self.vol.profile.longitude = "68.7800"
+        self.vol.profile.skills = ["grocery"]
+        self.vol.profile.save()
+
+    def test_returns_empty_without_volunteer_location(self):
+        self.vol.profile.latitude = None
+        self.vol.profile.longitude = None
+        self.vol.profile.save()
+        _hr(self.client_user, latitude="38.56", longitude="68.78")
+        self.assertEqual(recommend_tasks(self.vol), [])
+
+    def test_only_pending_tasks_with_coordinates_in_region(self):
+        near = _hr(self.client_user, latitude="38.561", longitude="68.781")
+        _hr(self.client_user, status="active", latitude="38.56", longitude="68.78")       # not pending
+        _hr(self.client_user, latitude=None, longitude=None)                              # no coords
+        _hr(self.client_user, region="sogd", latitude="40.0", longitude="69.0")           # other region
+        recs = recommend_tasks(self.vol, limit=5)
+        self.assertEqual([r["task"].id for r in recs], [near.id])
+        self.assertLessEqual(recs[0]["score"], 100)
+        self.assertGreaterEqual(recs[0]["score"], 0)
+        self.assertIn("reasons", recs[0])
+
+    def test_deterministic_and_capped(self):
+        for i in range(6):
+            _hr(self.client_user, latitude=f"38.{560+i}", longitude="68.78")
+        a = [r["task"].id for r in recommend_tasks(self.vol, limit=3)]
+        b = [r["task"].id for r in recommend_tasks(self.vol, limit=3)]
+        self.assertEqual(a, b)
+        self.assertEqual(len(a), 3)
+
+    def test_skill_match_flag_and_closer_ranks_higher(self):
+        close = _hr(self.client_user, help_type="grocery", latitude="38.5601", longitude="68.7801")
+        far = _hr(self.client_user, help_type="grocery", latitude="38.90", longitude="69.20")
+        recs = recommend_tasks(self.vol, limit=2)
+        self.assertEqual(recs[0]["task"].id, close.id)
+        self.assertEqual(recs[0]["skill_match"], "match")
+        self.assertLess(recs[1]["score"], recs[0]["score"])
+
+
+class CurrentlyOverdueHelperTests(TestCase):
+    def setUp(self):
+        _, _, self.vol, _, self.client_user, _ = _dash_users()
+
+    def test_includes_overdue_regardless_of_alarm_sent(self):
+        alarmed = _hr(self.client_user, status="active", volunteer=self.vol, alarm_sent=True,
+                      accepted_at=timezone.now() - timezone.timedelta(hours=5))
+        not_alarmed = _hr(self.client_user, status="active", volunteer=self.vol, alarm_sent=False,
+                          accepted_at=timezone.now() - timezone.timedelta(hours=4))
+        _hr(self.client_user, status="active", volunteer=self.vol,
+            accepted_at=timezone.now() - timezone.timedelta(minutes=30))  # not overdue
+        ids = {t.id for t in overdue.currently_overdue_tasks()}
+        self.assertEqual(ids, {alarmed.id, not_alarmed.id})
+
+
+class VolunteerDashboardTests(TestCase):
+    def setUp(self):
+        self.admin, self.curator, self.vol_a, self.vol_b, self.cli_a, self.cli_b = _dash_users()
+
+    def _get(self, user="d5_vol_a"):
+        self.client.login(username=user, password="pass12345")
+        return self.client.get(reverse("profile"))
+
+    def test_volunteer_gets_volunteer_dashboard(self):
+        resp = self._get()
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.context["dash_role"], "volunteer")
+
+    def test_only_own_tasks_and_stats(self):
+        mine = _hr(self.cli_a, status="completed", volunteer=self.vol_a, completed_at=timezone.now())
+        theirs = _hr(self.cli_a, status="completed", volunteer=self.vol_b, completed_at=timezone.now())
+        resp = self._get()
+        self.assertEqual(resp.context["vol_completed"], 1)
+        ids = {t.id for t in resp.context["recent_completed"]}
+        self.assertIn(mine.id, ids)
+        self.assertNotIn(theirs.id, ids)
+        self.assertNotContains(resp, "d5_vol_b")
+
+    def test_another_volunteers_active_task_not_exposed(self):
+        others = _hr(self.cli_a, status="active", volunteer=self.vol_b,
+                     accepted_at=timezone.now(), latitude="38.56", longitude="68.78")
+        resp = self._get()
+        self.assertIsNone(resp.context["active_task"])
+        self.assertNotContains(resp, reverse("task_detail", args=[others.id]))
+
+    def test_own_emergency_scoped(self):
+        task = _hr(self.cli_a, status="active", volunteer=self.vol_a, accepted_at=timezone.now())
+        other_task = _hr(self.cli_b, status="active", volunteer=self.vol_b, accepted_at=timezone.now())
+        mine = EmergencyReport.objects.create(help_request=task, volunteer=self.vol_a)
+        EmergencyReport.objects.create(help_request=other_task, volunteer=self.vol_b)
+        resp = self._get()
+        ids = {r.id for r in resp.context["my_emergencies"]}
+        self.assertEqual(ids, {mine.id})
+
+    def test_recommendations_only_when_no_active_task_and_scoped(self):
+        self.vol_a.profile.latitude = "38.56"
+        self.vol_a.profile.longitude = "68.78"
+        self.vol_a.profile.save()
+        _hr(self.cli_a, latitude="38.561", longitude="68.781")
+        resp = self._get()
+        self.assertTrue(len(resp.context["recommended_tasks"]) >= 1)
+        # once they have an active task, no recommendations are computed
+        _hr(self.cli_a, status="active", volunteer=self.vol_a, accepted_at=timezone.now())
+        resp = self._get()
+        self.assertEqual(resp.context["recommended_tasks"], [])
+
+    def test_no_crm_aggregates_in_context(self):
+        resp = self._get()
+        for key in ("stats", "open_emergencies", "overdue_tasks", "unassigned_tasks", "region_breakdown"):
+            self.assertNotIn(key, resp.context)
+
+
+class ClientDashboardTests(TestCase):
+    def setUp(self):
+        self.admin, self.curator, self.vol_a, self.vol_b, self.cli_a, self.cli_b = _dash_users()
+
+    def _get(self, user="d5_cli_a"):
+        self.client.login(username=user, password="pass12345")
+        return self.client.get(reverse("profile"))
+
+    def test_client_gets_client_dashboard(self):
+        resp = self._get()
+        self.assertEqual(resp.context["dash_role"], "client")
+
+    def test_only_own_requests(self):
+        mine = _hr(self.cli_a, status="active", volunteer=self.vol_a, accepted_at=timezone.now())
+        theirs = _hr(self.cli_b, status="active", volunteer=self.vol_b, accepted_at=timezone.now())
+        resp = self._get()
+        self.assertEqual(resp.context["client_current"].id, mine.id)
+        self.assertNotContains(resp, reverse("task_detail", args=[theirs.id]))
+        self.assertEqual(resp.context["client_total"], 1)
+
+    def test_assigned_volunteer_shows_name_not_contact_details(self):
+        self.vol_a.profile.full_name = "Ahmad Karimov"
+        self.vol_a.profile.save()
+        _hr(self.cli_a, status="active", volunteer=self.vol_a, accepted_at=timezone.now())
+        resp = self._get()
+        self.assertEqual(resp.context["client_current_volunteer"]["name"], "Ahmad Karimov")
+        self.assertContains(resp, "Ahmad Karimov")
+        self.assertNotContains(resp, self.vol_a.email)
+        self.assertNotIn("email", resp.context["client_current_volunteer"])
+
+    def test_no_crm_or_emergency_context(self):
+        resp = self._get()
+        for key in ("stats", "open_emergency_count", "open_emergencies", "overdue_tasks", "recent_activity"):
+            self.assertNotIn(key, resp.context)
+
+
+class CuratorDashboardTests(TestCase):
+    def setUp(self):
+        self.admin, self.curator, self.vol_a, self.vol_b, self.cli_a, self.cli_b = _dash_users()
+
+    def _get(self, user="d5_curator"):
+        self.client.login(username=user, password="pass12345")
+        return self.client.get(reverse("profile"))
+
+    def test_curator_gets_curator_dashboard(self):
+        resp = self._get()
+        self.assertEqual(resp.context["dash_role"], "curator")
+        self.assertIn("stats", resp.context)
+
+    def test_operational_counts_correct(self):
+        _hr(self.cli_a)  # unassigned pending
+        overdue_task = _hr(self.cli_a, status="active", volunteer=self.vol_a,
+                           accepted_at=timezone.now() - timezone.timedelta(hours=4))
+        emg_task = _hr(self.cli_b, status="active", volunteer=self.vol_b, accepted_at=timezone.now())
+        EmergencyReport.objects.create(help_request=emg_task, volunteer=self.vol_b)
+        VolunteerApplication.objects.create(user=self.cli_a, region="dushanbe", status="pending")
+        resp = self._get()
+        self.assertEqual(resp.context["open_emergency_count"], 1)
+        self.assertEqual(resp.context["stats"]["tasks_overdue"], 1)
+        self.assertIn(overdue_task.id, {t.id for t in resp.context["overdue_tasks"]})
+        self.assertTrue(len(resp.context["unassigned_tasks"]) >= 1)
+        self.assertTrue(len(resp.context["pending_applications"]) >= 1)
+        self.assertEqual(len(resp.context["open_emergencies"]), 1)
+
+    def test_region_breakdown_present(self):
+        _hr(self.cli_a, region="sogd")
+        rows = self._get().context["region_breakdown"]
+        self.assertTrue(any(r["region"] == "sogd" and r["pending"] == 1 for r in rows))
+
+
+class AdminDashboardTests(TestCase):
+    def setUp(self):
+        self.admin, self.curator, self.vol_a, self.vol_b, self.cli_a, self.cli_b = _dash_users()
+
+    def _get(self):
+        self.client.login(username="d5_admin", password="pass12345")
+        return self.client.get(reverse("profile"))
+
+    def test_admin_gets_platform_dashboard(self):
+        resp = self._get()
+        self.assertEqual(resp.context["dash_role"], "admin")
+        self.assertIn("stats", resp.context)          # inherits curator payload
+        self.assertIn("users_by_role", resp.context)
+
+    def test_users_by_role_counts(self):
+        ubr = self._get().context["users_by_role"]
+        self.assertEqual(ubr["volunteers"], 2)
+        self.assertEqual(ubr["clients"], 2)
+        self.assertEqual(ubr["curators"], 1)
+        self.assertEqual(ubr["admins"], 1)
+
+    def test_platform_totals(self):
+        _hr(self.cli_a, status="completed", completed_at=timezone.now())
+        _hr(self.cli_a)
+        totals = self._get().context["platform_totals"]
+        self.assertEqual(totals["requests_total"], 2)
+        self.assertEqual(totals["requests_completed"], 1)
+
+
+class DashboardSecurityTests(TestCase):
+    def setUp(self):
+        self.admin, self.curator, self.vol_a, self.vol_b, self.cli_a, self.cli_b = _dash_users()
+
+    def test_anonymous_redirected_to_login(self):
+        resp = self.client.get(reverse("profile"))
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn("/login", resp.url)
+
+    def test_volunteer_dashboard_has_no_platform_or_other_user_data(self):
+        _hr(self.cli_b, status="active", volunteer=self.vol_b, accepted_at=timezone.now())
+        self.client.login(username="d5_vol_a", password="pass12345")
+        resp = self.client.get(reverse("profile"))
+        self.assertNotIn("users_by_role", resp.context)
+        self.assertNotIn("stats", resp.context)
+        self.assertNotContains(resp, "d5_cli_b")
+
+    def test_client_cannot_reach_crm_data_via_dashboard(self):
+        emg_task = _hr(self.cli_b, status="active", volunteer=self.vol_b, accepted_at=timezone.now())
+        EmergencyReport.objects.create(help_request=emg_task, volunteer=self.vol_b)
+        self.client.login(username="d5_cli_a", password="pass12345")
+        resp = self.client.get(reverse("profile"))
+        self.assertNotIn("open_emergencies", resp.context)
+        self.assertNotContains(resp, reverse("emergency_list"))
+
+    def test_query_param_tampering_is_ignored(self):
+        self.client.login(username="d5_vol_a", password="pass12345")
+        r1 = self.client.get(reverse("profile"))
+        r2 = self.client.get(reverse("profile") + "?user=1&role=admin&id=999")
+        self.assertEqual(r1.context["dash_role"], r2.context["dash_role"])
+        self.assertEqual(r2.context["dash_role"], "volunteer")
+
+    def test_dashboard_view_route_redirects_to_profile(self):
+        self.client.login(username="d5_vol_a", password="pass12345")
+        self.assertRedirects(self.client.get(reverse("dashboard")), reverse("profile"))
+
+    def test_for_user_roleless_returns_guest(self):
+        roleless = Users.objects.create_user(username="d5_none", email="d5_none@example.com", password="pass12345")
+        self.assertEqual(dashboard.for_user(roleless)["dash_role"], "guest")

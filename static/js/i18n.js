@@ -223,7 +223,14 @@ const T = {
     "emg.timeline_title":"Timeline","emg.tl_reported":"Reported","emg.tl_acknowledged":"Acknowledged","emg.tl_resolved":"Resolved","emg.tl_cancelled":"Cancelled",
     "emg.dash_open":"open SOS report(s)","emg.dash_cta":"A volunteer needs help — open the emergency queue.",
     "emg.feed_title":"Active emergencies","emg.feed_empty":"No active emergencies.",
-    "map.legend_sos":"SOS report"
+    "map.legend_sos":"SOS report",
+    "dash.this_month":"This month","dash.recommended":"Recommended for you","dash.no_recommendations":"No nearby tasks right now. Check the full list or the map.",
+    "dash.recent_completed":"Recently completed","dash.your_request":"Your request","dash.my_requests":"My requests","dash.history":"History",
+    "dash.stage":"Progress","dash.awaiting_volunteer":"We're finding a volunteer for you.",
+    "dash.unassigned":"Unassigned","dash.overdue_title":"Overdue tasks","dash.no_overdue":"No overdue tasks.",
+    "dash.unassigned_title":"Waiting for a volunteer","dash.no_unassigned":"Every request has a volunteer.",
+    "dash.by_region":"By region","dash.no_region_data":"No active requests.","dash.full_console":"Full CRM console",
+    "dash.platform":"Platform","dash.curators":"Curators","dash.requests_total":"Requests total","dash.completed_total":"Completed"
   },
   ru: {
     "nav.about":"О нас","nav.rating":"Рейтинг","nav.profile":"Профиль",
@@ -449,7 +456,14 @@ const T = {
     "emg.timeline_title":"Хронология","emg.tl_reported":"Отправлен","emg.tl_acknowledged":"Принят","emg.tl_resolved":"Решён","emg.tl_cancelled":"Отменён",
     "emg.dash_open":"открытых сигналов","emg.dash_cta":"Волонтёру нужна помощь — откройте очередь сигналов.",
     "emg.feed_title":"Активные сигналы","emg.feed_empty":"Активных сигналов нет.",
-    "map.legend_sos":"Сигнал SOS"
+    "map.legend_sos":"Сигнал SOS",
+    "dash.this_month":"За месяц","dash.recommended":"Рекомендуем вам","dash.no_recommendations":"Рядом сейчас нет задач. Посмотрите полный список или карту.",
+    "dash.recent_completed":"Недавно завершено","dash.your_request":"Ваш запрос","dash.my_requests":"Мои запросы","dash.history":"История",
+    "dash.stage":"Этап","dash.awaiting_volunteer":"Мы подбираем для вас волонтёра.",
+    "dash.unassigned":"Без волонтёра","dash.overdue_title":"Просроченные задачи","dash.no_overdue":"Просроченных задач нет.",
+    "dash.unassigned_title":"Ждут волонтёра","dash.no_unassigned":"У каждого запроса есть волонтёр.",
+    "dash.by_region":"По регионам","dash.no_region_data":"Нет активных запросов.","dash.full_console":"Полная CRM-консоль",
+    "dash.platform":"Платформа","dash.curators":"Кураторы","dash.requests_total":"Всего запросов","dash.completed_total":"Завершено"
   },
   tj: {
     "nav.about":"Дар бораи мо","nav.rating":"Рейтинг","nav.profile":"Профил",
@@ -675,7 +689,14 @@ const T = {
     "emg.timeline_title":"Хронология","emg.tl_reported":"Фиристода шуд","emg.tl_acknowledged":"Қабул шуд","emg.tl_resolved":"Ҳал шуд","emg.tl_cancelled":"Бекор шуд",
     "emg.dash_open":"сигнали кушода","emg.dash_cta":"Ба волонтёр кӯмак лозим аст — навбати сигналҳоро кушоед.",
     "emg.feed_title":"Сигналҳои фаъол","emg.feed_empty":"Сигналҳои фаъол нест.",
-    "map.legend_sos":"Сигнали SOS"
+    "map.legend_sos":"Сигнали SOS",
+    "dash.this_month":"Дар ин моҳ","dash.recommended":"Барои шумо тавсия мешавад","dash.no_recommendations":"Ҳоло дар наздикӣ вазифае нест. Рӯйхати пурра ё харитаро бинед.",
+    "dash.recent_completed":"Ба наздикӣ анҷомёфта","dash.your_request":"Дархости шумо","dash.my_requests":"Дархостҳои ман","dash.history":"Таърих",
+    "dash.stage":"Марҳила","dash.awaiting_volunteer":"Мо барои шумо волонтёр меҷӯем.",
+    "dash.unassigned":"Бе волонтёр","dash.overdue_title":"Вазифаҳои дермонда","dash.no_overdue":"Вазифаҳои дермонда нест.",
+    "dash.unassigned_title":"Мунтазири волонтёр","dash.no_unassigned":"Ҳар дархост волонтёр дорад.",
+    "dash.by_region":"Аз рӯи минтақа","dash.no_region_data":"Дархости фаъол нест.","dash.full_console":"Консоли пурраи CRM",
+    "dash.platform":"Платформа","dash.curators":"Кураторҳо","dash.requests_total":"Ҳамаи дархостҳо","dash.completed_total":"Анҷомёфта"
   }
 };
 

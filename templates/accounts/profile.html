@@ -10,11 +10,11 @@
         {% else %}
             <h1><span data-i18n="dash.evening">Good evening</span>, {{ profile.full_name|default:user.username }}</h1>
         {% endif %}
-        {% if user.is_volunteer %}
+        {% if dash_role == "volunteer" %}
             <p data-i18n="dash.volunteer_sub">Ready to make a difference?</p>
-        {% elif user.is_client %}
+        {% elif dash_role == "client" %}
             <p data-i18n="dash.client_sub">Need a little help today?</p>
-        {% elif user.is_superuser or user.is_curator %}
+        {% elif dash_role == "curator" or dash_role == "admin" %}
             <p data-i18n="dash.admin_sub">Here's what's happening across the platform.</p>
         {% else %}
             <p data-i18n="dash.guest_sub">Welcome back to Generation Connect.</p>
@@ -23,65 +23,14 @@
 
     <div class="two-col">
         <div class="stack">
-            {% if user.is_volunteer %}
-                <div class="kpi-row reveal">
-                    <div class="card stat-card"><span class="metric">{{ completed_count }}</span><p data-i18n="dash.tasks_completed">Tasks completed</p></div>
-                    <div class="card stat-card"><span class="metric">{{ profile.rating }}</span><p data-i18n="profile.rating_pts">rating points</p></div>
-                </div>
-                {% if active_task %}
-                    <div class="card reveal">
-                        <h3 data-i18n="dash.active_task">Active task</h3>
-                        <p class="opportunity-location">
-                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg>
-                            {{ active_task.get_help_type_display }} · {{ active_task.get_region_display|default:"—" }}
-                        </p>
-                        <div class="button-row">
-                            <a class="button primary" href="{% url 'task_detail' active_task.id %}" data-i18n="dash.view_task">View Task</a>
-                        </div>
-                        {% if active_task_emergency %}
-                            <div class="emergency-notice">
-                                <div>
-                                    {% include "myapp/_emergency_status_tag.html" with status=active_task_emergency.status status_display=active_task_emergency.get_status_display %}
-                                    <p data-i18n="emg.notice_active">An SOS report is open for this task.</p>
-                                </div>
-                                <a class="button ghost" href="{% url 'emergency_detail' active_task_emergency.id %}" data-i18n="emg.notice_view">View SOS report</a>
-                            </div>
-                        {% else %}
-                            {% include "myapp/_emergency_button.html" with task=active_task %}
-                        {% endif %}
-                    </div>
-                {% endif %}
-            {% endif %}
-
-            {% if user.is_client %}
-                <div class="card reveal">
-                    <h3 data-i18n="dash.need_help">Need a little help?</h3>
-                    <p data-i18n="dash.client_sub">Need a little help today?</p>
-                    <div class="button-row">
-                        <a class="button primary" href="{% url 'create_request' %}" data-i18n="profile.create_req">Create Request</a>
-                    </div>
-                </div>
-            {% endif %}
-
-            {% if user.is_superuser or user.is_curator %}
-                {% if open_emergency_count %}
-                <a class="emergency-banner emergency-banner--link" href="{% url 'emergency_list' %}?status=open">
-                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"></path><path d="M12 9v4M12 17h.01"></path></svg>
-                    <div>
-                        <strong>{{ open_emergency_count }} <span data-i18n="emg.dash_open">open SOS report(s)</span></strong>
-                        <p data-i18n="emg.dash_cta">A volunteer needs help — open the emergency queue.</p>
-                    </div>
-                </a>
-                {% endif %}
-                <div class="card reveal">
-                    <h3 data-i18n="admin.title">Admin Panel</h3>
-                    <p data-i18n="admin.desc">Free and busy requests, live stats, and recent activity across the platform.</p>
-                    <div class="button-row">
-                        <a class="button primary" href="{% url 'admin_panel' %}" data-i18n="profile.admin">Admin Panel</a>
-                        <a class="button ghost" href="{% url 'crm_tasks' %}" data-i18n="crm.tasks_title">Task Management</a>
-                        <a class="button ghost" href="{% url 'emergency_list' %}" data-i18n="emg.list_title">Emergencies</a>
-                    </div>
-                </div>
+            {% if dash_role == "volunteer" %}
+                {% include "myapp/dashboard/_volunteer.html" %}
+            {% elif dash_role == "client" %}
+                {% include "myapp/dashboard/_client.html" %}
+            {% elif dash_role == "admin" %}
+                {% include "myapp/dashboard/_admin.html" %}
+            {% elif dash_role == "curator" %}
+                {% include "myapp/dashboard/_curator.html" %}
             {% endif %}
 
             {% if volunteer_application and volunteer_application.status != "approved" %}
@@ -97,36 +46,6 @@
                         <a class="button ghost" href="{% url 'volunteer_application' %}" data-i18n="va.view_status">View Application Status</a>
                     </div>
                 </div>
-            {% endif %}
-
-            {% if user.is_volunteer or user.is_client %}
-            <div class="card reveal">
-                <div class="section-head"><h3 data-i18n="profile.my_records">My Records</h3></div>
-                {% if my_tasks %}
-                    <div class="mini-list">
-                        {% for task in my_tasks %}
-                            <div class="mini-list-item">
-                                <h4>{% include "myapp/_task_status_tag.html" with status=task.status status_display=task.get_status_display %} {{ task.get_help_type_display }}</h4>
-                                <p>{{ task.description|truncatechars:120 }}</p>
-                            </div>
-                        {% endfor %}
-                    </div>
-                {% elif my_requests %}
-                    <div class="mini-list">
-                        {% for req in my_requests %}
-                            <div class="mini-list-item">
-                                <h4>{% include "myapp/_task_status_tag.html" with status=req.status status_display=req.get_status_display %} {{ req.get_help_type_display }}</h4>
-                                <p>{{ req.description|truncatechars:120 }}</p>
-                            </div>
-                        {% endfor %}
-                    </div>
-                {% else %}
-                    <div class="empty-state">
-                        <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16l3 8v8H1v-8Z"></path><path d="M1 12h6l2 3h6l2-3h6"></path></svg>
-                        <p data-i18n="profile.no_records">No records yet.</p>
-                    </div>
-                {% endif %}
-            </div>
             {% endif %}
         </div>
 
@@ -160,6 +79,11 @@
                             <span class="quick-action__label" data-i18n="profile.admin">Admin Panel</span>
                             <svg class="quick-action__chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg>
                         </a>
+                        <a class="quick-action" href="{% url 'emergency_list' %}">
+                            <span class="quick-action__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"></path><path d="M12 9v4M12 17h.01"></path></svg></span>
+                            <span class="quick-action__label" data-i18n="emg.list_title">Emergencies</span>
+                            <svg class="quick-action__chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg>
+                        </a>
                         <a class="quick-action" href="{% url 'broadcast' %}">
                             <span class="quick-action__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"></path><path d="M22 2 15 22l-4-9-9-4 20-7Z"></path></svg></span>
                             <span class="quick-action__label" data-i18n="profile.send_msg">Send Message</span>
@@ -175,6 +99,11 @@
                         <a class="quick-action" href="{% url 'task_list' %}">
                             <span class="quick-action__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16l3 8v8H1v-8Z"></path><path d="M1 12h6l2 3h6l2-3h6"></path></svg></span>
                             <span class="quick-action__label" data-i18n="profile.open_req">Open Requests</span>
+                            <svg class="quick-action__chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg>
+                        </a>
+                        <a class="quick-action" href="{% url 'map' %}">
+                            <span class="quick-action__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 20 3 17V4l6 3 6-3 6 3v13l-6-3-6 3Z"></path><path d="M9 7v13M15 4v13"></path></svg></span>
+                            <span class="quick-action__label" data-i18n="nav.map">Map</span>
                             <svg class="quick-action__chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg>
                         </a>
                         <a class="quick-action" href="{% url 'photo_reports' %}">

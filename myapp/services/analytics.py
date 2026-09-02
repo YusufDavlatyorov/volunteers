@@ -10,7 +10,7 @@ from django.db.models import Q
 from django.urls import reverse
 from django.utils import timezone
 
-from accounts.models import Profile, Users
+from accounts.models import Profile, REGION_CHOICES, Users
 from ..models import EmergencyReport, HelpRequest, OVERDUE_THRESHOLD, VolunteerApplication
 
 
@@ -84,6 +84,50 @@ def dashboard_stats():
             status=VolunteerApplication.STATUS_PENDING
         ).count(),
     }
+
+
+def users_by_role():
+    """Active user counts per role, for the admin platform view. Admin is
+    ``is_superuser`` (not a role flag), so it is counted separately and excluded
+    from the curator tally."""
+    return Users.objects.filter(is_active=True).aggregate(
+        admins=Count("id", filter=Q(is_superuser=True)),
+        curators=Count("id", filter=Q(is_curator=True, is_superuser=False)),
+        volunteers=Count("id", filter=Q(is_volunteer=True)),
+        clients=Count("id", filter=Q(is_client=True)),
+    )
+
+
+def platform_totals():
+    """All-time request totals for the admin platform view."""
+    return HelpRequest.objects.aggregate(
+        requests_total=Count("id"),
+        requests_completed=Count("id", filter=Q(status="completed")),
+    )
+
+
+def region_task_breakdown():
+    """Pending/active task counts per region — the operational picture for the
+    curator dashboard. One annotated query, not a loop."""
+    labels = dict(REGION_CHOICES)
+    rows = (
+        HelpRequest.objects.filter(status__in=["pending", "active"])
+        .values("region")
+        .annotate(
+            pending=Count("id", filter=Q(status="pending")),
+            active=Count("id", filter=Q(status="active")),
+        )
+        .order_by("region")
+    )
+    return [
+        {
+            "region": row["region"],
+            "label": labels.get(row["region"]) or (row["region"] or "—"),
+            "pending": row["pending"],
+            "active": row["active"],
+        }
+        for row in rows
+    ]
 
 
 def recent_activity(limit=10):
