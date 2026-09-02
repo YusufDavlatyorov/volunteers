@@ -35,7 +35,7 @@ from .models import (
     VolunteerApplication,
     WORK_STAGE_CHOICES,
 )
-from .notifications import notify_users, volunteer_queryset_for_region
+from .notifications import notify_users, staff_recipients, volunteer_queryset_for_region
 from .services import analytics, maps
 from .services.geo import get_route, is_valid_coordinate
 from .services.matching import location_freshness_label, recommend_volunteers
@@ -728,7 +728,7 @@ def check_overdue_view(request):
     overdue = list(
         HelpRequest.objects.filter(status="active", alarm_sent=False, accepted_at__lt=timezone.now() - OVERDUE_THRESHOLD)
     )
-    curators = Users.objects.filter(Q(is_curator=True) | Q(is_superuser=True), is_active=True)
+    curators = staff_recipients()
     for task in overdue:
         notify_users(curators, "Просроченный запрос", f"Запрос #{task.id} в работе больше 3 часов. Волонтер: {task.volunteer}")
         task.alarm_sent = True

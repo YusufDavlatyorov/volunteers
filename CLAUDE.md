@@ -42,6 +42,12 @@ Two Django apps: **`accounts`** (custom user model, auth, profile) and **`myapp`
 else — help requests, events, broadcasts, CRM, map, AI, Telegram). `server/urls.py` mounts
 `accounts.urls` at `/` and `myapp.urls` at `/myapp/`.
 
+`myapp/models/` is a **package** (one module per domain — `help_requests.py`, `events.py`,
+`volunteer_applications.py`, `photo_reports.py`), with `myapp/models/__init__.py` re-exporting
+every public name. Import from `myapp.models` as before (`from myapp.models import HelpRequest,
+OVERDUE_THRESHOLD`); new domain areas add a module here plus an `__all__` entry. Moving a model
+between modules of the same app is not a schema change — no migration.
+
 ### Roles
 
 `accounts.Users` (`AbstractBaseUser` + `PermissionsMixin`) has three boolean flags —
@@ -162,7 +168,7 @@ excluded entirely from matching, not merely scored low — and `skills` (a `JSON
 (match / empty-is-neutral / mismatch). `HelpRequest` also carries its own `latitude`/`longitude`
 for the map and routing.
 
-`OVERDUE_THRESHOLD` (3 hours) is defined once in `myapp/models.py` and reused by
+`OVERDUE_THRESHOLD` (3 hours) is defined once in `myapp/models/help_requests.py` and reused by
 `HelpRequest.is_overdue`, `check_overdue_view`, and the analytics overdue count — don't
 reintroduce a second magic number for it.
 
@@ -171,6 +177,8 @@ reintroduce a second magic number for it.
 `myapp/notifications.py` centralizes email (falls back to console backend when SMTP env vars are
 unset) and Telegram (`send_telegram_message`, silently no-ops without a bot token). Views call
 `notify_users(...)` explicitly at the point of the event (task accepted, broadcast sent, etc.).
+`volunteer_queryset_for_region(region)` and `staff_recipients()` (active curators + admins) are
+the shared recipient querysets — reuse them rather than re-deriving the role filter.
 `myapp/signals.py` is **intentionally empty** — notification sends live in views, not signals, to
 avoid duplicate sends on every model `.save()`. Don't move notification logic into signals.
 

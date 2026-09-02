@@ -53,3 +53,14 @@ def volunteer_queryset_for_region(region):
     if region and region != "all":
         qs = qs.filter(region=region)
     return qs
+
+
+def staff_recipients():
+    """Active curators and admins — the operational audience for coordination
+    events (overdue tasks, emergency alerts, donation opportunities). Admin is
+    ``is_superuser``, not a role flag, hence the OR."""
+    from django.db.models import Q
+
+    from accounts.models import Users
+
+    return Users.objects.filter(Q(is_curator=True) | Q(is_superuser=True), is_active=True)
