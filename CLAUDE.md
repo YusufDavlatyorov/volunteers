@@ -44,10 +44,12 @@ else — help requests, events, broadcasts, CRM, map, AI, Telegram). `server/url
 `accounts.urls` at `/` and `myapp.urls` at `/myapp/`.
 
 `myapp/models/` is a **package** (one module per domain — `help_requests.py`, `events.py`,
-`volunteer_applications.py`, `photo_reports.py`), with `myapp/models/__init__.py` re-exporting
-every public name. Import from `myapp.models` as before (`from myapp.models import HelpRequest,
-OVERDUE_THRESHOLD`); new domain areas add a module here plus an `__all__` entry. Moving a model
-between modules of the same app is not a schema change — no migration.
+`volunteer_applications.py`, `photo_reports.py`, `emergency.py`), with `myapp/models/__init__.py`
+re-exporting every public name. Import from `myapp.models` as before (`from myapp.models import
+HelpRequest, OVERDUE_THRESHOLD`); new domain areas add a module here plus an `__all__` entry.
+Moving a model between modules of the same app is not a schema change — no migration. The
+`__init__.py` docstring names donations and lost-and-found pets as future modules — those are
+**planned, not yet built** (no models, views, or migrations exist for them).
 
 ### Roles
 
@@ -63,7 +65,7 @@ Access control is two decorators, both used together where needed:
 
 Registering as "volunteer" no longer grants the role directly — it creates a pending
 `VolunteerApplication`, reviewed by an admin (`approve()`/`reject()` flip `is_volunteer` and
-timestamp the review). See `myapp/models.py::VolunteerApplication` and the
+timestamp the review). See `myapp/models/volunteer_applications.py::VolunteerApplication` and the
 `volunteer_application*` views/URLs.
 
 State-changing actions (`accept_task`, `complete_task`, `task_advance_stage`,
@@ -245,7 +247,8 @@ conditional UPDATE, per-chat throttle) and never raises for an expected failure 
 
 ### AI assistant
 
-`ai_chat_view` calls Groq's OpenAI-compatible endpoint (`llama-3.1-8b-instant` by default). The
+`ai_chat_view` (URL name `ai_chat`, POSTed from the `ai_assistant` page) calls Groq's
+OpenAI-compatible endpoint (`GROQ_MODEL`, default `llama-3.1-8b-instant`). The
 Groq key is read from `GROQ_API_KEY`, falling back to `GEMINI_API_KEY` for historical reasons
 (`server/settings.py`) — the `.env.example` variable is literally named `GEMINI_API_KEY` for a
 Groq key. If no key is set, the view returns a canned fallback tip instead of failing. System
@@ -265,7 +268,9 @@ controls** for the other startup guards.
 
 All templates extend `templates/base.html` (navbar, theme toggle, toast messages, language
 switcher). No CSS framework — `static/css/style.css` is a hand-written design system (light/dark
-via `[data-theme]` CSS variables). `static/js/i18n.js` is a client-side EN/RU/TJ translation
+via `[data-theme]` CSS variables). `crispy_forms` / `crispy_bootstrap5` are in `requirements.txt`
+and `INSTALLED_APPS` but **unused** (no `{% crispy %}`, no `FormHelper`) — forms render through
+the `templates/partials/_form.html` + `_field.html` includes; don't reach for crispy. `static/js/i18n.js` is a client-side EN/RU/TJ translation
 table driven by `data-i18n` attributes — add new UI strings there, not as hardcoded template text,
 if they need to support all three languages. `static/js/map.js` drives the Leaflet map view
 (`GCMap`; `createOpsMap()` is the interactive split-view operations controller).
