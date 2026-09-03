@@ -68,9 +68,9 @@ def _volunteer(user):
         "vol_completed": counts["completed"],
         "vol_completed_month": counts["completed_month"],
         "vol_points": user.profile.rating,
-        # Only computed when there is no active task — a volunteer holding one
-        # can't accept another, so the recommendation would be noise (and this
-        # is the only place any scoring runs on a dashboard load).
+        # A volunteer holding an active task can't accept another, so there is
+        # nothing to recommend. recommend_tasks() enforces this itself; the
+        # short-circuit here just skips the query when we already know.
         "recommended_tasks": [] if active_task else matching.recommend_tasks(user, limit=3),
         "recent_completed": tasks.filter(status="completed").order_by("-completed_at")[:LIST_LIMIT],
         "my_emergencies": (

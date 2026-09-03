@@ -23,7 +23,7 @@ from .models import EmergencyReport, HelpRequest, PhotoReport, VolunteerApplicat
 from .notifications import notify_users
 from .services import analytics, dashboard, emergency, maps, overdue
 from .services.geo import get_route, haversine_km, is_valid_coordinate
-from .services.matching import recommend_tasks, recommend_volunteers
+from .services.matching import TASK_REC_CANDIDATE_CAP, recommend_tasks, recommend_volunteers
 from .services.telegram_link import LINK_ATTEMPT_LIMIT, redeem_link_code
 
 
@@ -3204,6 +3204,35 @@ class RecommendTasksAdapterTests(TestCase):
         self.assertEqual(recs[0]["task"].id, close.id)
         self.assertEqual(recs[0]["skill_match"], "match")
         self.assertLess(recs[1]["score"], recs[0]["score"])
+
+    def test_nearby_task_not_hidden_by_backlog_of_far_urgent_tasks(self):
+        """Regression: the candidate cap keeps the *nearest* pending tasks. A
+        backlog of far-away urgent requests (more than TASK_REC_CANDIDATE_CAP of
+        them) must not push a close, acceptable task out of the running."""
+        for i in range(TASK_REC_CANDIDATE_CAP + 5):
+            _hr(
+                self.client_user,
+                priority="emergency",
+                is_urgent=True,
+                latitude=f"39.{600 + i}",   # ~115 km north of the volunteer
+                longitude="68.780000",
+            )
+        near = _hr(self.client_user, latitude="38.560500", longitude="68.780500")  # ~70 m away
+
+        recs = recommend_tasks(self.vol, limit=3)
+        ids = [r["task"].id for r in recs]
+        self.assertIn(near.id, ids)
+        self.assertEqual(ids[0], near.id)
+
+    def test_no_recommendations_while_volunteer_has_active_task(self):
+        _hr(self.client_user, latitude="38.560500", longitude="68.780500")  # would otherwise match
+        _hr(self.client_user, status="active", volunteer=self.vol,
+            latitude="38.560", longitude="68.780", accepted_at=timezone.now())
+        self.assertEqual(recommend_tasks(self.vol), [])
+
+    def test_recommendations_returned_without_active_task(self):
+        _hr(self.client_user, latitude="38.560500", longitude="68.780500")
+        self.assertTrue(recommend_tasks(self.vol))
 
 
 class CurrentlyOverdueHelperTests(TestCase):

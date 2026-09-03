@@ -9,7 +9,10 @@ unit-test without mocking a network call. Admin/curator still have to choose
 who to notify; nothing here touches HelpRequest.accept()/assign a task.
 """
 
-from django.db.models import Count, Q
+import math
+
+from django.db.models import Count, F, FloatField, Q
+from django.db.models.functions import Abs, Cast
 from django.utils import timezone
 
 from accounts.models import Profile, Users
@@ -203,7 +206,10 @@ def recommend_volunteers(task, limit=5):
 # accepting stays the explicit accept_task_view flow.
 
 TASK_REC_WEIGHTS = {"distance": 0.55, "skills": 0.25, "urgency": 0.15, "recency": 0.05}
-TASK_REC_CANDIDATE_CAP = 30  # never score more than this many nearby pending tasks
+# Score at most this many pending tasks per dashboard load. The cap is applied
+# to the tasks *nearest* the volunteer (see recommend_tasks), so it bounds work
+# without ever hiding a close task behind a backlog of far ones.
+TASK_REC_CANDIDATE_CAP = 30
 
 _PRIORITY_SCORE = {
     HelpRequest.PRIORITY_EMERGENCY: 1.0,
@@ -242,24 +248,48 @@ def recommend_tasks(volunteer, limit=3):
     Returns a list of dicts (best first, at most `limit`):
       task, distance_km, estimated_minutes, score (0-100), skill_match, reasons.
 
-    Returns [] when the volunteer has no saved location (distance ranking is
-    meaningless) or has no region-eligible pending task with coordinates.
+    Returns [] when:
+      - the volunteer has no saved location (distance ranking is meaningless);
+      - the volunteer already holds an active task — the self-service accept
+        flow allows only one at a time (accept_task_view), so none of these
+        would be acceptable and the recommendation would only be noise; or
+      - there is no region-eligible pending task with coordinates.
     """
     profile = getattr(volunteer, "profile", None)
     if not profile or not profile.has_location:
         return []
+    if volunteer.volunteer_tasks.filter(status="active").exists():
+        return []
+
+    now = timezone.now()
+    v_lat, v_lng = float(profile.latitude), float(profile.longitude)
 
     candidates = HelpRequest.objects.filter(
         status="pending", latitude__isnull=False, longitude__isnull=False
     ).select_related("client")
     if volunteer.region:
         candidates = candidates.filter(Q(region=volunteer.region) | Q(region=""))
-    candidates = list(candidates.order_by("-is_urgent", "-created_at")[:TASK_REC_CANDIDATE_CAP])
+
+    # The candidate cap must keep the tasks *nearest* the volunteer, not the
+    # newest/most-urgent ones. Ordering by `-is_urgent, -created_at` (the old
+    # behaviour) let a backlog of far-away urgent requests fill every slot, so a
+    # close, acceptable task past position TASK_REC_CANDIDATE_CAP could never be
+    # recommended. We approximate distance in SQL with absolute degree offsets,
+    # longitude scaled by cos(latitude) so both axes carry their real length at
+    # this latitude. This only decides which rows survive the cap — the exact
+    # haversine ranking still runs in Python below. Trade-off: near the cap
+    # boundary a mostly east-west task can be mis-ordered by a few positions,
+    # but only among tasks already too far to lead the ranking.
+    lng_weight = math.cos(math.radians(v_lat)) or 1.0
+    proximity = Abs(Cast(F("latitude"), FloatField()) - v_lat) + (
+        Abs(Cast(F("longitude"), FloatField()) - v_lng) * lng_weight
+    )
+    candidates = list(
+        candidates.alias(_proximity=proximity).order_by("_proximity", "id")[:TASK_REC_CANDIDATE_CAP]
+    )
     if not candidates:
         return []
 
-    now = timezone.now()
-    v_lat, v_lng = float(profile.latitude), float(profile.longitude)
     ranked = []
     for task in candidates:
         distance_km = round(haversine_km(v_lat, v_lng, float(task.latitude), float(task.longitude)), 2)
