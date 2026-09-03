@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Support Generation Connect{% endblock %}
+{% block content %}
+<section class="section">
+    {% url 'my_donations' as my_donations_url %}
+    {% include "partials/_page_header.html" with title="Support Generation Connect" title_i18n="don.page_title" lede="Fund an item from the catalogue or give a free amount." lede_i18n="don.page_lede" action_url=my_donations_url action_label="My donations" action_i18n="don.my_title" action_class="ghost" %}
+
+    <div class="two-col">
+        <div class="stack">
+            <div class="card">
+                <div class="section-head"><h2 data-i18n="don.form_title">Make a donation</h2></div>
+                <p class="field-hint" data-i18n="don.no_gateway">Payments are handled offline for now — your donation is recorded as pending until an administrator confirms it. No card details are collected.</p>
+                <form method="post">
+                    {% csrf_token %}
+                    {% include "partials/_form.html" with form=form %}
+                    <div class="form-actions">
+                        <button class="button primary" type="submit" data-i18n="don.submit">Register donation</button>
+                    </div>
+                </form>
+            </div>
+
+            {% if recent_donations %}
+            <div class="card reveal">
+                <div class="section-head">
+                    <h3 data-i18n="don.my_recent">Your recent donations</h3>
+                    <a class="button ghost" href="{% url 'my_donations' %}" data-i18n="don.view_all">All my donations</a>
+                </div>
+                <div class="mini-list">
+                    {% for d in recent_donations %}
+                        <a class="mini-list-item mini-list-item--link" href="{% url 'donation_detail' d.id %}">
+                            <h4>{% include "myapp/_donation_status_tag.html" with status=d.status status_display=d.get_status_display %} {{ d.amount }} {{ d.currency }}</h4>
+                            <p>{% if d.product %}{{ d.product.name }}{% else %}<span data-i18n="don.general">General donation</span>{% endif %} · {{ d.created_at|date:"d M Y" }}</p>
+                        </a>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="stack">
+            <div class="card">
+                <div class="section-head"><h3 data-i18n="don.catalogue">Catalogue</h3></div>
+                {% if products %}
+                <div class="mini-list">
+                    {% for product in products %}
+                        <div class="mini-list-item">
+                            <h4>{{ product.name }} — {{ product.price }} {{ product.currency }}</h4>
+                            {% if product.description %}<p>{{ product.description|truncatechars:140 }}</p>{% endif %}
+                        </div>
+                    {% endfor %}
+                </div>
+                <p class="field-hint" data-i18n="don.catalogue_hint">Pick an item in the form above and set a quantity — the amount is calculated for you.</p>
+                {% else %}
+                <p class="opportunity-desc" data-i18n="don.catalogue_empty">No items in the catalogue yet — a free donation still helps.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}

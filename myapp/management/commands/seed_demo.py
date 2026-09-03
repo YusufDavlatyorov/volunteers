@@ -1,5 +1,6 @@
 import shutil
 from datetime import timedelta
+from decimal import Decimal
 from pathlib import Path
 
 from django.contrib.auth import get_user_model
@@ -8,7 +9,7 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from accounts.models import Profile
-from myapp.models import Broadcast, EmergencyReport, Event, HelpRequest, PhotoReport
+from myapp.models import Broadcast, Donation, EmergencyReport, Event, HelpRequest, PhotoReport, Product
 
 
 User = get_user_model()
@@ -121,9 +122,10 @@ class Command(BaseCommand):
         self._create_broadcasts(admin, curators)
         self._create_reports(volunteers, events, requests)
         self._create_emergencies(requests, admin)
+        self._create_donations(clients, admin)
 
         self.stdout.write(self.style.SUCCESS("Demo data ready."))
-        self.stdout.write(f"Users: {User.objects.count()} | Events: {Event.objects.count()} | Requests: {HelpRequest.objects.count()} | Reports: {PhotoReport.objects.count()} | Emergencies: {EmergencyReport.objects.count()}")
+        self.stdout.write(f"Users: {User.objects.count()} | Events: {Event.objects.count()} | Requests: {HelpRequest.objects.count()} | Reports: {PhotoReport.objects.count()} | Emergencies: {EmergencyReport.objects.count()} | Donations: {Donation.objects.count()}")
         self.stdout.write(f"Demo password for all demo users: {PASSWORD}")
 
     def _upsert_user(self, username, full_name, email, region, is_superuser=False, is_curator=False, is_volunteer=False, is_client=False, bio="", age=None):
@@ -293,6 +295,53 @@ class Command(BaseCommand):
                     "resolution_note": "Вызвали 103, клиент осмотрен, всё в порядке.",
                 },
             )
+
+    def _create_donations(self, clients, admin):
+        """A small catalogue + a few donations across the status lifecycle, so
+        the donor history and the admin ledger aren't empty."""
+        catalogue = [
+            ("Продуктовый набор на неделю", "Крупы, масло, консервы и хлеб для одного клиента.", Decimal("120.00")),
+            ("Аптечка первой помощи", "Базовый набор для волонтёра на выезде.", Decimal("85.00")),
+            ("Тёплый плед", "Для пожилых клиентов в холодный сезон.", Decimal("60.00")),
+            ("Проездной на месяц", "Компенсация транспортных расходов волонтёра.", Decimal("150.00")),
+        ]
+        products = []
+        for name, description, price in catalogue:
+            product, _ = Product.objects.update_or_create(
+                name=name,
+                defaults={"description": description, "price": price, "currency": "TJS", "is_active": True},
+            )
+            product.refresh_from_db()
+            products.append(product)
+
+        if not clients or Donation.objects.exists():
+            return
+
+        # donor, product, quantity, free amount, status
+        plan = [
+            (clients[0], products[0], 1, None, Donation.CONFIRMED),
+            (clients[0], None, 1, Decimal("50.00"), Donation.PENDING),
+            (clients[1 % len(clients)], products[2], 2, None, Donation.FULFILLED),
+            (clients[2 % len(clients)], None, 1, Decimal("200.00"), Donation.PENDING),
+        ]
+        for donor, product, quantity, amount, status in plan:
+            if product is not None:
+                unit = product.price
+                donation = Donation.objects.create(
+                    donor=donor, product=product, quantity=quantity,
+                    unit_price_snapshot=unit, amount=unit * quantity, currency=product.currency,
+                    status=Donation.PENDING, message="",
+                )
+            else:
+                donation = Donation.objects.create(
+                    donor=donor, amount=amount, currency="TJS",
+                    status=Donation.PENDING, message="Спасибо за вашу работу.",
+                )
+            if status == Donation.CONFIRMED:
+                donation.confirm(admin)
+            elif status == Donation.FULFILLED:
+                donation.confirm(admin)
+                donation.fulfill(admin)
 
     def _create_broadcasts(self, admin, curators):
         Broadcast.objects.update_or_create(

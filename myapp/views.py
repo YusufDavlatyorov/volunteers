@@ -6,6 +6,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
+from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db.models import Count, Max, Q
 from django.http import Http404, JsonResponse
@@ -17,6 +18,7 @@ from django.views.decorators.http import require_GET, require_POST
 from accounts.models import Profile, REGION_CHOICES, Users
 from .forms import (
     BroadcastForm,
+    DonationForm,
     EventForm,
     HelpRequestFilterForm,
     HelpRequestForm,
@@ -25,6 +27,8 @@ from .forms import (
 )
 from .models import (
     Broadcast,
+    Donation,
+    DONATION_STATUS_CHOICES,
     EmergencyReport,
     Event,
     HELP_TYPE_CHOICES,
@@ -38,8 +42,8 @@ from .models import (
     WORK_STAGE_CHOICES,
 )
 from .models.emergency import STATUS_CHOICES as EMERGENCY_STATUS_CHOICES
-from .notifications import notify_users, volunteer_queryset_for_region
-from .services import analytics, emergency, maps, overdue
+from .notifications import notify_users, staff_recipients, volunteer_queryset_for_region
+from .services import analytics, donations, emergency, maps, overdue
 from .services.geo import get_route, is_valid_coordinate
 from .services.matching import location_freshness_label, recommend_volunteers
 
@@ -1176,3 +1180,136 @@ def emergency_update_view(request, pk):
         return redirect("emergency_detail", pk=pk)
     messages.success(request, "Статус сигнала обновлён.")
     return redirect("emergency_detail", pk=pk)
+
+
+# ============================================================================
+# Donations / store foundation (Stage 6, increment C)
+# ============================================================================
+# Minimal: a Product catalogue + a Donation record. NO payment provider — a
+# donation is created `pending` and an admin confirms it out of band. All money
+# is computed in services.donations; views stay thin.
+
+
+def _can_view_donation(user, donation):
+    """A donor sees only their own donations; admin (superuser) sees every one.
+    Curators are deliberately not given financial visibility."""
+    return user.is_superuser or donation.donor_id == user.id
+
+
+@login_required
+def donate_view(request):
+    """Create a donation — pick a catalogue product (amount = price × quantity,
+    computed server-side) or give a free amount."""
+    if request.method == "POST":
+        form = DonationForm(request.POST)
+        if form.is_valid():
+            cd = form.cleaned_data
+            try:
+                donation = donations.create_donation(
+                    donor=request.user,
+                    product=cd.get("product"),
+                    quantity=cd.get("quantity") or 1,
+                    amount=cd.get("amount"),
+                    currency=cd.get("currency"),
+                    message=cd.get("message", ""),
+                )
+            except ValidationError as exc:
+                form.add_error(None, exc)
+            else:
+                notify_users(
+                    list(staff_recipients().filter(is_superuser=True)),
+                    "Новое пожертвование",
+                    f"Пожертвование #{donation.id} на {donation.amount} {donation.currency} "
+                    f"от {request.user.username}. Ожидает подтверждения.",
+                )
+                messages.success(
+                    request,
+                    "Спасибо! Пожертвование зарегистрировано и ожидает подтверждения администратором.",
+                )
+                return redirect("donation_detail", pk=donation.id)
+    else:
+        form = DonationForm()
+
+    return render(request, "myapp/donate.html", {
+        "form": form,
+        "products": donations.active_products(),
+        "recent_donations": donations.donations_for(request.user)[:5],
+    })
+
+
+@login_required
+def my_donations_view(request):
+    return render(request, "myapp/my_donations.html", {
+        "donations": donations.donations_for(request.user),
+    })
+
+
+@login_required
+def donation_detail_view(request, pk):
+    donation = get_object_or_404(
+        Donation.objects.select_related("donor", "product", "reviewed_by"), pk=pk
+    )
+    if not _can_view_donation(request.user, donation):
+        messages.error(request, "У вас нет доступа к этой странице")
+        return redirect("profile")
+    return render(request, "myapp/donation_detail.html", {
+        "donation": donation,
+        "is_admin": request.user.is_superuser,
+    })
+
+
+@role_required("admin")
+def donations_admin_view(request):
+    """Admin-only donation ledger — list, status tabs, summary. Curators have no
+    financial view."""
+    status_filter = request.GET.get("status", "")
+    qs = donations.all_donations()
+    valid = {value for value, _ in DONATION_STATUS_CHOICES}
+    if status_filter in valid:
+        qs = qs.filter(status=status_filter)
+
+    paginator = Paginator(qs, 25)
+    page_obj = paginator.get_page(request.GET.get("page"))
+    querystring = request.GET.copy()
+    querystring.pop("page", None)
+
+    return render(request, "myapp/donations_admin.html", {
+        "page_obj": page_obj,
+        "status_filter": status_filter,
+        "status_choices": DONATION_STATUS_CHOICES,
+        "querystring": querystring.urlencode(),
+        "summary": donations.donation_summary(),
+    })
+
+
+_DONATION_ACTIONS = {
+    "confirm": donations.confirm_donation,
+    "fulfill": donations.fulfill_donation,
+    "cancel": donations.cancel_donation,
+}
+
+
+@role_required("admin")
+@require_POST
+def donation_update_view(request, pk):
+    """Admin advances a donation: confirm (funds verified) / fulfill / cancel.
+    Status transitions are model methods; illegal moves raise ValueError."""
+    donation = get_object_or_404(Donation.objects.select_related("donor"), pk=pk)
+    handler = _DONATION_ACTIONS.get(request.POST.get("action", ""))
+    if handler is None:
+        messages.warning(request, "Неизвестное действие.")
+        return redirect("donation_detail", pk=pk)
+    try:
+        handler(donation, actor=request.user)
+    except ValueError:
+        messages.warning(request, "Это действие недоступно для текущего статуса пожертвования.")
+        return redirect("donation_detail", pk=pk)
+
+    if donation.donor_id:
+        notify_users(
+            [donation.donor],
+            "Статус пожертвования обновлён",
+            f"Ваше пожертвование #{donation.id} теперь: {donation.get_status_display()}.",
+        )
+    messages.success(request, "Статус пожертвования обновлён.")
+    return redirect("donation_detail", pk=pk)

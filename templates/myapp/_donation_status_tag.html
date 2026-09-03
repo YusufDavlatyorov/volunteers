@@ -1,0 +1,9 @@
+{% comment %}
+Donation status pill. Colour semantics match .tag.* in style.css:
+  pending → neutral · confirmed → info (blue) · fulfilled → success · cancelled → muted
+Usage: {% include "myapp/_donation_status_tag.html" with status=donation.status status_display=donation.get_status_display %}
+{% endcomment %}
+{% if status == "confirmed" %}<span class="tag info" data-i18n="don.status_confirmed">{{ status_display }}</span>
+{% elif status == "fulfilled" %}<span class="tag success" data-i18n="don.status_fulfilled">{{ status_display }}</span>
+{% elif status == "cancelled" %}<span class="tag muted" data-i18n="don.status_cancelled">{{ status_display }}</span>
+{% else %}<span class="tag" data-i18n="don.status_pending">{{ status_display }}</span>{% endif %}

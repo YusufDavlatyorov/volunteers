@@ -14,8 +14,8 @@ aggregation logic is duplicated.
 from django.db.models import Count, Q
 from django.utils import timezone
 
-from ..models import EmergencyReport, Event, HelpRequest, VolunteerApplication
-from . import analytics, emergency, matching, overdue, stale
+from ..models import Donation, EmergencyReport, Event, HelpRequest, VolunteerApplication
+from . import analytics, donations, emergency, matching, overdue, stale
 
 EVENTS_LIMIT = 3
 LIST_LIMIT = 5
@@ -97,6 +97,8 @@ def _client(user):
         "client_active": active,
         "client_completed": completed[:LIST_LIMIT],
         "client_total": len(requests),
+        "donation_count": Donation.objects.filter(donor=user).count(),
+        "recent_donations": list(donations.donations_for(user)[:LIST_LIMIT]),
         "upcoming_events": _upcoming_events(user.region),
     }
 
@@ -170,6 +172,7 @@ def _admin(user):
     data["dash_role"] = "admin"
     data["users_by_role"] = analytics.users_by_role()
     data["platform_totals"] = analytics.platform_totals()
+    data["donation_summary"] = donations.donation_summary()
     data["total_events"] = Event.objects.count()
     data["recent_applications"] = (
         VolunteerApplication.objects.select_related("user").order_by("-created_at")[:LIST_LIMIT]

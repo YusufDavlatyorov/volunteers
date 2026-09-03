@@ -3,11 +3,16 @@ from django import forms
 from accounts.models import REGION_CHOICES
 from .models import (
     Broadcast,
+    CURRENCY_CHOICES,
+    DEFAULT_CURRENCY,
     Event,
     HELP_TYPE_CHOICES,
     HelpRequest,
+    MAX_DONATION_QUANTITY,
+    MIN_MONEY,
     PhotoReport,
     PRIORITY_CHOICES,
+    Product,
     STATUS_CHOICES,
 )
 from .services.geo import is_valid_coordinate
@@ -128,6 +133,71 @@ class PhotoReportForm(forms.ModelForm):
             "event": forms.Select(attrs=FIELD_CLASS),
             "help_request": forms.Select(attrs=FIELD_CLASS),
         }
+
+
+class DonationForm(forms.Form):
+    """One donation. Two shapes: pick a catalogue product (amount is computed
+    server-side from its price × quantity) or leave the product blank and enter
+    a free amount. The service (``services.donations.create_donation``) is the
+    real validator — this form only shapes the input and catches the obvious
+    mistakes early."""
+
+    product = forms.ModelChoiceField(
+        label="Товар",
+        queryset=Product.objects.none(),
+        required=False,
+        empty_label="Общее пожертвование (свободная сумма)",
+        widget=forms.Select(attrs=FIELD_CLASS),
+    )
+    quantity = forms.IntegerField(
+        label="Количество",
+        required=False,
+        min_value=1,
+        max_value=MAX_DONATION_QUANTITY,
+        initial=1,
+        widget=forms.NumberInput(attrs={**FIELD_CLASS, "min": 1}),
+    )
+    amount = forms.DecimalField(
+        label="Сумма",
+        required=False,
+        min_value=MIN_MONEY,
+        max_digits=12,
+        decimal_places=2,
+        widget=forms.NumberInput(attrs={**FIELD_CLASS, "step": "0.01", "min": "0.01"}),
+    )
+    currency = forms.ChoiceField(
+        label="Валюта",
+        choices=CURRENCY_CHOICES,
+        required=False,
+        initial=DEFAULT_CURRENCY,
+        widget=forms.Select(attrs=FIELD_CLASS),
+    )
+    message = forms.CharField(
+        label="Сообщение",
+        required=False,
+        max_length=1000,
+        widget=forms.Textarea(attrs={**FIELD_CLASS, "rows": 3, "placeholder": "Необязательно"}),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["product"].queryset = Product.objects.filter(is_active=True).order_by("name")
+
+    def clean(self):
+        cleaned = super().clean()
+        product = cleaned.get("product")
+        if product:
+            # Amount / currency are derived from the product server-side; ignore
+            # whatever the browser sent so a tampered amount can't take effect.
+            cleaned["amount"] = None
+            cleaned["currency"] = product.currency
+            cleaned["quantity"] = cleaned.get("quantity") or 1
+        else:
+            cleaned["quantity"] = 1
+            if cleaned.get("amount") is None:
+                raise forms.ValidationError("Укажите товар или сумму пожертвования.")
+            cleaned["currency"] = cleaned.get("currency") or DEFAULT_CURRENCY
+        return cleaned
 
 
 class HelpRequestFilterForm(forms.Form):

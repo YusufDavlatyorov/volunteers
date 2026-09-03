@@ -1,5 +1,6 @@
 import io
 import threading
+from decimal import Decimal
 from unittest import mock
 
 import requests
@@ -10,7 +11,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.core import mail
 from django.core.cache import cache
 from django.core.management import call_command
-from django.core.exceptions import ImproperlyConfigured
+from django.core.exceptions import ImproperlyConfigured, ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError, OperationalError, connection, transaction
 from django.test import Client, TestCase, TransactionTestCase, override_settings
@@ -20,14 +21,16 @@ from django.utils import timezone
 from accounts.models import Users, hash_token
 from .forms import HelpRequestForm, PhotoReportForm
 from .models import (
+    Donation,
     EmergencyReport,
     HelpRequest,
     PhotoReport,
+    Product,
     STALE_PENDING_THRESHOLD,
     VolunteerApplication,
 )
 from .notifications import notify_users
-from .services import analytics, dashboard, emergency, maps, overdue, stale
+from .services import analytics, dashboard, donations, emergency, maps, overdue, stale
 from .services.geo import get_route, haversine_km, is_valid_coordinate
 from .services.matching import TASK_REC_CANDIDATE_CAP, recommend_tasks, recommend_volunteers
 from .services.telegram_link import LINK_ATTEMPT_LIMIT, redeem_link_code
@@ -3646,3 +3649,307 @@ class DashboardSecurityTests(TestCase):
     def test_for_user_roleless_returns_guest(self):
         roleless = Users.objects.create_user(username="d5_none", email="d5_none@example.com", password="pass12345")
         self.assertEqual(dashboard.for_user(roleless)["dash_role"], "guest")
+
+
+# ============================================================================
+# Donations / store foundation (Stage 6, increment C)
+# ============================================================================
+
+def _donation_users():
+    admin = Users.objects.create_superuser(username="dn_admin", email="dn_admin@example.com", password="pass12345")
+    curator = Users.objects.create_user(username="dn_curator", email="dn_curator@example.com", password="pass12345", is_curator=True)
+    client_a = Users.objects.create_user(username="dn_cli_a", email="dn_cli_a@example.com", password="pass12345", is_client=True)
+    client_b = Users.objects.create_user(username="dn_cli_b", email="dn_cli_b@example.com", password="pass12345", is_client=True)
+    return admin, curator, client_a, client_b
+
+
+class ProductModelTests(TestCase):
+    def test_active_by_default(self):
+        p = Product.objects.create(name="Плед", price=Decimal("60.00"))
+        self.assertTrue(p.is_active)
+        self.assertEqual(p.currency, "TJS")
+
+    def test_zero_or_negative_price_rejected(self):
+        for bad in (Decimal("0.00"), Decimal("-5.00")):
+            with self.assertRaises(ValidationError):
+                Product(name="x", price=bad).full_clean()
+
+    def test_ordering_is_by_name(self):
+        Product.objects.create(name="Яблоки", price=Decimal("10.00"))
+        Product.objects.create(name="Апельсины", price=Decimal("10.00"))
+        self.assertEqual([p.name for p in Product.objects.all()], ["Апельсины", "Яблоки"])
+
+
+class DonationModelTests(TestCase):
+    def setUp(self):
+        self.admin, _, self.client_a, _ = _donation_users()
+
+    def _donation(self, **kw):
+        data = dict(donor=self.client_a, amount=Decimal("100.00"), currency="TJS")
+        data.update(kw)
+        return Donation.objects.create(**data)
+
+    def test_clean_rejects_bad_money_and_quantity(self):
+        with self.assertRaises(ValidationError):
+            Donation(donor=self.client_a, amount=Decimal("0.00")).full_clean(exclude=["donor"])
+        with self.assertRaises(ValidationError):
+            Donation(donor=self.client_a, amount=Decimal("-1.00")).full_clean(exclude=["donor"])
+        with self.assertRaises(ValidationError):
+            Donation(donor=self.client_a, amount=Decimal("2000000.00")).full_clean(exclude=["donor"])
+        with self.assertRaises(ValidationError):
+            Donation(donor=self.client_a, amount=Decimal("10.00"), quantity=0).full_clean(exclude=["donor"])
+
+    def test_transition_happy_path(self):
+        d = self._donation()
+        d.confirm(self.admin)
+        self.assertEqual(d.status, Donation.CONFIRMED)
+        self.assertIsNotNone(d.confirmed_at)
+        self.assertEqual(d.reviewed_by, self.admin)
+        d.fulfill(self.admin)
+        self.assertEqual(d.status, Donation.FULFILLED)
+
+    def test_cancel_from_pending_or_confirmed(self):
+        self._donation().cancel(self.admin)
+        d = self._donation()
+        d.confirm(self.admin)
+        d.cancel(self.admin)
+        self.assertEqual(d.status, Donation.CANCELLED)
+
+    def test_illegal_transitions_raise(self):
+        d = self._donation()
+        with self.assertRaises(ValueError):
+            d.fulfill(self.admin)  # pending -> fulfilled not allowed
+        d.confirm(self.admin)
+        d.fulfill(self.admin)
+        with self.assertRaises(ValueError):
+            d.confirm(self.admin)  # fulfilled is terminal
+        cancelled = self._donation()
+        cancelled.cancel(self.admin)
+        with self.assertRaises(ValueError):
+            cancelled.confirm(self.admin)
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class DonationServiceTests(TestCase):
+    def setUp(self):
+        self.admin, _, self.client_a, self.client_b = _donation_users()
+        self.product = Product.objects.create(name="Набор продуктов", price=Decimal("120.00"), currency="TJS")
+
+    # --- free donations ---
+    def test_free_donation_created_pending(self):
+        d = donations.create_donation(donor=self.client_a, amount="75.50", message="  спасибо  ")
+        self.assertEqual(d.status, Donation.PENDING)
+        self.assertEqual(d.amount, Decimal("75.50"))
+        self.assertEqual(d.currency, "TJS")
+        self.assertIsNone(d.product)
+        self.assertIsNone(d.unit_price_snapshot)
+        self.assertEqual(d.message, "спасибо")
+
+    def test_free_donation_zero_negative_junk_and_missing_rejected(self):
+        for bad in ("0", "-10", "abc", "NaN", None, ""):
+            with self.assertRaises(ValidationError):
+                donations.create_donation(donor=self.client_a, amount=bad)
+        self.assertEqual(Donation.objects.count(), 0)
+
+    def test_free_donation_over_max_rejected(self):
+        with self.assertRaises(ValidationError):
+            donations.create_donation(donor=self.client_a, amount="1000000.01")
+        self.assertEqual(Donation.objects.count(), 0)
+
+    # --- product donations: money is server-side ---
+    def test_product_donation_amount_is_computed_server_side(self):
+        d = donations.create_donation(
+            donor=self.client_a, product=self.product, quantity=3, amount="1.00", currency="USD",
+        )
+        self.assertEqual(d.amount, Decimal("360.00"))          # 120 * 3, not the 1.00 sent
+        self.assertEqual(d.unit_price_snapshot, Decimal("120.00"))
+        self.assertEqual(d.currency, "TJS")                    # from the product, not "USD"
+        self.assertEqual(d.quantity, 3)
+
+    def test_product_donation_quantity_bounds(self):
+        for bad_qty in (0, -1, 1000):
+            with self.assertRaises(ValidationError):
+                donations.create_donation(donor=self.client_a, product=self.product, quantity=bad_qty)
+        self.assertEqual(Donation.objects.count(), 0)
+
+    def test_product_donation_amount_ceiling_enforced(self):
+        pricey = Product.objects.create(name="Авто", price=Decimal("900000.00"))
+        with self.assertRaises(ValidationError):
+            donations.create_donation(donor=self.client_a, product=pricey, quantity=2)
+        self.assertEqual(Donation.objects.count(), 0)
+
+    def test_inactive_product_rejected_and_nothing_written(self):
+        self.product.is_active = False
+        self.product.save()
+        with self.assertRaises(ValidationError):
+            donations.create_donation(donor=self.client_a, product=self.product, quantity=1)
+        self.assertEqual(Donation.objects.count(), 0)
+
+    def test_price_change_does_not_touch_existing_donation(self):
+        d = donations.create_donation(donor=self.client_a, product=self.product, quantity=2)
+        self.assertEqual(d.amount, Decimal("240.00"))
+        self.product.price = Decimal("999.00")
+        self.product.save()
+        d.refresh_from_db()
+        self.assertEqual(d.amount, Decimal("240.00"))
+        self.assertEqual(d.unit_price_snapshot, Decimal("120.00"))
+
+    def test_deleting_product_keeps_the_financial_record(self):
+        d = donations.create_donation(donor=self.client_a, product=self.product, quantity=1)
+        self.product.delete()
+        d.refresh_from_db()
+        self.assertIsNone(d.product)
+        self.assertEqual(d.amount, Decimal("120.00"))
+        self.assertEqual(d.unit_price_snapshot, Decimal("120.00"))
+
+    # --- read helpers ---
+    def test_donations_for_is_scoped_and_ordered(self):
+        d1 = donations.create_donation(donor=self.client_a, amount="10")
+        donations.create_donation(donor=self.client_b, amount="20")
+        d3 = donations.create_donation(donor=self.client_a, amount="30")
+        self.assertEqual([d.id for d in donations.donations_for(self.client_a)], [d3.id, d1.id])
+
+    def test_summary_counts_and_per_currency_raised(self):
+        donations.create_donation(donor=self.client_a, product=self.product, quantity=1).confirm(self.admin)
+        donations.create_donation(donor=self.client_a, amount="40", currency="USD").confirm(self.admin)
+        donations.create_donation(donor=self.client_b, amount="5")  # stays pending
+        summary = donations.donation_summary()
+        self.assertEqual(summary["total"], 3)
+        self.assertEqual(summary["pending"], 1)
+        self.assertEqual(summary["confirmed"], 2)
+        raised = {r["currency"]: r["total"] for r in summary["raised"]}
+        self.assertEqual(raised["TJS"], Decimal("120.00"))
+        self.assertEqual(raised["USD"], Decimal("40.00"))
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class DonationViewTests(TestCase):
+    def setUp(self):
+        self.admin, self.curator, self.client_a, self.client_b = _donation_users()
+        self.product = Product.objects.create(name="Плед", price=Decimal("60.00"))
+
+    def _login(self, username):
+        self.client.login(username=username, password="pass12345")
+
+    def test_anonymous_redirected_from_donation_pages(self):
+        for name, args in [("donate", []), ("my_donations", []), ("donations_admin", [])]:
+            resp = self.client.get(reverse(name, args=args))
+            self.assertEqual(resp.status_code, 302)
+            self.assertIn("/login", resp.url)
+
+    def test_authenticated_user_creates_pending_donation(self):
+        self._login("dn_cli_a")
+        resp = self.client.post(reverse("donate"), {"quantity": "1", "amount": "42.00", "currency": "TJS", "message": ""})
+        d = Donation.objects.get(donor=self.client_a)
+        self.assertEqual(d.status, Donation.PENDING)
+        self.assertEqual(d.amount, Decimal("42.00"))
+        self.assertRedirects(resp, reverse("donation_detail", args=[d.id]))
+
+    def test_tampered_amount_on_product_donation_is_ignored(self):
+        self._login("dn_cli_a")
+        self.client.post(reverse("donate"), {
+            "product": self.product.id, "quantity": "2", "amount": "0.01", "currency": "TJS",
+        })
+        d = Donation.objects.get(donor=self.client_a)
+        self.assertEqual(d.amount, Decimal("120.00"))  # 60 * 2
+
+    def test_my_donations_lists_only_own(self):
+        mine = donations.create_donation(donor=self.client_a, amount="10")
+        theirs = donations.create_donation(donor=self.client_b, amount="20")
+        self._login("dn_cli_a")
+        resp = self.client.get(reverse("my_donations"))
+        ids = {d.id for d in resp.context["donations"]}
+        self.assertEqual(ids, {mine.id})
+
+    def test_donation_detail_idor_blocked(self):
+        theirs = donations.create_donation(donor=self.client_b, amount="20")
+        self._login("dn_cli_a")
+        resp = self.client.get(reverse("donation_detail", args=[theirs.id]))
+        self.assertRedirects(resp, reverse("profile"))
+
+    def test_admin_can_view_any_donation(self):
+        theirs = donations.create_donation(donor=self.client_b, amount="20")
+        self._login("dn_admin")
+        self.assertEqual(self.client.get(reverse("donation_detail", args=[theirs.id])).status_code, 200)
+
+    def test_donations_admin_ledger_is_admin_only(self):
+        self._login("dn_curator")
+        self.assertRedirects(self.client.get(reverse("donations_admin")), reverse("profile"))
+        self._login("dn_cli_a")
+        self.assertRedirects(self.client.get(reverse("donations_admin")), reverse("profile"))
+        self._login("dn_admin")
+        self.assertEqual(self.client.get(reverse("donations_admin")).status_code, 200)
+
+    def test_donation_update_requires_post_and_admin(self):
+        d = donations.create_donation(donor=self.client_a, amount="10")
+        # GET rejected
+        self._login("dn_admin")
+        self.assertEqual(self.client.get(reverse("donation_update", args=[d.id])).status_code, 405)
+        # curator / client cannot act
+        self._login("dn_curator")
+        self.assertRedirects(
+            self.client.post(reverse("donation_update", args=[d.id]), {"action": "confirm"}),
+            reverse("profile"),
+        )
+        d.refresh_from_db()
+        self.assertEqual(d.status, Donation.PENDING)
+        self._login("dn_cli_a")
+        self.assertRedirects(
+            self.client.post(reverse("donation_update", args=[d.id]), {"action": "confirm"}),
+            reverse("profile"),
+        )
+        d.refresh_from_db()
+        self.assertEqual(d.status, Donation.PENDING)
+
+    def test_admin_confirm_advances_status_and_notifies_donor(self):
+        d = donations.create_donation(donor=self.client_a, amount="10")
+        mail.outbox.clear()
+        self._login("dn_admin")
+        self.client.post(reverse("donation_update", args=[d.id]), {"action": "confirm"})
+        d.refresh_from_db()
+        self.assertEqual(d.status, Donation.CONFIRMED)
+        self.assertEqual(d.reviewed_by, self.admin)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn(self.client_a.email, mail.outbox[0].to)
+
+    def test_illegal_transition_via_view_is_a_noop_with_warning(self):
+        d = donations.create_donation(donor=self.client_a, amount="10")
+        self._login("dn_admin")
+        resp = self.client.post(reverse("donation_update", args=[d.id]), {"action": "fulfill"}, follow=True)
+        d.refresh_from_db()
+        self.assertEqual(d.status, Donation.PENDING)
+        self.assertContains(resp, "недоступно")
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class DonationDashboardTests(TestCase):
+    def setUp(self):
+        self.admin, self.curator, self.vol_a, self.vol_b, self.cli_a, self.cli_b = _dash_users()
+
+    def test_client_dashboard_carries_own_donations(self):
+        mine = donations.create_donation(donor=self.cli_a, amount="15")
+        donations.create_donation(donor=self.cli_b, amount="99")
+        self.client.login(username="d5_cli_a", password="pass12345")
+        resp = self.client.get(reverse("profile"))
+        self.assertEqual(resp.context["donation_count"], 1)
+        self.assertEqual({d.id for d in resp.context["recent_donations"]}, {mine.id})
+        self.assertNotContains(resp, "99")
+
+    def test_admin_dashboard_has_donation_summary(self):
+        donations.create_donation(donor=self.cli_a, amount="10")
+        self.client.login(username="d5_admin", password="pass12345")
+        resp = self.client.get(reverse("profile"))
+        self.assertIn("donation_summary", resp.context)
+        self.assertEqual(resp.context["donation_summary"]["pending"], 1)
+
+    def test_curator_dashboard_has_no_donation_data(self):
+        donations.create_donation(donor=self.cli_a, amount="10")
+        self.client.login(username="d5_curator", password="pass12345")
+        resp = self.client.get(reverse("profile"))
+        self.assertNotIn("donation_summary", resp.context)
+
+    def test_volunteer_dashboard_has_no_donation_data(self):
+        self.client.login(username="d5_vol_a", password="pass12345")
+        resp = self.client.get(reverse("profile"))
+        self.assertNotIn("donation_summary", resp.context)
+        self.assertNotIn("recent_donations", resp.context)

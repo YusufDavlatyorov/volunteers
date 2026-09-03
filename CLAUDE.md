@@ -44,12 +44,12 @@ else — help requests, events, broadcasts, CRM, map, AI, Telegram). `server/url
 `accounts.urls` at `/` and `myapp.urls` at `/myapp/`.
 
 `myapp/models/` is a **package** (one module per domain — `help_requests.py`, `events.py`,
-`volunteer_applications.py`, `photo_reports.py`, `emergency.py`), with `myapp/models/__init__.py`
-re-exporting every public name. Import from `myapp.models` as before (`from myapp.models import
-HelpRequest, OVERDUE_THRESHOLD`); new domain areas add a module here plus an `__all__` entry.
-Moving a model between modules of the same app is not a schema change — no migration. The
-`__init__.py` docstring names donations and lost-and-found pets as future modules — those are
-**planned, not yet built** (no models, views, or migrations exist for them).
+`volunteer_applications.py`, `photo_reports.py`, `emergency.py`, `donations.py`), with
+`myapp/models/__init__.py` re-exporting every public name. Import from `myapp.models` as before
+(`from myapp.models import HelpRequest, OVERDUE_THRESHOLD`); new domain areas add a module here
+plus an `__all__` entry. Moving a model between modules of the same app is not a schema change —
+no migration. **Lost-and-found pets** are named in the `__init__.py` docstring as a future
+module — **planned, not yet built**.
 
 ### Roles
 
@@ -201,6 +201,17 @@ Business logic that needs to be unit-testable without the ORM or network lives h
   illegal move — `open → acknowledged → resolved`, `cancelled` from either open state, both
   terminal); the service wraps them to also notify the reporter. Curator/admin only for
   transitions; `check_overdue`-style CRM at `/myapp/emergency/`.
+- **`donations.py`** — the minimal donations/store foundation (`myapp/models/donations.py`:
+  `Product` catalogue + `Donation`). **No payment provider** — `create_donation()` returns a
+  `pending` donation; an admin runs `confirm` / `fulfill` / `cancel` (model methods,
+  `ValueError` on an illegal move — `pending → confirmed → fulfilled`, `cancelled` from either
+  open state). **All money is `Decimal` and computed here**: a product-linked donation's
+  `amount` is `unit_price_snapshot * quantity` (a client-submitted amount is discarded), and
+  `unit_price_snapshot` freezes the price so later `Product.price` edits never touch existing
+  rows. Donor-facing pages (`donate`, `my_donations`, `donation_detail`) are `@login_required`
+  with a `donor_id`/superuser object gate; the `donations_admin` ledger + `donation_update` are
+  **admin-only** (`@role_required("admin")`) — curators get no financial view. `DonationAdmin`
+  in Django admin is read-only.
 - **`telegram_link.py`** — `redeem_link_code`, the verified-round-trip consumer for Telegram
   account binding (see **Telegram account linking**).
 

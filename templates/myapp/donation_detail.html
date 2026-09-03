@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Donation #{{ donation.id }} - Generation Connect{% endblock %}
+{% block content %}
+<section class="section">
+    {% if is_admin %}
+        {% url 'donations_admin' as donations_admin_url %}
+        {% include "partials/_page_header.html" with title="Donation" title_i18n="don.detail_title" action_url=donations_admin_url action_label="All donations" action_i18n="don.admin_title" action_class="ghost" %}
+    {% else %}
+        {% url 'my_donations' as my_donations_url %}
+        {% include "partials/_page_header.html" with title="Donation" title_i18n="don.detail_title" action_url=my_donations_url action_label="My donations" action_i18n="don.my_title" action_class="ghost" %}
+    {% endif %}
+
+    <div class="card">
+        <p>{% include "myapp/_donation_status_tag.html" with status=donation.status status_display=donation.get_status_display %}</p>
+        <div class="detail-meta">
+            <div><span class="meta-label" data-i18n="don.col_amount">Amount</span><p>{{ donation.amount }} {{ donation.currency }}</p></div>
+            <div><span class="meta-label" data-i18n="don.col_for">For</span>
+                <p>{% if donation.product %}{{ donation.product.name }} × {{ donation.quantity }} @ {{ donation.unit_price_snapshot }} {{ donation.currency }}{% else %}<span data-i18n="don.general">General donation</span>{% endif %}</p>
+            </div>
+            {% if is_admin %}<div><span class="meta-label" data-i18n="don.col_donor">Donor</span><p>{{ donation.donor.username|default:"—" }}</p></div>{% endif %}
+            <div><span class="meta-label" data-i18n="tbl.created">Created</span><p>{{ donation.created_at|date:"d M Y, H:i" }}</p></div>
+            {% if donation.reviewed_by and is_admin %}<div><span class="meta-label" data-i18n="don.reviewed_by">Reviewed by</span><p>{{ donation.reviewed_by.username }}</p></div>{% endif %}
+        </div>
+        {% if donation.message %}
+        <div class="detail-reason">
+            <span class="meta-label" data-i18n="don.field_message">Message</span>
+            <p>{{ donation.message }}</p>
+        </div>
+        {% endif %}
+        {% if donation.status == "pending" %}
+        <p class="field-hint" data-i18n="don.pending_note">This donation is awaiting confirmation by an administrator. No payment has been processed.</p>
+        {% endif %}
+    </div>
+
+    {% if is_admin %}
+    <div class="card">
+        <div class="section-head"><h2 data-i18n="emg.actions_title">Actions</h2></div>
+        <div class="button-row">
+            {% if donation.status == "pending" %}
+            <form method="post" action="{% url 'donation_update' donation.id %}" class="inline-form">
+                {% csrf_token %}<input type="hidden" name="action" value="confirm">
+                <button type="submit" class="button primary" data-i18n="don.action_confirm">Confirm</button>
+            </form>
+            {% endif %}
+            {% if donation.status == "confirmed" %}
+            <form method="post" action="{% url 'donation_update' donation.id %}" class="inline-form">
+                {% csrf_token %}<input type="hidden" name="action" value="fulfill">
+                <button type="submit" class="button secondary" data-i18n="don.action_fulfill">Mark fulfilled</button>
+            </form>
+            {% endif %}
+            {% if donation.is_open %}
+            <form method="post" action="{% url 'donation_update' donation.id %}" class="inline-form">
+                {% csrf_token %}<input type="hidden" name="action" value="cancel">
+                <button type="submit" class="button ghost" data-i18n="don.action_cancel">Cancel</button>
+            </form>
+            {% endif %}
+        </div>
+        {% if not donation.is_open %}<p class="field-hint" data-i18n="don.closed_note">This donation is closed.</p>{% endif %}
+    </div>
+    {% endif %}
+
+    <div class="card">
+        <div class="section-head"><h2 data-i18n="emg.timeline_title">Timeline</h2></div>
+        <div class="mini-list">
+            <div class="mini-list-item"><h4 data-i18n="don.timeline_created">Created</h4><p>{{ donation.created_at|date:"d M Y, H:i" }}</p></div>
+            {% if donation.confirmed_at %}<div class="mini-list-item"><h4 data-i18n="don.timeline_confirmed">Confirmed</h4><p>{{ donation.confirmed_at|date:"d M Y, H:i" }}</p></div>{% endif %}
+            {% if donation.fulfilled_at %}<div class="mini-list-item"><h4 data-i18n="don.timeline_fulfilled">Fulfilled</h4><p>{{ donation.fulfilled_at|date:"d M Y, H:i" }}</p></div>{% endif %}
+            {% if donation.cancelled_at %}<div class="mini-list-item"><h4 data-i18n="don.timeline_cancelled">Cancelled</h4><p>{{ donation.cancelled_at|date:"d M Y, H:i" }}</p></div>{% endif %}
+        </div>
+    </div>
+</section>
+{% endblock %}

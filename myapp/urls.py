@@ -9,6 +9,11 @@ from .views import (
     create_request_view,
     crm_tasks_view,
     crm_volunteer_detail_view,
+    donate_view,
+    donation_detail_view,
+    donation_update_view,
+    donations_admin_view,
+    my_donations_view,
     emergency_detail_view,
     emergency_list_view,
     emergency_report_view,
@@ -102,4 +107,11 @@ urlpatterns = [
     path('map/', map_view, name='map'),
     path('map/data/', map_data_view, name='map_data'),
     path('location/update/', update_location_view, name='update_location'),
+
+    # Donations / store foundation
+    path('donate/', donate_view, name='donate'),
+    path('donations/', my_donations_view, name='my_donations'),
+    path('donations/manage/', donations_admin_view, name='donations_admin'),
+    path('donations/<int:pk>/', donation_detail_view, name='donation_detail'),
+    path('donations/<int:pk>/update/', donation_update_view, name='donation_update'),
 ]

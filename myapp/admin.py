@@ -1,6 +1,15 @@
 from django.contrib import admin, messages
 
-from .models import Broadcast, EmergencyReport, Event, HelpRequest, PhotoReport, VolunteerApplication
+from .models import (
+    Broadcast,
+    Donation,
+    EmergencyReport,
+    Event,
+    HelpRequest,
+    PhotoReport,
+    Product,
+    VolunteerApplication,
+)
 from .notifications import notify_users
 
 
@@ -41,6 +50,31 @@ class BroadcastAdmin(admin.ModelAdmin):
     list_display = ("subject", "sender", "region", "sent_count", "created_at")
     list_filter = ("region", "created_at")
     search_fields = ("subject", "message")
+
+
+@admin.register(Product)
+class ProductAdmin(admin.ModelAdmin):
+    list_display = ("name", "price", "currency", "is_active", "updated_at")
+    list_filter = ("is_active", "currency")
+    search_fields = ("name", "description")
+    readonly_fields = ("created_at", "updated_at")
+
+
+@admin.register(Donation)
+class DonationAdmin(admin.ModelAdmin):
+    list_display = ("id", "donor", "amount", "currency", "status", "product", "quantity", "created_at")
+    list_filter = ("status", "currency", "created_at")
+    search_fields = ("donor__username", "donor__email", "message")
+    # A financial record: the Django admin is read-only. Status changes go
+    # through the app (services.donations, which enforces the transition rules);
+    # donations are only ever created by the donate flow.
+    readonly_fields = tuple(f.name for f in Donation._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(PhotoReport)

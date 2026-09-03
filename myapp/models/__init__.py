@@ -5,10 +5,22 @@ existing imports keep working unchanged:
 
     from myapp.models import HelpRequest, OVERDUE_THRESHOLD, PRIORITY_CHOICES
 
-New domain areas (emergency, donations, lost & found pets) get their own module
-in this package plus an entry below.
+New domain areas (lost & found pets) get their own module in this package plus
+an entry below.
 """
 
+from .donations import (
+    CURRENCY_CHOICES,
+    DONATION_ALLOWED_TRANSITIONS,
+    DONATION_OPEN_STATUSES,
+    DONATION_STATUS_CHOICES,
+    DEFAULT_CURRENCY,
+    MAX_DONATION_AMOUNT,
+    MAX_DONATION_QUANTITY,
+    MIN_MONEY,
+    Donation,
+    Product,
+)
 from .emergency import (
     ALLOWED_TRANSITIONS as EMERGENCY_ALLOWED_TRANSITIONS,
     EmergencyReport,
@@ -64,4 +76,15 @@ __all__ = [
     "EmergencyReport",
     "EMERGENCY_OPEN_STATUSES",
     "EMERGENCY_ALLOWED_TRANSITIONS",
+    # donations
+    "Product",
+    "Donation",
+    "CURRENCY_CHOICES",
+    "DEFAULT_CURRENCY",
+    "DONATION_STATUS_CHOICES",
+    "DONATION_OPEN_STATUSES",
+    "DONATION_ALLOWED_TRANSITIONS",
+    "MIN_MONEY",
+    "MAX_DONATION_AMOUNT",
+    "MAX_DONATION_QUANTITY",
 ]

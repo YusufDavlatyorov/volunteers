@@ -56,6 +56,25 @@
 </div>
 {% endif %}
 
+<div class="card reveal">
+    <div class="section-head">
+        <h3 data-i18n="dash.donations">Donations</h3>
+        <a class="button ghost" href="{% url 'donate' %}" data-i18n="dash.donate_cta">Make a donation</a>
+    </div>
+    {% if recent_donations %}
+        <div class="mini-list">
+            {% for d in recent_donations %}
+                <a class="mini-list-item mini-list-item--link" href="{% url 'donation_detail' d.id %}">
+                    <h4>{% include "myapp/_donation_status_tag.html" with status=d.status status_display=d.get_status_display %} {{ d.amount }} {{ d.currency }}</h4>
+                    <p>{% if d.product %}{{ d.product.name }}{% else %}<span data-i18n="don.general">General donation</span>{% endif %} · {{ d.created_at|date:"d M Y" }}</p>
+                </a>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="opportunity-desc" data-i18n="dash.no_donations">No donations yet — a small amount still helps.</p>
+    {% endif %}
+</div>
+
 {% if upcoming_events %}
 <div class="card reveal">
     <div class="section-head"><h3 data-i18n="events.upcoming">Upcoming Events</h3></div>
