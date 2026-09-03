@@ -3550,6 +3550,32 @@ class CuratorDashboardTests(TestCase):
         self.assertEqual(resp.context["stats"]["tasks_stale"], 1)
         self.assertEqual({t.id for t in resp.context["stale_pending_tasks"]}, {stuck.id})
 
+    def test_unassigned_tasks_carry_a_matching_suggestion(self):
+        self.vol_a.profile.full_name = "Malika Safarova"
+        self.vol_a.profile.latitude = "38.5600"
+        self.vol_a.profile.longitude = "68.7800"
+        self.vol_a.profile.location_updated_at = timezone.now()
+        self.vol_a.profile.save()
+        task = _hr(self.cli_a, latitude="38.5605", longitude="68.7805")
+        resp = self._get()
+        row = next(t for t in resp.context["unassigned_tasks"] if t.id == task.id)
+        self.assertIsNotNone(row.assignment_suggestion)
+        self.assertEqual(row.assignment_suggestion["name"], "Malika Safarova")
+        self.assertIn("distance_km", row.assignment_suggestion)
+        # read-only: surfacing a suggestion must not assign the task
+        task.refresh_from_db()
+        self.assertEqual(task.status, "pending")
+        self.assertIsNone(task.volunteer)
+
+    def test_suggestion_is_none_when_task_has_no_location(self):
+        self.vol_a.profile.latitude = "38.56"
+        self.vol_a.profile.longitude = "68.78"
+        self.vol_a.profile.save()
+        task = _hr(self.cli_a)  # no coordinates
+        resp = self._get()
+        row = next(t for t in resp.context["unassigned_tasks"] if t.id == task.id)
+        self.assertIsNone(row.assignment_suggestion)
+
 
 class AdminDashboardTests(TestCase):
     def setUp(self):

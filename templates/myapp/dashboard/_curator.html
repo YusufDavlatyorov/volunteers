@@ -70,6 +70,9 @@
                 <a class="mini-list-item mini-list-item--link" href="{% url 'task_detail' task.id %}">
                     <h4><span class="tag urgent" data-i18n="crm.stale_badge">Stalled</span> #{{ task.id }} · {{ task.get_help_type_display }}</h4>
                     <p>{{ task.get_region_display|default:"—" }} · {{ task.created_at|timesince }} <span data-i18n="va.ago_suffix">ago</span></p>
+                    {% if task.assignment_suggestion %}
+                        <p class="opportunity-desc"><span data-i18n="dash.suggested">Suggested</span>: {{ task.assignment_suggestion.name }} · {{ task.assignment_suggestion.distance_km }} km{% if task.assignment_suggestion.skill_match %} · <span data-i18n="rec.skill_match">Skills match</span>{% endif %}</p>
+                    {% endif %}
                 </a>
             {% endfor %}
         </div>
@@ -86,6 +89,9 @@
                 <a class="mini-list-item mini-list-item--link" href="{% url 'task_detail' task.id %}">
                     <h4>{% if task.is_urgent %}<span class="tag urgent" data-i18n="task.urgent_badge">Urgent</span> {% endif %}#{{ task.id }} · {{ task.get_help_type_display }}</h4>
                     <p>{{ task.get_region_display|default:"—" }} · {{ task.created_at|timesince }} <span data-i18n="va.ago_suffix">ago</span></p>
+                    {% if task.assignment_suggestion %}
+                        <p class="opportunity-desc"><span data-i18n="dash.suggested">Suggested</span>: {{ task.assignment_suggestion.name }} · {{ task.assignment_suggestion.distance_km }} km{% if task.assignment_suggestion.skill_match %} · <span data-i18n="rec.skill_match">Skills match</span>{% endif %}</p>
+                    {% endif %}
                 </a>
             {% endfor %}
         </div>

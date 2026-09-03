@@ -229,7 +229,7 @@ const T = {
     "dash.stage":"Progress","dash.awaiting_volunteer":"We're finding a volunteer for you.",
     "dash.unassigned":"Unassigned","dash.overdue_title":"Overdue tasks","dash.no_overdue":"No overdue tasks.",
     "dash.unassigned_title":"Waiting for a volunteer","dash.no_unassigned":"Every request has a volunteer.",
-    "dash.stale_title":"Waiting too long","dash.no_stale":"No requests stuck waiting.",
+    "dash.stale_title":"Waiting too long","dash.no_stale":"No requests stuck waiting.","dash.suggested":"Suggested",
     "crm.kpi_stale":"Stalled","crm.stale_badge":"Stalled","crm.stale_only":"Stalled only",
     "dash.by_region":"By region","dash.no_region_data":"No active requests.","dash.full_console":"Full CRM console",
     "dash.platform":"Platform","dash.curators":"Curators","dash.requests_total":"Requests total","dash.completed_total":"Completed"
@@ -464,7 +464,7 @@ const T = {
     "dash.stage":"Этап","dash.awaiting_volunteer":"Мы подбираем для вас волонтёра.",
     "dash.unassigned":"Без волонтёра","dash.overdue_title":"Просроченные задачи","dash.no_overdue":"Просроченных задач нет.",
     "dash.unassigned_title":"Ждут волонтёра","dash.no_unassigned":"У каждого запроса есть волонтёр.",
-    "dash.stale_title":"Слишком долгое ожидание","dash.no_stale":"Нет застрявших запросов.",
+    "dash.stale_title":"Слишком долгое ожидание","dash.no_stale":"Нет застрявших запросов.","dash.suggested":"Рекомендуем",
     "crm.kpi_stale":"Зависшие","crm.stale_badge":"Долго ждёт","crm.stale_only":"Только зависшие",
     "dash.by_region":"По регионам","dash.no_region_data":"Нет активных запросов.","dash.full_console":"Полная CRM-консоль",
     "dash.platform":"Платформа","dash.curators":"Кураторы","dash.requests_total":"Всего запросов","dash.completed_total":"Завершено"
@@ -699,7 +699,7 @@ const T = {
     "dash.stage":"Марҳила","dash.awaiting_volunteer":"Мо барои шумо волонтёр меҷӯем.",
     "dash.unassigned":"Бе волонтёр","dash.overdue_title":"Вазифаҳои дермонда","dash.no_overdue":"Вазифаҳои дермонда нест.",
     "dash.unassigned_title":"Мунтазири волонтёр","dash.no_unassigned":"Ҳар дархост волонтёр дорад.",
-    "dash.stale_title":"Интизории аз ҳад зиёд","dash.no_stale":"Дархости бе ҳаракат нест.",
+    "dash.stale_title":"Интизории аз ҳад зиёд","dash.no_stale":"Дархости бе ҳаракат нест.","dash.suggested":"Тавсия",
     "crm.kpi_stale":"Кӯҳнашуда","crm.stale_badge":"Дер интизор","crm.stale_only":"Танҳо кӯҳнашуда",
     "dash.by_region":"Аз рӯи минтақа","dash.no_region_data":"Дархости фаъол нест.","dash.full_console":"Консоли пурраи CRM",
     "dash.platform":"Платформа","dash.curators":"Кураторҳо","dash.requests_total":"Ҳамаи дархостҳо","dash.completed_total":"Анҷомёфта"

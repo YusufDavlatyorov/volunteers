@@ -101,8 +101,46 @@ def _client(user):
     }
 
 
+def _attach_assignment_suggestions(*task_lists):
+    """Attach the single best-matching volunteer to each pending task as
+    ``task.assignment_suggestion`` (a compact dict, or None), so the curator
+    dashboard can show "send this to X" next to a stuck request.
+
+    Read-only — it is exactly ``matching.recommend_volunteers(task, limit=1)``,
+    which never assigns or notifies. Bounded: only runs over the already-capped
+    (<= QUEUE_LIMIT each) dashboard queues, and memoises by task id so a request
+    that appears in both the "stalled" and "unassigned" lists is scored once.
+    The actual assign / notify actions stay on the task detail page.
+    """
+    scored = {}
+    for tasks in task_lists:
+        for task in tasks:
+            if task.id not in scored:
+                picks = matching.recommend_volunteers(task, limit=1) if task.has_location else []
+                if picks:
+                    top = picks[0]
+                    volunteer = top["volunteer"]
+                    profile = getattr(volunteer, "profile", None)
+                    scored[task.id] = {
+                        "name": (profile.full_name if profile and profile.full_name else volunteer.username),
+                        "distance_km": top["distance_km"],
+                        "score": top["score"],
+                        "skill_match": top["skill_match"] == "match",
+                    }
+                else:
+                    scored[task.id] = None
+            task.assignment_suggestion = scored[task.id]
+
+
 def _curator(user):
     stats = analytics.dashboard_stats()
+    stale_pending = list(stale.currently_stale_pending()[:QUEUE_LIMIT])
+    unassigned = list(
+        HelpRequest.objects.filter(status="pending")
+        .select_related("client")
+        .order_by("-is_urgent", "created_at")[:QUEUE_LIMIT]
+    )
+    _attach_assignment_suggestions(stale_pending, unassigned)
     return {
         "dash_role": "curator",
         "stats": stats,
@@ -113,13 +151,9 @@ def _curator(user):
         # Pending requests that have waited past STALE_PENDING_THRESHOLD — the
         # same "attention queue" treatment as overdue_tasks. Detected/alerted by
         # the check_stale_requests cron; shown here so a curator can act before
-        # (or after) the alert lands.
-        "stale_pending_tasks": stale.currently_stale_pending()[:QUEUE_LIMIT],
-        "unassigned_tasks": (
-            HelpRequest.objects.filter(status="pending")
-            .select_related("client")
-            .order_by("-is_urgent", "created_at")[:QUEUE_LIMIT]
-        ),
+        # (or after) the alert lands. Each carries .assignment_suggestion.
+        "stale_pending_tasks": stale_pending,
+        "unassigned_tasks": unassigned,
         "pending_applications": (
             VolunteerApplication.objects.filter(status=VolunteerApplication.STATUS_PENDING)
             .select_related("user")
