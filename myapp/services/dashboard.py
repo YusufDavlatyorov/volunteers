@@ -15,7 +15,7 @@ from django.db.models import Count, Q
 from django.utils import timezone
 
 from ..models import EmergencyReport, Event, HelpRequest, VolunteerApplication
-from . import analytics, emergency, matching, overdue
+from . import analytics, emergency, matching, overdue, stale
 
 EVENTS_LIMIT = 3
 LIST_LIMIT = 5
@@ -110,6 +110,11 @@ def _curator(user):
         # Preserved context key — Stage 4 dashboard tests assert on it.
         "open_emergency_count": stats["emergencies_open"],
         "overdue_tasks": overdue.currently_overdue_tasks()[:QUEUE_LIMIT],
+        # Pending requests that have waited past STALE_PENDING_THRESHOLD — the
+        # same "attention queue" treatment as overdue_tasks. Detected/alerted by
+        # the check_stale_requests cron; shown here so a curator can act before
+        # (or after) the alert lands.
+        "stale_pending_tasks": stale.currently_stale_pending()[:QUEUE_LIMIT],
         "unassigned_tasks": (
             HelpRequest.objects.filter(status="pending")
             .select_related("client")

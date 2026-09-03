@@ -16,6 +16,9 @@
     <a class="card stat-card {% if stats.tasks_overdue %}stat-card--alert{% endif %}" href="{% url 'crm_tasks' %}?overdue=1">
         <span class="metric">{{ stats.tasks_overdue }}</span><p data-i18n="crm.kpi_overdue">Overdue</p>
     </a>
+    <a class="card stat-card {% if stats.tasks_stale %}stat-card--alert{% endif %}" href="{% url 'crm_tasks' %}?stale=1">
+        <span class="metric">{{ stats.tasks_stale }}</span><p data-i18n="crm.kpi_stale">Stalled</p>
+    </a>
     <a class="card stat-card" href="{% url 'crm_tasks' %}?status=pending">
         <span class="metric">{{ stats.tasks_pending }}</span><p data-i18n="dash.unassigned">Unassigned</p>
     </a>
@@ -56,6 +59,22 @@
         </div>
     {% else %}
         <p class="opportunity-desc" data-i18n="dash.no_overdue">No overdue tasks.</p>
+    {% endif %}
+</div>
+
+<div class="card reveal">
+    <div class="section-head"><h3 data-i18n="dash.stale_title">Waiting too long</h3><a class="button ghost" href="{% url 'crm_tasks' %}?stale=1" data-i18n="common.view_all">View all</a></div>
+    {% if stale_pending_tasks %}
+        <div class="mini-list">
+            {% for task in stale_pending_tasks %}
+                <a class="mini-list-item mini-list-item--link" href="{% url 'task_detail' task.id %}">
+                    <h4><span class="tag urgent" data-i18n="crm.stale_badge">Stalled</span> #{{ task.id }} · {{ task.get_help_type_display }}</h4>
+                    <p>{{ task.get_region_display|default:"—" }} · {{ task.created_at|timesince }} <span data-i18n="va.ago_suffix">ago</span></p>
+                </a>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="opportunity-desc" data-i18n="dash.no_stale">No requests stuck waiting.</p>
     {% endif %}
 </div>
 

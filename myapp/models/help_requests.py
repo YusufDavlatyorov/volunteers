@@ -12,6 +12,14 @@ from accounts.models import REGION_CHOICES, Users
 # analytics overdue count all read it here, so the number never drifts.
 OVERDUE_THRESHOLD = timedelta(hours=3)
 
+# Single source of truth for "this request has been waiting for a volunteer too
+# long". Read by myapp.services.stale (the check_stale_requests sweep), the
+# HelpRequest.is_stale_pending property, and the analytics stale count. This is
+# the *pending*-side SLA — distinct from OVERDUE_THRESHOLD, which is about a task
+# already in progress. 48h keeps alert volume low; tune here if operations wants
+# a tighter SLA.
+STALE_PENDING_THRESHOLD = timedelta(hours=48)
+
 
 HELP_TYPE_CHOICES = [
     ("medical", "Медицинская помощь"),
@@ -99,6 +107,11 @@ class HelpRequest(models.Model):
         max_length=20, choices=WORK_STAGE_CHOICES, default=WORK_STAGE_ASSIGNED
     )
     alarm_sent = models.BooleanField(default=False)
+    # Idempotency claim flag for the stale-pending sweep (myapp.services.stale),
+    # the same pattern as alarm_sent for the overdue sweep: a request that has
+    # waited past STALE_PENDING_THRESHOLD without a volunteer is alerted to staff
+    # exactly once.
+    stale_alert_sent = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     accepted_at = models.DateTimeField(null=True, blank=True)
@@ -144,3 +157,7 @@ class HelpRequest(models.Model):
     @property
     def is_overdue(self):
         return self.status == "active" and bool(self.accepted_at) and timezone.now() - self.accepted_at > OVERDUE_THRESHOLD
+
+    @property
+    def is_stale_pending(self):
+        return self.status == "pending" and timezone.now() - self.created_at > STALE_PENDING_THRESHOLD

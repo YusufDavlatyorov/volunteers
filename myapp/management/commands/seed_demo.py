@@ -243,6 +243,19 @@ class Command(BaseCommand):
                 },
             )
             result.append(item)
+
+        # Make the pending set deterministic for the stale-request demo: exactly
+        # one request sits past STALE_PENDING_THRESHOLD (48h), the rest are fresh.
+        # created_at is auto_now_add, so it must be set with a raw UPDATE.
+        pending = [r for r in result if r.status == "pending"]
+        for offset, task in enumerate(pending):
+            new_created = (
+                timezone.now() - timedelta(days=3) if offset == 0
+                else timezone.now() - timedelta(hours=offset + 1)
+            )
+            HelpRequest.objects.filter(pk=task.pk).update(
+                created_at=new_created, stale_alert_sent=False
+            )
         return result
 
     def _create_emergencies(self, requests, admin):

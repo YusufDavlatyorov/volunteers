@@ -146,6 +146,20 @@ python manage.py check_overdue_tasks            # run the sweep
 python manage.py check_overdue_tasks --dry-run  # list overdue tasks, send nothing
 ```
 
+### Stale pending-request monitoring
+
+`check_stale_requests` is the mirror of the above for the *pending* side: it
+finds help requests that have waited more than 48 hours
+(`STALE_PENDING_THRESHOLD`) without a volunteer accepting them, alerts the
+curators and admins once per request, and marks it (`stale_alert_sent`) so it is
+not reported again. All logic lives in `myapp.services.stale`; the curator
+dashboard and `crm/tasks/?stale=1` show the same "stalled" set.
+
+```bash
+python manage.py check_stale_requests            # run the sweep
+python manage.py check_stale_requests --dry-run  # list stale requests, send nothing
+```
+
 Add to the deploy user's crontab (`crontab -e`). Use **absolute paths** to the
 project's own virtualenv Python and `manage.py` — cron runs with a bare
 environment:
@@ -153,6 +167,8 @@ environment:
 ```cron
 # Generation Connect — alert curators/admins about tasks overdue past 3h, every 15 min.
 */15 * * * * cd /srv/generation-connect && /srv/generation-connect/.venv/bin/python manage.py check_overdue_tasks >> /var/log/generation-connect/cron.log 2>&1
+# Generation Connect — alert about pending requests stuck without a volunteer past 48h, hourly.
+0 * * * * cd /srv/generation-connect && /srv/generation-connect/.venv/bin/python manage.py check_stale_requests >> /var/log/generation-connect/cron.log 2>&1
 ```
 
 Replace `/srv/generation-connect` with the deployment path (the directory

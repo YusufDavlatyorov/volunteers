@@ -18,6 +18,7 @@ from .events import EVENT_REGION_CHOICES, Broadcast, Event
 from .help_requests import (
     HELP_TYPE_CHOICES,
     OVERDUE_THRESHOLD,
+    STALE_PENDING_THRESHOLD,
     PRIORITY_CHOICES,
     PRIORITY_EMERGENCY,
     PRIORITY_HIGH,
@@ -50,6 +51,7 @@ __all__ = [
     "WORK_STAGE_ARRIVED",
     "WORK_STAGE_IN_PROGRESS",
     "OVERDUE_THRESHOLD",
+    "STALE_PENDING_THRESHOLD",
     # events
     "Event",
     "Broadcast",

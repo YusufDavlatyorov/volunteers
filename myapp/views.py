@@ -30,6 +30,7 @@ from .models import (
     HELP_TYPE_CHOICES,
     HelpRequest,
     OVERDUE_THRESHOLD,
+    STALE_PENDING_THRESHOLD,
     PhotoReport,
     PRIORITY_CHOICES,
     STATUS_CHOICES,
@@ -208,6 +209,10 @@ def crm_tasks_view(request):
     if overdue_only:
         tasks = tasks.filter(status="active", accepted_at__lt=timezone.now() - OVERDUE_THRESHOLD)
 
+    stale_only = request.GET.get("stale") == "1"
+    if stale_only:
+        tasks = tasks.filter(status="pending", created_at__lt=timezone.now() - STALE_PENDING_THRESHOLD)
+
     paginator = Paginator(tasks, 20)
     page_obj = paginator.get_page(request.GET.get("page"))
 
@@ -218,6 +223,7 @@ def crm_tasks_view(request):
         "filter_form": filter_form,
         "page_obj": page_obj,
         "overdue_only": overdue_only,
+        "stale_only": stale_only,
         "querystring": querystring.urlencode(),
         "stats": analytics.dashboard_stats(),
     }

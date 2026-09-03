@@ -19,9 +19,15 @@ from django.utils import timezone
 
 from accounts.models import Users, hash_token
 from .forms import HelpRequestForm, PhotoReportForm
-from .models import EmergencyReport, HelpRequest, PhotoReport, VolunteerApplication
+from .models import (
+    EmergencyReport,
+    HelpRequest,
+    PhotoReport,
+    STALE_PENDING_THRESHOLD,
+    VolunteerApplication,
+)
 from .notifications import notify_users
-from .services import analytics, dashboard, emergency, maps, overdue
+from .services import analytics, dashboard, emergency, maps, overdue, stale
 from .services.geo import get_route, haversine_km, is_valid_coordinate
 from .services.matching import TASK_REC_CANDIDATE_CAP, recommend_tasks, recommend_volunteers
 from .services.telegram_link import LINK_ATTEMPT_LIMIT, redeem_link_code
@@ -1406,12 +1412,28 @@ class AnalyticsServiceTests(TestCase):
         counts = analytics.task_status_breakdown()
         self.assertEqual(counts["overdue"], 1)
 
+    def test_stale_pending_counted_correctly(self):
+        stuck = HelpRequest.objects.create(
+            client=self.client_user, help_type="grocery", description="x", address="a", phone="p",
+            region="dushanbe", status="pending",
+        )
+        HelpRequest.objects.filter(pk=stuck.pk).update(
+            created_at=timezone.now() - timezone.timedelta(hours=60)
+        )
+        HelpRequest.objects.create(  # fresh pending — not stale
+            client=self.client_user, help_type="grocery", description="y", address="a", phone="p",
+            region="dushanbe", status="pending",
+        )
+        counts = analytics.task_status_breakdown()
+        self.assertEqual(counts["stale"], 1)
+        self.assertEqual(analytics.dashboard_stats()["tasks_stale"], 1)
+
     def test_dashboard_stats_has_every_expected_key(self):
         stats = analytics.dashboard_stats()
         for key in [
             "volunteers_total", "volunteers_available", "volunteers_busy", "volunteers_offline",
             "clients_total", "tasks_pending", "tasks_active", "tasks_completed", "tasks_overdue",
-            "tasks_urgent", "tasks_completed_today", "pending_applications",
+            "tasks_stale", "tasks_urgent", "tasks_completed_today", "pending_applications",
         ]:
             self.assertIn(key, stats)
 
@@ -1532,6 +1554,16 @@ class CrmTasksViewTests(TestCase):
         ids = [task.id for task in response.context["page_obj"]]
         self.assertEqual(ids, [self.overdue_task.id])
         self.assertTrue(response.context["overdue_only"])
+
+    def test_stale_only_filter(self):
+        HelpRequest.objects.filter(pk=self.pending_task.pk).update(
+            created_at=timezone.now() - timezone.timedelta(hours=60)
+        )
+        self.client.login(username="ct_admin", password="pass12345")
+        response = self.client.get(reverse("crm_tasks"), {"stale": "1"})
+        ids = [task.id for task in response.context["page_obj"]]
+        self.assertEqual(ids, [self.pending_task.id])  # urgent_task is fresh, not stale
+        self.assertTrue(response.context["stale_only"])
 
     def test_date_from_filter_excludes_earlier_tasks(self):
         self.client.login(username="ct_admin", password="pass12345")
@@ -2234,6 +2266,138 @@ class CheckOverdueTasksCommandTests(TestCase):
         output = self._run("--dry-run")
         self.task.refresh_from_db()
         self.assertFalse(self.task.alarm_sent)
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertIn("dry-run", output)
+        self.assertIn(f"#{self.task.id}", output)
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class StalePendingSweepServiceTests(TestCase):
+    """myapp.services.stale — the pending-side SLA sweep, the mirror of
+    services.overdue. Alerts staff once per stuck request, idempotently."""
+
+    def setUp(self):
+        self.admin = Users.objects.create_superuser(
+            username="st_admin", email="st_admin@example.com", password="pass12345"
+        )
+        self.curator = Users.objects.create_user(
+            username="st_curator", email="st_curator@example.com", password="pass12345", is_curator=True
+        )
+        self.client_user = Users.objects.create_user(
+            username="st_client", email="st_client@example.com", password="pass12345",
+            is_client=True, region="dushanbe",
+        )
+        mail.outbox.clear()
+
+    def _request(self, *, status="pending", age_hours=49, stale_alert_sent=False):
+        task = HelpRequest.objects.create(
+            client=self.client_user, help_type="grocery", description="x", address="a", phone="p",
+            region="dushanbe", status=status, stale_alert_sent=stale_alert_sent,
+        )
+        HelpRequest.objects.filter(pk=task.pk).update(
+            created_at=timezone.now() - timezone.timedelta(hours=age_hours)
+        )
+        task.refresh_from_db()
+        return task
+
+    def test_detects_pending_request_past_threshold(self):
+        task = self._request(age_hours=49)
+        self.assertEqual(list(stale.find_stale_pending()), [task])
+
+    def test_sweep_alerts_staff_once_and_sets_flag(self):
+        task = self._request(age_hours=60)
+        alerted = stale.sweep_stale_pending()
+        self.assertEqual(alerted, [task])
+        task.refresh_from_db()
+        self.assertTrue(task.stale_alert_sent)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].subject, stale.STALE_SUBJECT)
+        self.assertIn(str(task.id), mail.outbox[0].body)
+        self.assertCountEqual(mail.outbox[0].to, [self.admin.email, self.curator.email])
+
+    def test_second_sweep_is_a_noop(self):
+        self._request(age_hours=60)
+        stale.sweep_stale_pending()
+        mail.outbox.clear()
+        self.assertEqual(stale.sweep_stale_pending(), [])
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_request_within_threshold_is_ignored(self):
+        self._request(age_hours=10)
+        self.assertEqual(stale.sweep_stale_pending(), [])
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_active_and_completed_requests_are_never_stale_pending(self):
+        self._request(status="active", age_hours=200)
+        self._request(status="completed", age_hours=200)
+        self.assertEqual(list(stale.find_stale_pending()), [])
+        self.assertEqual(stale.sweep_stale_pending(), [])
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_already_alerted_request_is_ignored_by_sweep_but_still_currently_stale(self):
+        task = self._request(age_hours=60, stale_alert_sent=True)
+        self.assertEqual(stale.sweep_stale_pending(), [])
+        self.assertEqual(len(mail.outbox), 0)
+        # currently_stale_pending is the "stuck right now" set — flag-independent.
+        self.assertIn(task.id, {t.id for t in stale.currently_stale_pending()})
+
+    def test_accepting_the_request_removes_it_from_the_stale_set(self):
+        volunteer = Users.objects.create_user(
+            username="st_vol", email="st_vol@example.com", password="pass12345",
+            is_volunteer=True, region="dushanbe",
+        )
+        task = self._request(age_hours=60)
+        task.accept(volunteer)
+        self.assertEqual(list(stale.find_stale_pending()), [])
+        self.assertEqual(list(stale.currently_stale_pending()), [])
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class CheckStaleRequestsCommandTests(TestCase):
+    """check_stale_requests is a thin wrapper over services.stale and must be
+    safe to run repeatedly (cron)."""
+
+    def setUp(self):
+        self.admin = Users.objects.create_superuser(
+            username="scmd_admin", email="scmd_admin@example.com", password="pass12345"
+        )
+        self.client_user = Users.objects.create_user(
+            username="scmd_client", email="scmd_client@example.com", password="pass12345",
+            is_client=True, region="dushanbe",
+        )
+        self.task = HelpRequest.objects.create(
+            client=self.client_user, help_type="grocery", description="x", address="a", phone="p",
+            region="dushanbe", status="pending",
+        )
+        HelpRequest.objects.filter(pk=self.task.pk).update(
+            created_at=timezone.now() - timezone.timedelta(hours=60)
+        )
+        mail.outbox.clear()
+
+    def _run(self, *args):
+        out = io.StringIO()
+        call_command("check_stale_requests", *args, stdout=out)
+        return out.getvalue()
+
+    def test_command_alerts_stale_request(self):
+        output = self._run()
+        self.task.refresh_from_db()
+        self.assertTrue(self.task.stale_alert_sent)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn(f"#{self.task.id}", output)
+        self.assertIn("1 request(s) newly alerted", output)
+
+    def test_repeated_run_does_not_duplicate_notifications(self):
+        self._run()
+        mail.outbox.clear()
+        output = self._run()
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertIn("0 request(s) newly alerted", output)
+
+    def test_dry_run_reports_without_side_effects(self):
+        output = self._run("--dry-run")
+        self.task.refresh_from_db()
+        self.assertFalse(self.task.stale_alert_sent)
         self.assertEqual(len(mail.outbox), 0)
         self.assertIn("dry-run", output)
         self.assertIn(f"#{self.task.id}", output)
@@ -3376,6 +3540,16 @@ class CuratorDashboardTests(TestCase):
         rows = self._get().context["region_breakdown"]
         self.assertTrue(any(r["region"] == "sogd" and r["pending"] == 1 for r in rows))
 
+    def test_stale_pending_surfaced(self):
+        stuck = _hr(self.cli_a)
+        HelpRequest.objects.filter(pk=stuck.pk).update(
+            created_at=timezone.now() - timezone.timedelta(hours=60)
+        )
+        _hr(self.cli_a)  # fresh pending — not stale
+        resp = self._get()
+        self.assertEqual(resp.context["stats"]["tasks_stale"], 1)
+        self.assertEqual({t.id for t in resp.context["stale_pending_tasks"]}, {stuck.id})
+
 
 class AdminDashboardTests(TestCase):
     def setUp(self):
@@ -3421,6 +3595,7 @@ class DashboardSecurityTests(TestCase):
         resp = self.client.get(reverse("profile"))
         self.assertNotIn("users_by_role", resp.context)
         self.assertNotIn("stats", resp.context)
+        self.assertNotIn("stale_pending_tasks", resp.context)
         self.assertNotContains(resp, "d5_cli_b")
 
     def test_client_cannot_reach_crm_data_via_dashboard(self):

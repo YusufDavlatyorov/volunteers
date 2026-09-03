@@ -11,7 +11,13 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import Profile, REGION_CHOICES, Users
-from ..models import EmergencyReport, HelpRequest, OVERDUE_THRESHOLD, VolunteerApplication
+from ..models import (
+    EmergencyReport,
+    HelpRequest,
+    OVERDUE_THRESHOLD,
+    STALE_PENDING_THRESHOLD,
+    VolunteerApplication,
+)
 
 
 def volunteer_availability_breakdown():
@@ -40,8 +46,14 @@ def task_status_breakdown():
         cancelled=Count("id", filter=Q(status="cancelled")),
         urgent=Count("id", filter=Q(is_urgent=True, status__in=["pending", "active"])),
     )
+    now = timezone.now()
     counts["overdue"] = HelpRequest.objects.filter(
-        status="active", accepted_at__lt=timezone.now() - OVERDUE_THRESHOLD
+        status="active", accepted_at__lt=now - OVERDUE_THRESHOLD
+    ).count()
+    # Pending requests waiting past the stale threshold — the same "derived, not
+    # a stored status" treatment as overdue, using the one STALE_PENDING_THRESHOLD.
+    counts["stale"] = HelpRequest.objects.filter(
+        status="pending", created_at__lt=now - STALE_PENDING_THRESHOLD
     ).count()
     return counts
 
@@ -76,6 +88,7 @@ def dashboard_stats():
         "tasks_active": tasks["active"],
         "tasks_completed": tasks["completed"],
         "tasks_overdue": tasks["overdue"],
+        "tasks_stale": tasks["stale"],
         "tasks_urgent": tasks["urgent"],
         "tasks_completed_today": HelpRequest.objects.filter(
             status="completed", completed_at__gte=today_start
