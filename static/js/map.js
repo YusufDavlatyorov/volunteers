@@ -186,6 +186,10 @@ const GCMap = {
     _opsStyle(point) {
         if (point.kind === 'me') return { color: '--primary', glyph: '•', cls: '' };
         if (point.kind === 'emergency') return { color: '--danger', glyph: '!', cls: 'gc-pin--emergency' };
+        if (point.kind === 'pet') {
+            // Lost pets still need finding (amber highlight); found pets are good news (teal).
+            return { color: point.report_type === 'found' ? '--ok' : '--accent', glyph: 'P', cls: '' };
+        }
         if (point.kind === 'volunteer') {
             return ({
                 available: { color: '--ok', glyph: 'V', cls: '' },

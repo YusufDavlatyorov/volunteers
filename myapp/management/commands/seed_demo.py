@@ -9,7 +9,16 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from accounts.models import Profile
-from myapp.models import Broadcast, Donation, EmergencyReport, Event, HelpRequest, PhotoReport, Product
+from myapp.models import (
+    Broadcast,
+    Donation,
+    EmergencyReport,
+    Event,
+    HelpRequest,
+    PetReport,
+    PhotoReport,
+    Product,
+)
 
 
 User = get_user_model()
@@ -123,9 +132,10 @@ class Command(BaseCommand):
         self._create_reports(volunteers, events, requests)
         self._create_emergencies(requests, admin)
         self._create_donations(clients, admin)
+        self._create_pet_reports(clients, volunteers, admin)
 
         self.stdout.write(self.style.SUCCESS("Demo data ready."))
-        self.stdout.write(f"Users: {User.objects.count()} | Events: {Event.objects.count()} | Requests: {HelpRequest.objects.count()} | Reports: {PhotoReport.objects.count()} | Emergencies: {EmergencyReport.objects.count()} | Donations: {Donation.objects.count()}")
+        self.stdout.write(f"Users: {User.objects.count()} | Events: {Event.objects.count()} | Requests: {HelpRequest.objects.count()} | Reports: {PhotoReport.objects.count()} | Emergencies: {EmergencyReport.objects.count()} | Donations: {Donation.objects.count()} | Pet reports: {PetReport.objects.count()}")
         self.stdout.write(f"Demo password for all demo users: {PASSWORD}")
 
     def _upsert_user(self, username, full_name, email, region, is_superuser=False, is_curator=False, is_volunteer=False, is_client=False, bio="", age=None):
@@ -342,6 +352,38 @@ class Command(BaseCommand):
             elif status == Donation.FULFILLED:
                 donation.confirm(admin)
                 donation.fulfill(admin)
+
+    def _create_pet_reports(self, clients, volunteers, admin):
+        """A small Lost & Found board: a lost/found pair in the same region
+        (so the "possible matches" suggestion has something to show), plus a
+        couple more across statuses."""
+        if not clients or not volunteers or PetReport.objects.exists():
+            return
+        # reporter, type, name, species, breed, region, description, status
+        plan = [
+            (clients[0], "lost", "Барсик", "cat", "дворовая", "dushanbe",
+             "Серый кот, белые лапы, убежал во дворе на Рудаки. Отзывается на кличку.", "open"),
+            (volunteers[0], "found", "", "cat", "", "dushanbe",
+             "Серый кот с белыми лапами возле парка. Ухоженный, ласковый, ждёт хозяина.", "open"),
+            (clients[1 % len(clients)], "lost", "Рекс", "dog", "овчарка", "sogd",
+             "Молодая овчарка, тёмный окрас, синий ошейник. Потерялся у рынка в Худжанде.", "matched"),
+            (volunteers[2 % len(volunteers)], "found", "", "dog", "", "khatlon",
+             "Небольшая рыжая собака без ошейника, дружелюбная. Найдена в Бохтаре.", "open"),
+            (clients[2 % len(clients)], "lost", "Кеша", "bird", "попугай", "rrp",
+             "Волнистый попугай, зелёный. Улетел с балкона. Воссоединён с хозяином.", "resolved"),
+        ]
+        for reporter, rtype, name, species, breed, region, description, status in plan:
+            lat, lng = _coords_for(region, f"pet-{name}-{description}")
+            report = PetReport.objects.create(
+                reporter=reporter, report_type=rtype, pet_name=name, species=species,
+                breed=breed, region=region, description=description,
+                latitude=lat, longitude=lng,
+                contact_phone="+992 90 000 0000" if rtype == "lost" else "",
+            )
+            if status == "matched":
+                report.mark_matched(admin)
+            elif status == "resolved":
+                report.resolve(reporter)
 
     def _create_broadcasts(self, admin, curators):
         Broadcast.objects.update_or_create(

@@ -21,12 +21,13 @@ which now exist. Verify anything from it against the actual code before relying 
 source .venv/bin/activate            # venv already present in repo (Python 3.14)
 python manage.py runserver           # dev server → http://127.0.0.1:8000/
 python manage.py migrate             # apply migrations
-python manage.py seed_demo           # demo data: admins/curators/volunteers/clients/tasks (now also sets coords, availability, priority, one overdue task)
+python manage.py seed_demo           # demo data: admins/curators/volunteers/clients/tasks (also: coords, availability, priority, one overdue task, one stale pending request, a product catalogue + donations, a lost/found pet board)
 python manage.py run_telegram_bot    # long-polling Telegram bot (separate process, not part of the request cycle)
 python manage.py geocode_missing [--limit N --dry-run --profiles]   # backfill lat/lng for HelpRequests (and --profiles) via Nominatim; sleeps 1.1s/row for the usage policy
 python manage.py check_overdue_tasks [--dry-run]        # alert curators/admins about tasks overdue past 3h; idempotent, runs on cron (see README "Background jobs")
+python manage.py check_stale_requests [--dry-run]       # mirror of the above for the *pending* side: alert about requests waiting >48h without a volunteer; idempotent, hourly cron
 
-python manage.py test                                    # full suite (369 tests, ~100s)
+python manage.py test                                    # full suite (473 tests, ~150s)
 python manage.py test myapp.tests.MatchingAlgorithmTests  # one test class
 python manage.py test myapp.tests.MatchingAlgorithmTests.test_closer_volunteer_ranks_higher  # one test
 python manage.py test accounts                           # one app
@@ -44,12 +45,11 @@ else — help requests, events, broadcasts, CRM, map, AI, Telegram). `server/url
 `accounts.urls` at `/` and `myapp.urls` at `/myapp/`.
 
 `myapp/models/` is a **package** (one module per domain — `help_requests.py`, `events.py`,
-`volunteer_applications.py`, `photo_reports.py`, `emergency.py`, `donations.py`), with
+`volunteer_applications.py`, `photo_reports.py`, `emergency.py`, `donations.py`, `pets.py`), with
 `myapp/models/__init__.py` re-exporting every public name. Import from `myapp.models` as before
 (`from myapp.models import HelpRequest, OVERDUE_THRESHOLD`); new domain areas add a module here
 plus an `__all__` entry. Moving a model between modules of the same app is not a schema change —
-no migration. **Lost-and-found pets** are named in the `__init__.py` docstring as a future
-module — **planned, not yet built**.
+no migration.
 
 ### Roles
 
@@ -89,6 +89,10 @@ layer on top of `active`:
   `WORK_STAGE_ORDER`), active-only, raises `ValueError` otherwise. The `task_advance_stage_view`
   is driven by the assigned volunteer; curator/admin can correct it. `en_route`/`arrived`
   notify the client.
+
+On the `pending` side, **`stale_alert_sent`** (a stored boolean) layers on the same way
+`alarm_sent` does for overdue: `HelpRequest.is_stale_pending` is `pending` + waiting past
+`STALE_PENDING_THRESHOLD` (48h), derived not stored. See `services/stale.py` below.
 
 **Dispatch actions** (all admin/curator, on a `pending` task): `task_recommendations_view`
 returns the ranked JSON shortlist (read-only); `task_notify_volunteer_view` pings one volunteer
@@ -174,18 +178,27 @@ Business logic that needs to be unit-testable without the ORM or network lives h
   stays constant regardless of data volume.
 - **`dashboard.py`** — `for_user(user)`: the one role-aware dashboard payload, dispatched on
   `user.role`, **every query scoped to the passed user**. Composes `analytics` / `emergency` /
-  `overdue` / `matching` — no aggregation is duplicated. Rendered by `accounts/profile.html`
+  `overdue` / `stale` / `matching` / `pets` — no aggregation is duplicated. Rendered by `accounts/profile.html`
   (the single dashboard; `dashboard_view` at `/myapp/dashboard/` just `redirect`s there) via
   `templates/myapp/dashboard/_<role>.html` partials. `admin_panel_view` stays the deep CRM
   console; the curator/admin dashboard is the attention-triage summary that links into it.
   `_public_volunteer()` is the only volunteer data a client's dashboard may show (name + region,
-  never contact details).
+  never contact details). The curator dashboard's stale/unassigned queues get a
+  `task.assignment_suggestion` attached — `_attach_assignment_suggestions()` is exactly
+  `matching.recommend_volunteers(task, limit=1)` per task, read-only, so a curator sees the top
+  pick inline without opening the dispatch shortlist.
 - **`overdue.py`** — `sweep_overdue_tasks()`: the one overdue-detection + alerting path, shared
   by `check_overdue_view` (admin button) and the `check_overdue_tasks` cron command. Claims each
   task with a conditional `UPDATE ... WHERE alarm_sent=False` before notifying `staff_recipients()`,
   so concurrent sweeps never double-alert; idempotent by design. `find_overdue_tasks()` is the
   sweep's "still needs a first alert" set (`alarm_sent=False`); `currently_overdue_tasks()` is the
   broader "overdue right now" set for the CRM/dashboard.
+- **`stale.py`** — the exact mirror of `overdue.py` for the *pending* side. `sweep_stale_pending()`
+  alerts curators/admins about `pending` requests waiting past `STALE_PENDING_THRESHOLD` (48h)
+  without a volunteer, claiming each with a conditional `UPDATE ... WHERE stale_alert_sent=False`
+  first; idempotent, driven only by the `check_stale_requests` cron (no admin button — unlike
+  overdue). `find_stale_pending()` is the "still needs a first alert" set; `currently_stale_pending()`
+  the broader "stuck right now" set for the curator dashboard and `crm/tasks/?stale=1`.
 - **`emergency.py`** — volunteer SOS reports (`myapp/models/emergency.py::EmergencyReport`). A
   volunteer on an *active* task raises one via the danger button; `report_emergency()` dedupes
   in **three layers** — a fast check-then-create, a partial `UniqueConstraint` on
@@ -212,6 +225,20 @@ Business logic that needs to be unit-testable without the ORM or network lives h
   with a `donor_id`/superuser object gate; the `donations_admin` ledger + `donation_update` are
   **admin-only** (`@role_required("admin")`) — curators get no financial view. `DonationAdmin`
   in Django admin is read-only.
+- **`pets.py`** — the Lost & Found board (`myapp/models/pets.py::PetReport`: a `lost`/`found`
+  flag, optional photo + location, lifecycle `open → matched → resolved`/`closed` via model
+  methods `mark_matched` / `reopen` / `resolve` / `close`, `ValueError` on an illegal move).
+  **Privacy is the point**: `public_point()` / `public_card()` are the only shapes that reach a
+  non-owner/non-staff viewer or the map JSON — never the reporter's identity or `contact_phone`
+  (reporter + curator/admin only). `create_pet_report()` alerts staff once and pings the
+  reporters of obvious counterpart reports. `possible_matches()` is a small **deterministic**
+  suggestion (opposite type, same species, within `MATCH_RADIUS_KM` when both located, else same
+  region) — read-only, bounded, **not** a second matching engine. Reporter may `resolve`/`close`
+  their own report; `match`/`reopen` are staff-only (`STAFF_ONLY_ACTIONS`, gated in the view).
+  Pages: `/myapp/pets/` (board), `pets/new`, `pets/mine`, `pets/<pk>/` (+ `/edit`, `/delete`,
+  `/status`), all `@login_required`; state-changing routes are `@require_POST`. Pet markers ride
+  the shared `map_data_view` (`kind: "pet"`); `PetReportAdmin` keeps `status` read-only so the
+  transition rules aren't bypassed.
 - **`telegram_link.py`** — `redeem_link_code`, the verified-round-trip consumer for Telegram
   account binding (see **Telegram account linking**).
 
@@ -230,9 +257,11 @@ for the map and routing.
 
 `OVERDUE_THRESHOLD` (3 hours) is defined once in `myapp/models/help_requests.py` and reused by
 `HelpRequest.is_overdue`, `services/overdue.py`, and the analytics overdue count — don't
-reintroduce a second magic number for it. Automated monitoring is the `check_overdue_tasks`
-management command on a ~15-min cron (README → **Background jobs**), **not** Celery — there is
-no task queue in this project.
+reintroduce a second magic number for it. `STALE_PENDING_THRESHOLD` (48 hours), in the same
+module, is its pending-side counterpart (`HelpRequest.is_stale_pending`, `services/stale.py`,
+the analytics stale count) — same rule, don't duplicate it. Automated monitoring is the
+`check_overdue_tasks` (~15-min cron) and `check_stale_requests` (hourly cron) management commands
+(README → **Background jobs**), **not** Celery — there is no task queue in this project.
 
 ### Notifications
 

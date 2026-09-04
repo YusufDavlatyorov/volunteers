@@ -14,6 +14,13 @@ from .views import (
     donation_update_view,
     donations_admin_view,
     my_donations_view,
+    my_pet_reports_view,
+    pet_list_view,
+    pet_report_create_view,
+    pet_report_delete_view,
+    pet_report_detail_view,
+    pet_report_edit_view,
+    pet_report_status_view,
     emergency_detail_view,
     emergency_list_view,
     emergency_report_view,
@@ -107,6 +114,15 @@ urlpatterns = [
     path('map/', map_view, name='map'),
     path('map/data/', map_data_view, name='map_data'),
     path('location/update/', update_location_view, name='update_location'),
+
+    # Lost & Found pets
+    path('pets/', pet_list_view, name='pet_list'),
+    path('pets/new/', pet_report_create_view, name='pet_report_create'),
+    path('pets/mine/', my_pet_reports_view, name='my_pet_reports'),
+    path('pets/<int:pk>/', pet_report_detail_view, name='pet_report_detail'),
+    path('pets/<int:pk>/edit/', pet_report_edit_view, name='pet_report_edit'),
+    path('pets/<int:pk>/delete/', pet_report_delete_view, name='pet_report_delete'),
+    path('pets/<int:pk>/status/', pet_report_status_view, name='pet_report_status'),
 
     # Donations / store foundation
     path('donate/', donate_view, name='donate'),

@@ -28,6 +28,9 @@
     <a class="card stat-card" href="{% url 'people_list' 'volunteer' %}?availability=available">
         <span class="metric">{{ stats.volunteers_available }}</span><p data-i18n="crm.kpi_available">Available</p>
     </a>
+    <a class="card stat-card" href="{% url 'pet_list' %}">
+        <span class="metric">{{ pets_open_count }}</span><p data-i18n="pet.kpi_open">Lost &amp; Found</p>
+    </a>
 </div>
 
 <div class="card reveal {% if open_emergencies %}card--alert{% endif %}">
@@ -113,6 +116,22 @@
         </div>
     {% else %}
         <p class="opportunity-desc" data-i18n="va.no_pending">No pending applications</p>
+    {% endif %}
+</div>
+
+<div class="card reveal">
+    <div class="section-head"><h3 data-i18n="pet.dash_title">Lost &amp; Found</h3><a class="button ghost" href="{% url 'pet_list' %}" data-i18n="common.view_all">View all</a></div>
+    {% if recent_pet_reports %}
+        <div class="mini-list">
+            {% for report in recent_pet_reports %}
+                <a class="mini-list-item mini-list-item--link" href="{% url 'pet_report_detail' report.id %}">
+                    <h4>{% include "myapp/_pet_type_tag.html" with report_type=report.report_type report_type_display=report.get_report_type_display %} #{{ report.id }} · {{ report.display_name }}</h4>
+                    <p>{{ report.get_species_display }} · {{ report.get_region_display|default:"—" }} · {{ report.created_at|timesince }} <span data-i18n="va.ago_suffix">ago</span></p>
+                </a>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="opportunity-desc" data-i18n="pet.dash_empty">No open lost or found reports.</p>
     {% endif %}
 </div>
 

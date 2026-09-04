@@ -22,6 +22,7 @@ from .forms import (
     EventForm,
     HelpRequestFilterForm,
     HelpRequestForm,
+    PetReportForm,
     PhotoReportForm,
     TaskManagementFilterForm,
 )
@@ -35,6 +36,9 @@ from .models import (
     HelpRequest,
     OVERDUE_THRESHOLD,
     STALE_PENDING_THRESHOLD,
+    PET_REPORT_TYPE_CHOICES,
+    PET_SPECIES_CHOICES,
+    PetReport,
     PhotoReport,
     PRIORITY_CHOICES,
     STATUS_CHOICES,
@@ -43,7 +47,7 @@ from .models import (
 )
 from .models.emergency import STATUS_CHOICES as EMERGENCY_STATUS_CHOICES
 from .notifications import notify_users, staff_recipients, volunteer_queryset_for_region
-from .services import analytics, donations, emergency, maps, overdue
+from .services import analytics, donations, emergency, maps, overdue, pets
 from .services.geo import get_route, is_valid_coordinate
 from .services.matching import location_freshness_label, recommend_volunteers
 
@@ -862,6 +866,10 @@ def map_data_view(request):
         for task in tasks:
             points.append(_task_point(task))
 
+    # Lost & Found pet markers — public-safe (no reporter identity or contact
+    # detail; see services.pets.public_point), shown to every authenticated role.
+    points.extend(pets.open_board_points())
+
     profile = getattr(user, "profile", None)
     if profile and profile.has_location:
         points.append({
@@ -1313,3 +1321,188 @@ def donation_update_view(request, pk):
         )
     messages.success(request, "Статус пожертвования обновлён.")
     return redirect("donation_detail", pk=pk)
+
+
+# ============================================================================
+# Lost & Found pets (Stage 6, increment D)
+# ============================================================================
+# A small community board for reuniting lost animals with their people. The
+# board and the map show only safe fields (species, area, an approximate pin);
+# the reporter's identity and contact phone are visible to the reporter and to
+# staff only. No money, no task/emergency coupling. Business logic (creation,
+# notifications, safe serialisation, deterministic match hints) lives in
+# services.pets; views stay thin.
+
+
+def _is_pet_staff(user):
+    return user.is_superuser or user.is_curator
+
+
+def _can_manage_pet(user, report):
+    """The reporter or staff — may see contact details, possible matches and the
+    status controls. Everyone else sees the safe public view only."""
+    return _is_pet_staff(user) or report.reporter_id == user.id
+
+
+@login_required
+def pet_list_view(request):
+    """The Lost & Found board: every open/matched report, newest first,
+    filterable by type / species / region. Safe fields only — no reporter
+    identity or contact detail is rendered here."""
+    report_type = request.GET.get("type", "")
+    species = request.GET.get("species", "")
+    region = request.GET.get("region", "")
+    if report_type not in dict(PET_REPORT_TYPE_CHOICES):
+        report_type = ""
+    if species not in dict(PET_SPECIES_CHOICES):
+        species = ""
+    if region not in dict(REGION_CHOICES):
+        region = ""
+
+    reports = pets.board_reports(report_type=report_type, species=species, region=region)
+    paginator = Paginator(reports, 24)
+    page_obj = paginator.get_page(request.GET.get("page"))
+    querystring = request.GET.copy()
+    querystring.pop("page", None)
+
+    counts = PetReport.objects.filter(status__in=PetReport.OPEN_STATUSES).aggregate(
+        total=Count("id"),
+        lost=Count("id", filter=Q(report_type=PetReport.REPORT_LOST)),
+        found=Count("id", filter=Q(report_type=PetReport.REPORT_FOUND)),
+    )
+
+    return render(request, "myapp/pet_list.html", {
+        "page_obj": page_obj,
+        "cards": [pets.public_card(r) for r in page_obj],
+        "counts": counts,
+        "type_filter": report_type,
+        "species_filter": species,
+        "region_filter": region,
+        "type_choices": PET_REPORT_TYPE_CHOICES,
+        "species_choices": PET_SPECIES_CHOICES,
+        "region_choices": REGION_CHOICES,
+        "querystring": querystring.urlencode(),
+    })
+
+
+@login_required
+def pet_report_create_view(request):
+    if request.method == "POST":
+        form = PetReportForm(request.POST, request.FILES)
+        if form.is_valid():
+            cd = form.cleaned_data
+            report = pets.create_pet_report(
+                reporter=request.user,
+                report_type=cd["report_type"],
+                description=cd["description"],
+                species=cd["species"],
+                pet_name=cd.get("pet_name", ""),
+                breed=cd.get("breed", ""),
+                region=cd.get("region", ""),
+                latitude=cd.get("latitude"),
+                longitude=cd.get("longitude"),
+                contact_phone=cd.get("contact_phone", ""),
+                image=cd.get("image"),
+            )
+            messages.success(request, "Объявление опубликовано. Координаторы уведомлены.")
+            return redirect("pet_report_detail", pk=report.pk)
+    else:
+        form = PetReportForm()
+    return render(request, "myapp/pet_form.html", {"form": form, "title": "Новое объявление о животном"})
+
+
+@login_required
+def my_pet_reports_view(request):
+    return render(request, "myapp/my_pet_reports.html", {
+        "reports": pets.reports_for(request.user),
+    })
+
+
+@login_required
+def pet_report_detail_view(request, pk):
+    report = get_object_or_404(
+        PetReport.objects.select_related("reporter", "reviewed_by"), pk=pk
+    )
+    can_manage = _can_manage_pet(request.user, report)
+    # A resolved/closed report is off the public board — only its reporter and
+    # staff can still open it directly.
+    if not report.is_open and not can_manage:
+        raise Http404
+
+    is_staff = _is_pet_staff(request.user)
+    is_owner = report.reporter_id == request.user.id
+    return render(request, "myapp/pet_detail.html", {
+        "report": report,
+        "can_manage": can_manage,
+        "is_staff": is_staff,
+        "is_owner": is_owner,
+        "can_edit": is_owner and report.is_open,
+        "possible_matches": pets.possible_matches(report) if can_manage else [],
+        "show_location_map": report.has_location,
+    })
+
+
+@login_required
+def pet_report_edit_view(request, pk):
+    report = get_object_or_404(PetReport, pk=pk)
+    if report.reporter_id != request.user.id:
+        messages.error(request, "У вас нет доступа к этой странице")
+        return redirect("profile")
+    if not report.is_open:
+        messages.warning(request, "Закрытое объявление изменить нельзя.")
+        return redirect("pet_report_detail", pk=pk)
+
+    if request.method == "POST":
+        form = PetReportForm(request.POST, request.FILES, instance=report)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Объявление обновлено.")
+            return redirect("pet_report_detail", pk=pk)
+    else:
+        form = PetReportForm(instance=report)
+    return render(request, "myapp/pet_form.html", {
+        "form": form, "title": "Изменить объявление", "editing": True, "report": report,
+    })
+
+
+@login_required
+@require_POST
+def pet_report_delete_view(request, pk):
+    report = get_object_or_404(PetReport, pk=pk)
+    # The reporter, or an admin (superuser) cleaning up abuse. Curators moderate
+    # via status changes, not deletion.
+    if report.reporter_id != request.user.id and not request.user.is_superuser:
+        messages.error(request, "У вас нет доступа к этой странице")
+        return redirect("profile")
+    report.delete()
+    messages.success(request, "Объявление удалено.")
+    return redirect("my_pet_reports")
+
+
+@login_required
+@require_POST
+def pet_report_status_view(request, pk):
+    """Advance a report's status. The reporter may resolve/close their own
+    report; staff may also mark it matched or reopen it. Illegal moves are a
+    no-op with a warning (the model raises ValueError)."""
+    report = get_object_or_404(PetReport.objects.select_related("reporter"), pk=pk)
+    is_staff = _is_pet_staff(request.user)
+    if not (is_staff or report.reporter_id == request.user.id):
+        messages.error(request, "У вас нет доступа к этой странице")
+        return redirect("profile")
+
+    action = request.POST.get("action", "")
+    if action not in pets.ACTIONS:
+        messages.warning(request, "Неизвестное действие.")
+        return redirect("pet_report_detail", pk=pk)
+    if action in pets.STAFF_ONLY_ACTIONS and not is_staff:
+        messages.error(request, "Это действие доступно только координаторам.")
+        return redirect("pet_report_detail", pk=pk)
+
+    try:
+        pets.apply_action(report, action, actor=request.user)
+    except ValueError:
+        messages.warning(request, "Это действие недоступно для текущего статуса объявления.")
+        return redirect("pet_report_detail", pk=pk)
+    messages.success(request, "Статус объявления обновлён.")
+    return redirect("pet_report_detail", pk=pk)

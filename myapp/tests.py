@@ -24,13 +24,14 @@ from .models import (
     Donation,
     EmergencyReport,
     HelpRequest,
+    PetReport,
     PhotoReport,
     Product,
     STALE_PENDING_THRESHOLD,
     VolunteerApplication,
 )
 from .notifications import notify_users
-from .services import analytics, dashboard, donations, emergency, maps, overdue, stale
+from .services import analytics, dashboard, donations, emergency, maps, overdue, pets, stale
 from .services.geo import get_route, haversine_km, is_valid_coordinate
 from .services.matching import TASK_REC_CANDIDATE_CAP, recommend_tasks, recommend_volunteers
 from .services.telegram_link import LINK_ATTEMPT_LIMIT, redeem_link_code
@@ -3953,3 +3954,519 @@ class DonationDashboardTests(TestCase):
         resp = self.client.get(reverse("profile"))
         self.assertNotIn("donation_summary", resp.context)
         self.assertNotIn("recent_donations", resp.context)
+
+# ===========================================================================
+# Lost & Found pets (Stage 6, increment D)
+# ===========================================================================
+
+def _pet_users():
+    admin = Users.objects.create_superuser(username="pet_admin", email="pet_admin@example.com", password="pass12345")
+    curator = Users.objects.create_user(username="pet_curator", email="pet_curator@example.com", password="pass12345", is_curator=True)
+    reporter = Users.objects.create_user(username="pet_owner", email="pet_owner@example.com", password="pass12345", is_client=True, region="dushanbe")
+    other = Users.objects.create_user(username="pet_other", email="pet_other@example.com", password="pass12345", is_client=True, region="dushanbe")
+    volunteer = Users.objects.create_user(username="pet_vol", email="pet_vol@example.com", password="pass12345", is_volunteer=True, region="dushanbe")
+    return admin, curator, reporter, other, volunteer
+
+
+def _pet(reporter, **kw):
+    data = dict(report_type="lost", species="dog", description="brown dog", region="dushanbe")
+    data.update(kw)
+    return PetReport.objects.create(reporter=reporter, **data)
+
+
+class PetReportModelTests(TestCase):
+    def setUp(self):
+        self.admin, self.curator, self.reporter, self.other, _ = _pet_users()
+
+    def test_defaults(self):
+        r = _pet(self.reporter)
+        self.assertEqual(r.status, PetReport.STATUS_OPEN)
+        self.assertTrue(r.is_open)
+        self.assertFalse(r.has_location)
+        self.assertEqual(r.display_name, "Собака")  # falls back to species
+
+    def test_display_name_prefers_pet_name(self):
+        self.assertEqual(_pet(self.reporter, pet_name="Rex").display_name, "Rex")
+
+    def test_lost_and_found_creation(self):
+        lost = _pet(self.reporter, report_type="lost")
+        found = _pet(self.other, report_type="found")
+        self.assertEqual(lost.report_type, "lost")
+        self.assertEqual(found.report_type, "found")
+
+    def test_transition_happy_path_and_stamps(self):
+        r = _pet(self.reporter)
+        r.mark_matched(self.curator)
+        self.assertEqual(r.status, PetReport.STATUS_MATCHED)
+        self.assertIsNotNone(r.matched_at)
+        self.assertEqual(r.reviewed_by, self.curator)
+        r.resolve(self.reporter)
+        self.assertEqual(r.status, PetReport.STATUS_RESOLVED)
+        self.assertIsNotNone(r.resolved_at)
+        self.assertFalse(r.is_open)
+
+    def test_matched_can_fall_back_to_open(self):
+        r = _pet(self.reporter)
+        r.mark_matched(self.curator)
+        r.reopen(self.curator)
+        self.assertEqual(r.status, PetReport.STATUS_OPEN)
+
+    def test_illegal_transitions_raise(self):
+        r = _pet(self.reporter)
+        r.resolve(self.reporter)
+        with self.assertRaises(ValueError):
+            r.reopen(self.curator)          # resolved is terminal
+        with self.assertRaises(ValueError):
+            r.close(self.reporter)
+        closed = _pet(self.reporter)
+        closed.close(self.reporter)
+        with self.assertRaises(ValueError):
+            closed.mark_matched(self.curator)
+
+    def test_coordinate_validation_via_form(self):
+        from .forms import PetReportForm
+        bad = PetReportForm(data={
+            "report_type": "lost", "species": "dog", "description": "x",
+            "region": "dushanbe", "latitude": "800", "longitude": "10",
+        })
+        self.assertFalse(bad.is_valid())
+        half = PetReportForm(data={
+            "report_type": "lost", "species": "dog", "description": "x",
+            "region": "dushanbe", "latitude": "38.5", "longitude": "",
+        })
+        self.assertFalse(half.is_valid())
+        ok = PetReportForm(data={
+            "report_type": "lost", "species": "dog", "description": "x",
+            "region": "dushanbe", "latitude": "38.5", "longitude": "68.7",
+        })
+        self.assertTrue(ok.is_valid(), ok.errors)
+
+    def test_form_requires_region(self):
+        from .forms import PetReportForm
+        form = PetReportForm(data={"report_type": "lost", "species": "dog", "description": "x"})
+        self.assertFalse(form.is_valid())
+        self.assertIn("region", form.errors)
+
+    def test_service_drops_invalid_coordinates_instead_of_storing(self):
+        r = pets.create_pet_report(
+            reporter=self.reporter, report_type="lost", description="x",
+            species="dog", region="dushanbe", latitude="999", longitude="1",
+        )
+        self.assertFalse(r.has_location)
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class PetReportPermissionTests(TestCase):
+    """Ownership / IDOR: only the reporter (and staff, where allowed) may act on
+    a report. Everyone else gets bounced with no state change."""
+
+    def setUp(self):
+        self.admin, self.curator, self.reporter, self.other, self.volunteer = _pet_users()
+        self.report = _pet(self.reporter, contact_phone="+992 900 111 222")
+        mail.outbox.clear()
+
+    def _login(self, username):
+        self.client.login(username=username, password="pass12345")
+
+    def test_board_and_detail_require_login(self):
+        for url in [reverse("pet_list"), reverse("pet_report_create"),
+                    reverse("my_pet_reports"), reverse("pet_report_detail", args=[self.report.id])]:
+            resp = self.client.get(url)
+            self.assertEqual(resp.status_code, 302)
+            self.assertIn("/login", resp.url)
+
+    def test_owner_sees_own_contact_details(self):
+        self._login("pet_owner")
+        resp = self.client.get(reverse("pet_report_detail", args=[self.report.id]))
+        self.assertTrue(resp.context["can_manage"])
+        self.assertContains(resp, "+992 900 111 222")
+
+    def test_non_owner_non_staff_never_sees_contact_or_reporter(self):
+        self._login("pet_other")
+        resp = self.client.get(reverse("pet_report_detail", args=[self.report.id]))
+        self.assertFalse(resp.context["can_manage"])
+        self.assertNotContains(resp, "+992 900 111 222")
+        self.assertNotContains(resp, self.reporter.email)
+        self.assertNotContains(resp, self.reporter.username)
+        self.assertEqual(resp.context["possible_matches"], [])
+
+    def test_staff_sees_contact_and_matches(self):
+        self._login("pet_curator")
+        resp = self.client.get(reverse("pet_report_detail", args=[self.report.id]))
+        self.assertTrue(resp.context["can_manage"])
+        self.assertContains(resp, "+992 900 111 222")
+
+    def test_other_user_cannot_edit_or_delete_report(self):
+        self._login("pet_other")
+        resp = self.client.post(reverse("pet_report_edit", args=[self.report.id]), {
+            "report_type": "found", "species": "cat", "description": "hijacked",
+            "region": "sogd",
+        })
+        self.assertRedirects(resp, reverse("profile"))
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.description, "brown dog")
+
+        resp = self.client.post(reverse("pet_report_delete", args=[self.report.id]))
+        self.assertRedirects(resp, reverse("profile"))
+        self.assertTrue(PetReport.objects.filter(pk=self.report.pk).exists())
+
+    def test_other_user_cannot_change_status(self):
+        self._login("pet_other")
+        resp = self.client.post(reverse("pet_report_status", args=[self.report.id]), {"action": "resolve"})
+        self.assertRedirects(resp, reverse("profile"))
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.status, PetReport.STATUS_OPEN)
+
+    def test_owner_can_resolve_and_close_own_report(self):
+        self._login("pet_owner")
+        self.client.post(reverse("pet_report_status", args=[self.report.id]), {"action": "resolve"})
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.status, PetReport.STATUS_RESOLVED)
+
+    def test_owner_can_edit_own_open_report(self):
+        self._login("pet_owner")
+        resp = self.client.get(reverse("pet_report_edit", args=[self.report.id]))
+        self.assertEqual(resp.context["form"].initial["region"], "dushanbe")  # pre-filled
+        resp = self.client.post(reverse("pet_report_edit", args=[self.report.id]), {
+            "report_type": "lost", "pet_name": "Renamed", "species": "dog",
+            "description": "updated details", "region": "sogd", "contact_phone": "+992 111",
+        })
+        self.assertRedirects(resp, reverse("pet_report_detail", args=[self.report.id]))
+        self.report.refresh_from_db()
+        self.assertEqual((self.report.pet_name, self.report.description, self.report.region),
+                         ("Renamed", "updated details", "sogd"))
+
+    def test_owner_cannot_use_staff_only_actions(self):
+        self._login("pet_owner")
+        resp = self.client.post(reverse("pet_report_status", args=[self.report.id]), {"action": "match"}, follow=True)
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.status, PetReport.STATUS_OPEN)
+        self.assertContains(resp, "координатор")
+
+    def test_staff_can_mark_matched(self):
+        self._login("pet_curator")
+        self.client.post(reverse("pet_report_status", args=[self.report.id]), {"action": "match"})
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.status, PetReport.STATUS_MATCHED)
+
+    def test_admin_can_delete_any_report(self):
+        self._login("pet_admin")
+        resp = self.client.post(reverse("pet_report_delete", args=[self.report.id]))
+        self.assertRedirects(resp, reverse("my_pet_reports"))
+        self.assertFalse(PetReport.objects.filter(pk=self.report.pk).exists())
+
+    def test_status_and_delete_and_edit_are_post_only(self):
+        self._login("pet_owner")
+        self.assertEqual(self.client.get(reverse("pet_report_status", args=[self.report.id])).status_code, 405)
+        self.assertEqual(self.client.get(reverse("pet_report_delete", args=[self.report.id])).status_code, 405)
+        # edit GET is a normal form render for the owner
+        self.assertEqual(self.client.get(reverse("pet_report_edit", args=[self.report.id])).status_code, 200)
+
+    def test_resolved_report_is_hidden_from_strangers_but_not_owner(self):
+        self.report.resolve(self.reporter)
+        self._login("pet_other")
+        self.assertEqual(self.client.get(reverse("pet_report_detail", args=[self.report.id])).status_code, 404)
+        self._login("pet_owner")
+        self.assertEqual(self.client.get(reverse("pet_report_detail", args=[self.report.id])).status_code, 200)
+        self._login("pet_curator")
+        self.assertEqual(self.client.get(reverse("pet_report_detail", args=[self.report.id])).status_code, 200)
+
+    def test_cannot_edit_a_closed_report(self):
+        self.report.close(self.reporter)
+        self._login("pet_owner")
+        resp = self.client.post(reverse("pet_report_edit", args=[self.report.id]), {
+            "report_type": "lost", "species": "dog", "description": "changed", "region": "dushanbe",
+        }, follow=True)
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.description, "brown dog")
+
+
+class PetBoardAndListTests(TestCase):
+    def setUp(self):
+        self.admin, self.curator, self.reporter, self.other, self.volunteer = _pet_users()
+
+    def _login(self, u="pet_owner"):
+        self.client.login(username=u, password="pass12345")
+
+    def test_board_lists_only_open_and_matched(self):
+        open_r = _pet(self.reporter)
+        matched_r = _pet(self.reporter, pet_name="M")
+        matched_r.mark_matched(self.curator)
+        resolved_r = _pet(self.reporter, pet_name="R")
+        resolved_r.resolve(self.reporter)
+        closed_r = _pet(self.reporter, pet_name="C")
+        closed_r.close(self.reporter)
+
+        self._login()
+        resp = self.client.get(reverse("pet_list"))
+        ids = {c["id"] for c in resp.context["cards"]}
+        self.assertEqual(ids, {open_r.id, matched_r.id})
+
+    def test_board_filters_by_type_species_region(self):
+        _pet(self.reporter, report_type="lost", species="dog", region="dushanbe")
+        _pet(self.reporter, report_type="found", species="cat", region="sogd")
+        self._login()
+        resp = self.client.get(reverse("pet_list"), {"type": "found"})
+        self.assertEqual(len(resp.context["cards"]), 1)
+        self.assertEqual(resp.context["cards"][0]["report_type"], "found")
+        resp = self.client.get(reverse("pet_list"), {"species": "dog"})
+        self.assertEqual([c["species_display"] for c in resp.context["cards"]], ["Собака"])
+        resp = self.client.get(reverse("pet_list"), {"region": "sogd"})
+        self.assertEqual(len(resp.context["cards"]), 1)
+
+    def test_board_cards_carry_no_reporter_or_contact(self):
+        _pet(self.reporter, contact_phone="+992 555 000 111")
+        self._login("pet_other")
+        resp = self.client.get(reverse("pet_list"))
+        self.assertNotContains(resp, "+992 555 000 111")
+        self.assertNotContains(resp, self.reporter.username)
+        card = resp.context["cards"][0]
+        self.assertNotIn("contact_phone", card)
+        self.assertNotIn("reporter", card)
+
+    def test_my_reports_scoped_to_current_user(self):
+        mine = _pet(self.reporter)
+        _pet(self.other)
+        self._login("pet_owner")
+        resp = self.client.get(reverse("my_pet_reports"))
+        self.assertEqual({r.id for r in resp.context["reports"]}, {mine.id})
+
+    def test_my_reports_shows_all_statuses(self):
+        r = _pet(self.reporter)
+        r.resolve(self.reporter)
+        self._login("pet_owner")
+        resp = self.client.get(reverse("my_pet_reports"))
+        self.assertEqual([x.id for x in resp.context["reports"]], [r.id])
+
+    def test_create_view_publishes_and_redirects_to_detail(self):
+        self._login("pet_owner")
+        resp = self.client.post(reverse("pet_report_create"), {
+            "report_type": "lost", "pet_name": "Bobik", "species": "dog",
+            "description": "small brown dog", "region": "dushanbe",
+        })
+        report = PetReport.objects.get(pet_name="Bobik")
+        self.assertEqual(report.reporter, self.reporter)
+        self.assertEqual(report.status, PetReport.STATUS_OPEN)
+        self.assertRedirects(resp, reverse("pet_report_detail", args=[report.id]))
+
+
+class PetMapDataTests(TestCase):
+    def setUp(self):
+        self.admin, self.curator, self.reporter, self.other, self.volunteer = _pet_users()
+
+    def _points(self, username):
+        self.client.login(username=username, password="pass12345")
+        resp = self.client.get(reverse("map_data"), HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+        return [p for p in resp.json()["points"] if p.get("kind") == "pet"]
+
+    def test_located_open_reports_appear_for_every_role(self):
+        _pet(self.reporter, latitude="38.56", longitude="68.78", contact_phone="+992 900 000 111")
+        for u in ("pet_owner", "pet_other", "pet_vol", "pet_curator", "pet_admin"):
+            pts = self._points(u)
+            self.assertEqual(len(pts), 1, u)
+
+    def test_pet_map_points_expose_only_safe_fields(self):
+        _pet(self.reporter, pet_name="Secret", latitude="38.56", longitude="68.78", contact_phone="+992 900 000 111")
+        pts = self._points("pet_other")
+        point = pts[0]
+        self.assertEqual(set(point), {"id", "kind", "lat", "lng", "title", "subtitle", "report_type", "species", "region", "status", "url"})
+        self.assertNotIn("+992 900 000 111", str(point))
+        self.assertNotIn(self.reporter.username, str(point))
+
+    def test_report_without_coordinates_has_no_marker(self):
+        _pet(self.reporter)
+        self.assertEqual(self._points("pet_other"), [])
+
+    def test_resolved_reports_leave_the_map(self):
+        r = _pet(self.reporter, latitude="38.56", longitude="68.78")
+        self.assertEqual(len(self._points("pet_other")), 1)
+        r.resolve(self.reporter)
+        self.assertEqual(self._points("pet_other"), [])
+
+
+class PetUploadTests(TestCase):
+    def setUp(self):
+        _, _, self.reporter, _, _ = _pet_users()
+        self.client.login(username="pet_owner", password="pass12345")
+
+    def _post(self, image):
+        return self.client.post(reverse("pet_report_create"), {
+            "report_type": "found", "species": "cat", "description": "found a cat",
+            "region": "dushanbe", "image": image,
+        })
+
+    def test_valid_small_image_is_accepted(self):
+        resp = self._post(_small_image_file("pet.png"))
+        self.assertEqual(resp.status_code, 302)
+        self.assertTrue(PetReport.objects.filter(reporter=self.reporter).exists())
+        PetReport.objects.get(reporter=self.reporter).image.delete(save=False)
+
+    def test_oversized_image_is_rejected_by_the_shared_validator(self):
+        resp = self._post(_oversized_image_file("huge.png"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "5")
+        self.assertFalse(PetReport.objects.filter(reporter=self.reporter).exists())
+
+    def test_non_image_upload_is_rejected(self):
+        bad = SimpleUploadedFile("evil.svg", b"<svg onload=alert(1)></svg>", content_type="image/svg+xml")
+        resp = self._post(bad)
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(PetReport.objects.filter(reporter=self.reporter).exists())
+
+
+class PetMatchingTests(TestCase):
+    """services.pets.possible_matches — deterministic, opposite-type,
+    same-species, near-or-same-region. Not a second matching engine."""
+
+    def setUp(self):
+        self.admin, self.curator, self.reporter, self.other, _ = _pet_users()
+
+    def test_opposite_type_same_species_nearby_is_a_match(self):
+        lost = _pet(self.reporter, report_type="lost", species="cat", latitude="38.560", longitude="68.780")
+        found = _pet(self.other, report_type="found", species="cat", latitude="38.561", longitude="68.781")
+        matches = pets.possible_matches(lost)
+        self.assertEqual([m["report"].id for m in matches], [found.id])
+        self.assertLess(matches[0]["distance_km"], 1)
+
+    def test_same_type_is_never_a_match(self):
+        lost = _pet(self.reporter, report_type="lost", species="cat", latitude="38.56", longitude="68.78")
+        _pet(self.other, report_type="lost", species="cat", latitude="38.56", longitude="68.78")
+        self.assertEqual(pets.possible_matches(lost), [])
+
+    def test_different_species_is_never_a_match(self):
+        lost = _pet(self.reporter, report_type="lost", species="cat", latitude="38.56", longitude="68.78")
+        _pet(self.other, report_type="found", species="dog", latitude="38.56", longitude="68.78")
+        self.assertEqual(pets.possible_matches(lost), [])
+
+    def test_far_located_report_is_excluded(self):
+        lost = _pet(self.reporter, report_type="lost", species="dog", region="dushanbe", latitude="38.56", longitude="68.78")
+        # Khujand ~ 200 km away, and a different region -> not a lead.
+        _pet(self.other, report_type="found", species="dog", region="sogd", latitude="40.28", longitude="69.62")
+        self.assertEqual(pets.possible_matches(lost), [])
+
+    def test_same_region_without_coordinates_is_a_match(self):
+        lost = _pet(self.reporter, report_type="lost", species="bird", region="khatlon")
+        found = _pet(self.other, report_type="found", species="bird", region="khatlon")
+        matches = pets.possible_matches(lost)
+        self.assertEqual([m["report"].id for m in matches], [found.id])
+        self.assertIsNone(matches[0]["distance_km"])
+        self.assertTrue(matches[0]["same_region"])
+
+    def test_resolved_counterpart_is_not_suggested(self):
+        lost = _pet(self.reporter, report_type="lost", species="cat", region="rrp")
+        found = _pet(self.other, report_type="found", species="cat", region="rrp")
+        found.resolve(self.other)
+        self.assertEqual(pets.possible_matches(lost), [])
+
+    def test_nearest_first_ordering_is_deterministic(self):
+        lost = _pet(self.reporter, report_type="lost", species="dog", region="dushanbe", latitude="38.560", longitude="68.780")
+        near = _pet(self.other, report_type="found", species="dog", region="dushanbe", latitude="38.562", longitude="68.782")
+        far = _pet(self.other, report_type="found", species="dog", region="dushanbe", latitude="38.60", longitude="68.82")
+        ids = [m["report"].id for m in pets.possible_matches(lost)]
+        self.assertEqual(ids, [near.id, far.id])
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class PetNotificationTests(TestCase):
+    def setUp(self):
+        self.admin, self.curator, self.reporter, self.other, _ = _pet_users()
+        mail.outbox.clear()
+
+    def test_new_report_notifies_staff_once(self):
+        pets.create_pet_report(reporter=self.reporter, report_type="lost", description="x", species="dog", region="dushanbe")
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].subject, pets.NEW_REPORT_SUBJECT)
+        self.assertCountEqual(mail.outbox[0].to, [self.admin.email, self.curator.email])
+
+    def test_new_report_pings_owner_of_a_matching_counterpart(self):
+        found = pets.create_pet_report(reporter=self.other, report_type="found", description="grey cat",
+                                       species="cat", region="dushanbe", latitude="38.56", longitude="68.78")
+        mail.outbox.clear()
+        pets.create_pet_report(reporter=self.reporter, report_type="lost", description="grey cat",
+                               species="cat", region="dushanbe", latitude="38.561", longitude="68.781")
+        subjects = [m.subject for m in mail.outbox]
+        self.assertIn(pets.MATCH_HINT_SUBJECT, subjects)
+        hint = next(m for m in mail.outbox if m.subject == pets.MATCH_HINT_SUBJECT)
+        self.assertEqual(hint.to, [self.other.email])
+
+    def test_no_self_match_ping_when_same_person_filed_both(self):
+        pets.create_pet_report(reporter=self.reporter, report_type="found", description="dog",
+                               species="dog", region="sogd")
+        mail.outbox.clear()
+        pets.create_pet_report(reporter=self.reporter, report_type="lost", description="dog",
+                               species="dog", region="sogd")
+        self.assertNotIn(pets.MATCH_HINT_SUBJECT, [m.subject for m in mail.outbox])
+
+    def test_staff_status_change_notifies_reporter(self):
+        report = _pet(self.reporter)
+        mail.outbox.clear()
+        pets.apply_action(report, "match", actor=self.curator)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, [self.reporter.email])
+
+    def test_owner_self_action_does_not_email_themselves(self):
+        report = _pet(self.reporter)
+        mail.outbox.clear()
+        pets.apply_action(report, "resolve", actor=self.reporter)
+        self.assertEqual(mail.outbox, [])
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class PetDashboardTests(TestCase):
+    def setUp(self):
+        self.admin, self.curator, self.reporter, self.other, _ = _pet_users()
+
+    def test_client_dashboard_carries_own_pet_reports_only(self):
+        mine = _pet(self.reporter, pet_name="Mine")
+        _pet(self.other, pet_name="Theirs")
+        self.client.login(username="pet_owner", password="pass12345")
+        resp = self.client.get(reverse("profile"))
+        self.assertEqual(resp.context["pet_report_count"], 1)
+        self.assertEqual({r.id for r in resp.context["my_pet_reports"]}, {mine.id})
+        self.assertNotContains(resp, "Theirs")
+
+    def test_curator_dashboard_shows_open_board_count_and_recent(self):
+        _pet(self.reporter, pet_name="Buddy")
+        self.client.login(username="pet_curator", password="pass12345")
+        resp = self.client.get(reverse("profile"))
+        self.assertEqual(resp.context["pets_open_count"], 1)
+        self.assertEqual([r.pet_name for r in resp.context["recent_pet_reports"]], ["Buddy"])
+
+    def test_curator_dashboard_pet_card_has_no_contact_detail(self):
+        _pet(self.reporter, pet_name="Buddy", contact_phone="+992 900 777 000")
+        self.client.login(username="pet_curator", password="pass12345")
+        resp = self.client.get(reverse("profile"))
+        self.assertNotContains(resp, "+992 900 777 000")
+
+
+class PetRegressionGuardTests(TestCase):
+    """Lost & Found must not have disturbed the neighbouring systems."""
+
+    def setUp(self):
+        self.admin, self.curator, self.reporter, self.other, self.volunteer = _pet_users()
+
+    def test_help_request_flow_untouched(self):
+        task = HelpRequest.objects.create(
+            client=self.reporter, help_type="grocery", description="d", address="a",
+            phone="p", region="dushanbe", status="pending",
+        )
+        task.accept(self.volunteer)
+        self.assertEqual(task.status, "active")
+        task.complete()
+        self.assertEqual(task.status, "completed")
+
+    def test_pet_report_is_not_a_help_request(self):
+        _pet(self.reporter)
+        self.assertEqual(HelpRequest.objects.count(), 0)
+
+    def test_map_data_still_returns_tasks_and_pets_together(self):
+        HelpRequest.objects.create(
+            client=self.reporter, help_type="grocery", description="d", address="a",
+            phone="p", region="dushanbe", status="pending", latitude="38.55", longitude="68.77",
+        )
+        _pet(self.reporter, latitude="38.56", longitude="68.78")
+        self.client.login(username="pet_curator", password="pass12345")
+        resp = self.client.get(reverse("map_data"), HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+        kinds = {p["kind"] for p in resp.json()["points"]}
+        self.assertIn("task", kinds)
+        self.assertIn("pet", kinds)

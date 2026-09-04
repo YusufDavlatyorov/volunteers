@@ -14,8 +14,8 @@ aggregation logic is duplicated.
 from django.db.models import Count, Q
 from django.utils import timezone
 
-from ..models import Donation, EmergencyReport, Event, HelpRequest, VolunteerApplication
-from . import analytics, donations, emergency, matching, overdue, stale
+from ..models import Donation, EmergencyReport, Event, HelpRequest, PetReport, VolunteerApplication
+from . import analytics, donations, emergency, matching, overdue, pets, stale
 
 EVENTS_LIMIT = 3
 LIST_LIMIT = 5
@@ -99,6 +99,8 @@ def _client(user):
         "client_total": len(requests),
         "donation_count": Donation.objects.filter(donor=user).count(),
         "recent_donations": list(donations.donations_for(user)[:LIST_LIMIT]),
+        "pet_report_count": PetReport.objects.filter(reporter=user).count(),
+        "my_pet_reports": list(pets.reports_for(user)[:LIST_LIMIT]),
         "upcoming_events": _upcoming_events(user.region),
     }
 
@@ -164,6 +166,13 @@ def _curator(user):
         "availability": analytics.volunteer_availability_breakdown(),
         "region_breakdown": analytics.region_task_breakdown(),
         "recent_activity": analytics.recent_activity(limit=8),
+        # Lost & Found board — a coordination surface, not a CRM aggregate. Open
+        # count + the newest few so a curator can keep an eye on the board.
+        "pets_open_count": PetReport.objects.filter(status__in=PetReport.OPEN_STATUSES).count(),
+        "recent_pet_reports": list(
+            PetReport.objects.filter(status__in=PetReport.OPEN_STATUSES)
+            .order_by("-created_at")[:LIST_LIMIT]
+        ),
     }
 
 

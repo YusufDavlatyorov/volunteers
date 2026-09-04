@@ -5,8 +5,7 @@ existing imports keep working unchanged:
 
     from myapp.models import HelpRequest, OVERDUE_THRESHOLD, PRIORITY_CHOICES
 
-New domain areas (lost & found pets) get their own module in this package plus
-an entry below.
+New domain areas get their own module in this package plus an entry below.
 """
 
 from .donations import (
@@ -44,6 +43,15 @@ from .help_requests import (
     WORK_STAGE_ORDER,
     HelpRequest,
 )
+from .pets import (
+    PET_ALLOWED_TRANSITIONS,
+    PET_OPEN_STATUSES,
+    PET_OWNER_TRANSITIONS,
+    PET_REPORT_TYPE_CHOICES,
+    PET_SPECIES_CHOICES,
+    PET_STATUS_CHOICES,
+    PetReport,
+)
 from .photo_reports import PhotoReport
 from .volunteer_applications import VolunteerApplication
 
@@ -70,6 +78,14 @@ __all__ = [
     "EVENT_REGION_CHOICES",
     # volunteer_applications
     "VolunteerApplication",
+    # pets (lost & found)
+    "PetReport",
+    "PET_REPORT_TYPE_CHOICES",
+    "PET_SPECIES_CHOICES",
+    "PET_STATUS_CHOICES",
+    "PET_OPEN_STATUSES",
+    "PET_ALLOWED_TRANSITIONS",
+    "PET_OWNER_TRANSITIONS",
     # photo_reports
     "PhotoReport",
     # emergency

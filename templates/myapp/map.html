@@ -16,6 +16,7 @@
                 {% for value, label in status_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
                 <option value="overdue" data-i18n="map.legend_overdue">Overdue</option>
                 {% if is_ops_staff %}<option value="emergency" data-i18n="map.legend_sos">SOS report</option>{% endif %}
+                <option value="pets" data-i18n="map.filter_pets">Lost &amp; found pets</option>
             </select>
         </div>
         <div class="field-group">
@@ -57,6 +58,8 @@
             <span class="map-legend-item"><span class="map-legend-dot map-legend-dot--active"></span><span data-i18n="map.legend_task_active">In progress</span></span>
             <span class="map-legend-item"><span class="map-legend-dot map-legend-dot--urgent"></span><span data-i18n="map.legend_emergency">Emergency</span></span>
         {% endif %}
+        <span class="map-legend-item"><span class="map-legend-dot map-legend-dot--pending"></span><span data-i18n="map.legend_pet_lost">Lost pet</span></span>
+        <span class="map-legend-item"><span class="map-legend-dot map-legend-dot--available"></span><span data-i18n="map.legend_pet_found">Found pet</span></span>
         <span class="map-legend-item"><span class="map-legend-dot map-legend-dot--me"></span><span data-i18n="map.legend_me">You</span></span>
     </div>
 
@@ -118,6 +121,15 @@
             maybeScroll();
             return;
         }
+        if (point.kind === 'pet') {
+            panel.hidden = false;
+            panel.innerHTML = `
+                <h3 class="ops-panel__title">${point.title}</h3>
+                <p class="ops-panel__sub">${point.subtitle || ''}</p>
+                <div class="ops-panel__actions"><a class="button ghost" href="${point.url}">${I('pet.view_report', 'View report')}</a></div>`;
+            maybeScroll();
+            return;
+        }
         if (point.kind !== 'task') {
             panel.hidden = false;
             panel.innerHTML = `<h3 class="ops-panel__title">${point.title}</h3><p class="ops-panel__sub">${point.subtitle || ''}</p>`;
@@ -174,6 +186,7 @@
         const region = document.getElementById('opsFilterRegion').value;
         const type = document.getElementById('opsFilterType').value;
         return (p) => {
+            if (status === 'pets') return p.kind === 'pet';
             if (status === 'emergency') return p.kind === 'emergency';
             if (p.kind !== 'task') return true;
             if (status === 'overdue' && !p.is_overdue) return false;

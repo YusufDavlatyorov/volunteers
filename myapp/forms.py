@@ -10,6 +10,7 @@ from .models import (
     HelpRequest,
     MAX_DONATION_QUANTITY,
     MIN_MONEY,
+    PetReport,
     PhotoReport,
     PRIORITY_CHOICES,
     Product,
@@ -133,6 +134,55 @@ class PhotoReportForm(forms.ModelForm):
             "event": forms.Select(attrs=FIELD_CLASS),
             "help_request": forms.Select(attrs=FIELD_CLASS),
         }
+
+
+class PetReportForm(forms.ModelForm):
+    """A lost or found pet notice. Location is optional (a hidden map picker, the
+    same widget as HelpRequestForm); region is required so a report without
+    coordinates still has something the matcher can group on. ``reporter`` and
+    ``status`` are set by the view / model, never by the form."""
+
+    region = forms.ChoiceField(
+        label="Регион",
+        choices=[("", "Выберите регион")] + REGION_CHOICES,
+        required=True,
+        widget=forms.Select(attrs=FIELD_CLASS),
+    )
+
+    class Meta:
+        model = PetReport
+        fields = [
+            "report_type", "pet_name", "species", "breed", "description",
+            "region", "contact_phone", "image", "latitude", "longitude",
+        ]
+        labels = {
+            "report_type": "Тип объявления",
+            "pet_name": "Кличка (если известна)",
+            "species": "Вид животного",
+            "breed": "Порода (необязательно)",
+            "description": "Описание",
+            "contact_phone": "Контактный телефон (необязательно)",
+            "image": "Фото (необязательно)",
+        }
+        widgets = {
+            "report_type": forms.Select(attrs=FIELD_CLASS),
+            "pet_name": forms.TextInput(attrs={**FIELD_CLASS, "placeholder": "Например: Барсик"}),
+            "species": forms.Select(attrs=FIELD_CLASS),
+            "breed": forms.TextInput(attrs=FIELD_CLASS),
+            "description": forms.Textarea(attrs={**FIELD_CLASS, "rows": 5, "placeholder": "Приметы, где и когда, поведение"}),
+            "contact_phone": forms.TextInput(attrs={**FIELD_CLASS, "placeholder": "+992 ..."}),
+            "latitude": forms.HiddenInput(),
+            "longitude": forms.HiddenInput(),
+        }
+
+    def clean(self):
+        cleaned = super().clean()
+        lat, lng = cleaned.get("latitude"), cleaned.get("longitude")
+        if (lat is None) != (lng is None):
+            raise forms.ValidationError("Укажите широту и долготу вместе или не указывайте вовсе.")
+        if lat is not None and lng is not None and not is_valid_coordinate(lat, lng):
+            raise forms.ValidationError("Некорректные координаты.")
+        return cleaned
 
 
 class DonationForm(forms.Form):

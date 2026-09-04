@@ -6,6 +6,7 @@ from .models import (
     EmergencyReport,
     Event,
     HelpRequest,
+    PetReport,
     PhotoReport,
     Product,
     VolunteerApplication,
@@ -74,6 +75,23 @@ class DonationAdmin(admin.ModelAdmin):
         return False
 
     def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(PetReport)
+class PetReportAdmin(admin.ModelAdmin):
+    list_display = ("id", "report_type", "species", "pet_name", "status", "region", "reporter", "created_at")
+    list_filter = ("report_type", "species", "status", "region", "created_at")
+    search_fields = ("pet_name", "breed", "description", "reporter__username")
+    # Status changes go through the app (services.pets / model methods enforce
+    # the transition rules); a raw admin edit would bypass them. Reports are only
+    # ever created through the board.
+    readonly_fields = (
+        "reporter", "status", "reviewed_by",
+        "created_at", "updated_at", "matched_at", "resolved_at", "closed_at",
+    )
+
+    def has_add_permission(self, request):
         return False
 
 

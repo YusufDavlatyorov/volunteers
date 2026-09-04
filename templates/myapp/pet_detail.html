@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}{{ report.get_report_type_display }}: {{ report.display_name }} - Generation Connect{% endblock %}
+{% block extra_css %}
+{% if show_location_map %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+{% endif %}
+{% endblock %}
+{% block content %}
+<section class="section">
+    {% url 'pet_list' as pet_list_url %}
+    {% include "partials/_page_header.html" with title="Pet report" title_i18n="pet.detail_title" action_url=pet_list_url action_label="Back to board" action_i18n="pet.back_board" action_class="ghost" %}
+
+    <div class="card">
+        <p>
+            {% include "myapp/_pet_type_tag.html" with report_type=report.report_type report_type_display=report.get_report_type_display %}
+            {% include "myapp/_pet_status_tag.html" with status=report.status status_display=report.get_status_display %}
+        </p>
+        <h2>{{ report.display_name }}</h2>
+        <div class="detail-meta">
+            <div><span class="meta-label" data-i18n="pet.field_species">Species</span><p>{{ report.get_species_display }}</p></div>
+            {% if report.breed %}<div><span class="meta-label" data-i18n="pet.field_breed">Breed</span><p>{{ report.breed }}</p></div>{% endif %}
+            <div><span class="meta-label" data-i18n="tbl.region">Region</span><p>{{ report.get_region_display|default:"—" }}</p></div>
+            <div><span class="meta-label" data-i18n="pet.field_reported">Reported</span><p>{{ report.created_at|date:"d M Y, H:i" }}</p></div>
+            <div><span class="meta-label" data-i18n="emg.field_location">Location</span><p>{% if report.has_location %}{{ report.latitude }}, {{ report.longitude }}{% else %}<span data-i18n="emg.no_location">not provided</span>{% endif %}</p></div>
+            {% if can_manage %}
+                <div><span class="meta-label" data-i18n="pet.field_reporter">Reporter</span><p>{{ report.reporter.username }}</p></div>
+                <div><span class="meta-label" data-i18n="pet.field_contact">Contact phone</span><p>{{ report.contact_phone|default:"—" }}</p></div>
+                {% if is_staff %}
+                    <div><span class="meta-label" data-i18n="pet.field_reporter_email">Reporter email</span><p>{{ report.reporter.email }}</p></div>
+                    {% if report.reviewed_by %}<div><span class="meta-label" data-i18n="pet.field_reviewed_by">Status updated by</span><p>{{ report.reviewed_by.username }}</p></div>{% endif %}
+                {% endif %}
+            {% endif %}
+        </div>
+        <div class="detail-reason">
+            <span class="meta-label" data-i18n="pet.field_description">Description</span>
+            <p>{{ report.description }}</p>
+        </div>
+        {% if not can_manage %}
+        <p class="field-hint" data-i18n="pet.contact_via_staff">To help reunite this pet, contact a coordinator — they will pass your message to the person who filed this report.</p>
+        {% endif %}
+    </div>
+
+    {% if report.image %}
+    <div class="card reveal">
+        <div class="section-head"><h2 data-i18n="pet.photo_title">Photo</h2></div>
+        <img class="report-img" src="{{ report.image.url }}" alt="{{ report.display_name }}">
+    </div>
+    {% endif %}
+
+    {% if show_location_map %}
+    <div class="card reveal" id="locationMapCard" data-lat="{{ report.latitude }}" data-lng="{{ report.longitude }}" data-type="{{ report.report_type }}">
+        <div class="section-head"><h2 data-i18n="pet.map_title">Approximate location</h2></div>
+        <div id="locationMap" class="map-mini"></div>
+    </div>
+    {% endif %}
+
+    {% if can_manage %}
+    <div class="card reveal">
+        <div class="section-head"><h2 data-i18n="pet.matches_title">Possible matches</h2></div>
+        {% if possible_matches %}
+            <div class="mini-list">
+                {% for match in possible_matches %}
+                    <a class="mini-list-item mini-list-item--link" href="{% url 'pet_report_detail' match.report.id %}">
+                        <h4>{% include "myapp/_pet_type_tag.html" with report_type=match.report.report_type report_type_display=match.report.get_report_type_display %} #{{ match.report.id }} · {{ match.report.display_name }}</h4>
+                        <p>{{ match.report.get_species_display }}{% if match.report.breed %} · {{ match.report.breed }}{% endif %} · {{ match.report.get_region_display|default:"—" }}{% if match.distance_km is not None %} · {{ match.distance_km }} km{% elif match.same_region %} · <span data-i18n="pet.same_region">same region</span>{% endif %}</p>
+                    </a>
+                {% endfor %}
+            </div>
+            <p class="field-hint" data-i18n="pet.matches_hint">These are open reports of the opposite kind for the same species, nearby or in the same region. They are suggestions only — nothing is linked automatically.</p>
+        {% else %}
+            <p class="opportunity-desc" data-i18n="pet.no_matches">No obvious counterpart report right now.</p>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {% if can_manage %}
+    <div class="card">
+        <div class="section-head"><h2 data-i18n="emg.actions_title">Actions</h2></div>
+        {% if report.is_open %}
+        <div class="button-row">
+            {% if is_staff and report.status == "open" %}
+            <form method="post" action="{% url 'pet_report_status' report.id %}" class="inline-form">
+                {% csrf_token %}<input type="hidden" name="action" value="match">
+                <button type="submit" class="button secondary" data-i18n="pet.action_match">Mark matched</button>
+            </form>
+            {% endif %}
+            {% if is_staff and report.status == "matched" %}
+            <form method="post" action="{% url 'pet_report_status' report.id %}" class="inline-form">
+                {% csrf_token %}<input type="hidden" name="action" value="reopen">
+                <button type="submit" class="button ghost" data-i18n="pet.action_reopen">Reopen</button>
+            </form>
+            {% endif %}
+            <form method="post" action="{% url 'pet_report_status' report.id %}" class="inline-form">
+                {% csrf_token %}<input type="hidden" name="action" value="resolve">
+                <button type="submit" class="button primary" data-i18n="pet.action_resolve">Reunited</button>
+            </form>
+            <form method="post" action="{% url 'pet_report_status' report.id %}" class="inline-form">
+                {% csrf_token %}<input type="hidden" name="action" value="close">
+                <button type="submit" class="button ghost" data-i18n="pet.action_close">Close report</button>
+            </form>
+        </div>
+        {% else %}
+            <p class="field-hint" data-i18n="pet.closed_note">This report is closed.</p>
+        {% endif %}
+        <div class="button-row">
+            {% if can_edit %}<a class="button ghost" href="{% url 'pet_report_edit' report.id %}" data-i18n="btn.edit">Edit</a>{% endif %}
+            {% if is_owner or user.is_superuser %}
+            <form method="post" action="{% url 'pet_report_delete' report.id %}" class="inline-form" onsubmit="return confirm('Delete this report? / Удалить объявление?');">
+                {% csrf_token %}
+                <button type="submit" class="button ghost" data-i18n="pet.action_delete">Delete</button>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="card">
+        <div class="section-head"><h2 data-i18n="emg.timeline_title">Timeline</h2></div>
+        <div class="mini-list">
+            <div class="mini-list-item"><h4 data-i18n="don.timeline_created">Created</h4><p>{{ report.created_at|date:"d M Y, H:i" }}</p></div>
+            {% if report.matched_at %}<div class="mini-list-item"><h4 data-i18n="pet.tl_matched">Matched</h4><p>{{ report.matched_at|date:"d M Y, H:i" }}</p></div>{% endif %}
+            {% if report.resolved_at %}<div class="mini-list-item"><h4 data-i18n="pet.tl_resolved">Reunited</h4><p>{{ report.resolved_at|date:"d M Y, H:i" }}</p></div>{% endif %}
+            {% if report.closed_at %}<div class="mini-list-item"><h4 data-i18n="pet.tl_closed">Closed</h4><p>{{ report.closed_at|date:"d M Y, H:i" }}</p></div>{% endif %}
+        </div>
+    </div>
+</section>
+{% endblock %}
+{% block extra_js %}
+{% if show_location_map %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="{% static 'js/map.js' %}"></script>
+<script>
+(function () {
+    const card = document.getElementById('locationMapCard');
+    if (!card || typeof L === 'undefined') return;
+    const lat = parseFloat(card.dataset.lat);
+    const lng = parseFloat(card.dataset.lng);
+    if (Number.isNaN(lat) || Number.isNaN(lng)) return;
+    const map = L.map('locationMap').setView([lat, lng], 14);
+    GCMap.tileLayer(map);
+    const pinColor = card.dataset.type === 'found' ? '--ok' : '--accent';
+    L.marker([lat, lng], { icon: GCMap.pinIcon(pinColor, 'P') }).addTo(map);
+})();
+</script>
+{% endif %}
+{% endblock %}
