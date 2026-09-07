@@ -147,10 +147,30 @@ class Donation(models.Model):
     def _apply_transition(self, target, actor, at_field):
         if not self.can_transition_to(target):
             raise ValueError(f"donation #{self.pk}: {self.status} -> {target} is not allowed")
+
+        # Conditional UPDATE, not fetch-then-save: the WHERE clause is
+        # evaluated by the database as part of one atomic statement, so two
+        # concurrent admin actions on the same donation (e.g. one confirming,
+        # one cancelling) can't both win — the loser sees 0 rows affected
+        # instead of silently overwriting the winner's transition. Same idiom
+        # as accept_task_view and the overdue/stale sweep claims.
+        now = timezone.now()
+        updated = Donation.objects.filter(pk=self.pk, status=self.status).update(
+            status=target, reviewed_by=actor, updated_at=now, **{at_field: now}
+        )
+        if not updated:
+            current_status = (
+                Donation.objects.filter(pk=self.pk).values_list("status", flat=True).first()
+            )
+            raise ValueError(
+                f"donation #{self.pk}: {self.status} -> {target} is not allowed "
+                f"(status already changed to {current_status})"
+            )
+
         self.status = target
-        setattr(self, at_field, timezone.now())
+        setattr(self, at_field, now)
         self.reviewed_by = actor
-        self.save(update_fields=["status", at_field, "reviewed_by", "updated_at"])
+        self.updated_at = now
 
     def confirm(self, actor):
         self._apply_transition(DONATION_CONFIRMED, actor, "confirmed_at")

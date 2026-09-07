@@ -53,12 +53,16 @@ def currently_overdue_tasks():
 
 def sweep_overdue_tasks():
     """Alert curators/admins about every newly-overdue task, exactly once each,
-    and flag it so a later run is a no-op. Returns the tasks alerted on this run.
+    and flag it so a later run is a no-op. Returns the tasks actually alerted
+    on this run.
 
     Each task is claimed with a conditional ``UPDATE ... WHERE alarm_sent=False``
     before its notification is sent, so two sweeps running at once (the cron job
     and the admin button, say) cannot produce a duplicate alert — the same idiom
-    accept_task_view uses to settle a double-accept race.
+    accept_task_view uses to settle a double-accept race. If delivery reaches
+    zero recipients (no active curator/admin, or email/Telegram both down), the
+    claim is released instead of kept, so the task is not permanently marked
+    alerted for an alert nobody received — the next scheduled run retries it.
     """
     overdue = list(find_overdue_tasks())
     if not overdue:
@@ -70,8 +74,24 @@ def sweep_overdue_tasks():
         claimed = HelpRequest.objects.filter(pk=task.pk, alarm_sent=False).update(alarm_sent=True)
         if not claimed:
             continue  # another concurrent sweep already took this one
+
+        delivered = notify_users(recipients, OVERDUE_SUBJECT, _overdue_message(task))
+        if not delivered:
+            # notify_users never raises (email is fail_silently, Telegram
+            # errors are caught) — a return of 0 is the only failure signal we
+            # get. alarm_sent stayed True for the whole window above, so no
+            # concurrent sweep could have claimed this row meanwhile; it's
+            # safe to release it now for a later run to retry.
+            HelpRequest.objects.filter(pk=task.pk).update(alarm_sent=False)
+            logger.error(
+                "overdue sweep: task #%s reached 0 of %d recipient(s) (no active "
+                "curator/admin, or email/Telegram unavailable) — alarm_sent reset "
+                "for retry on the next run.",
+                task.pk, len(recipients),
+            )
+            continue
+
         task.alarm_sent = True
-        notify_users(recipients, OVERDUE_SUBJECT, _overdue_message(task))
         alerted.append(task)
 
     if alerted:

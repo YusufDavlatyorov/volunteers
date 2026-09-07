@@ -2221,6 +2221,39 @@ class OverdueSweepServiceTests(TestCase):
         self.assertEqual(overdue.sweep_overdue_tasks(), [])
         self.assertEqual(len(mail.outbox), 0)
 
+    def test_zero_recipients_does_not_permanently_mark_alerted(self):
+        """Stage 6 audit MEDIUM finding: alarm_sent used to be committed before
+        notify_users() ran, so a delivery failure (here: no active curator/admin)
+        permanently and silently lost the alert. The fix must leave alarm_sent
+        False so a later run retries once a recipient exists again."""
+        Users.objects.filter(pk__in=[self.admin.pk, self.curator.pk]).update(is_active=False)
+        task = self._task(hours_ago=4)
+
+        with self.assertLogs("myapp.services.overdue", level="ERROR"):
+            alerted = overdue.sweep_overdue_tasks()
+        self.assertEqual(alerted, [])
+        task.refresh_from_db()
+        self.assertFalse(task.alarm_sent)
+        self.assertEqual(len(mail.outbox), 0)
+
+        # Idempotency preserved: still a no-op while nobody can be notified.
+        self.assertEqual(overdue.sweep_overdue_tasks(), [])
+        task.refresh_from_db()
+        self.assertFalse(task.alarm_sent)
+
+        # Once a recipient is active again, the next run successfully retries.
+        Users.objects.filter(pk=self.curator.pk).update(is_active=True)
+        retried = overdue.sweep_overdue_tasks()
+        self.assertEqual(retried, [task])
+        task.refresh_from_db()
+        self.assertTrue(task.alarm_sent)
+        self.assertEqual(len(mail.outbox), 1)
+
+        # And it's idempotent again from here on.
+        mail.outbox.clear()
+        self.assertEqual(overdue.sweep_overdue_tasks(), [])
+        self.assertEqual(len(mail.outbox), 0)
+
 
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
 class CheckOverdueTasksCommandTests(TestCase):
@@ -2354,6 +2387,38 @@ class StalePendingSweepServiceTests(TestCase):
         task.accept(volunteer)
         self.assertEqual(list(stale.find_stale_pending()), [])
         self.assertEqual(list(stale.currently_stale_pending()), [])
+
+    def test_zero_recipients_does_not_permanently_mark_alerted(self):
+        """Mirror of the overdue-sweep regression: stale_alert_sent used to be
+        committed before notify_users() ran, so a delivery failure (here: no
+        active curator/admin) permanently and silently lost the alert."""
+        Users.objects.filter(pk__in=[self.admin.pk, self.curator.pk]).update(is_active=False)
+        task = self._request(age_hours=60)
+
+        with self.assertLogs("myapp.services.stale", level="ERROR"):
+            alerted = stale.sweep_stale_pending()
+        self.assertEqual(alerted, [])
+        task.refresh_from_db()
+        self.assertFalse(task.stale_alert_sent)
+        self.assertEqual(len(mail.outbox), 0)
+
+        # Idempotency preserved: still a no-op while nobody can be notified.
+        self.assertEqual(stale.sweep_stale_pending(), [])
+        task.refresh_from_db()
+        self.assertFalse(task.stale_alert_sent)
+
+        # Once a recipient is active again, the next run successfully retries.
+        Users.objects.filter(pk=self.curator.pk).update(is_active=True)
+        retried = stale.sweep_stale_pending()
+        self.assertEqual(retried, [task])
+        task.refresh_from_db()
+        self.assertTrue(task.stale_alert_sent)
+        self.assertEqual(len(mail.outbox), 1)
+
+        # And it's idempotent again from here on.
+        mail.outbox.clear()
+        self.assertEqual(stale.sweep_stale_pending(), [])
+        self.assertEqual(len(mail.outbox), 0)
 
 
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
@@ -3728,6 +3793,51 @@ class DonationModelTests(TestCase):
         cancelled.cancel(self.admin)
         with self.assertRaises(ValueError):
             cancelled.confirm(self.admin)
+
+
+class DonationTransitionConcurrencyTests(TestCase):
+    """Regression test for the Stage 6 audit's MEDIUM finding: _apply_transition
+    used to be read-then-save with no conditional-UPDATE guard, so two admin
+    actions racing on the same pending donation (e.g. one confirming, one
+    cancelling) could both "succeed" and leave an inconsistent audit trail
+    (status=cancelled but confirmed_at also set).
+
+    Reproduced deterministically with two independently-loaded in-memory
+    copies of the same row — each holds the pre-race ``status`` it read, so
+    calling a transition on each in turn exercises exactly the interleaving a
+    real race would produce, without depending on real thread timing."""
+
+    def setUp(self):
+        self.admin, _, self.client_a, _ = _donation_users()
+        self.donation = Donation.objects.create(
+            donor=self.client_a, amount=Decimal("50.00"), currency="TJS",
+        )
+
+    def test_confirm_then_racing_cancel_only_confirm_wins(self):
+        copy_a = Donation.objects.get(pk=self.donation.pk)
+        copy_b = Donation.objects.get(pk=self.donation.pk)
+
+        copy_a.confirm(self.admin)  # DB is still "pending" when this applies
+        with self.assertRaises(ValueError):
+            copy_b.cancel(self.admin)  # DB is now "confirmed" — stale WHERE misses
+
+        final = Donation.objects.get(pk=self.donation.pk)
+        self.assertEqual(final.status, Donation.CONFIRMED)
+        self.assertIsNotNone(final.confirmed_at)
+        self.assertIsNone(final.cancelled_at)
+
+    def test_cancel_then_racing_confirm_only_cancel_wins(self):
+        copy_a = Donation.objects.get(pk=self.donation.pk)
+        copy_b = Donation.objects.get(pk=self.donation.pk)
+
+        copy_a.cancel(self.admin)
+        with self.assertRaises(ValueError):
+            copy_b.confirm(self.admin)
+
+        final = Donation.objects.get(pk=self.donation.pk)
+        self.assertEqual(final.status, Donation.CANCELLED)
+        self.assertIsNone(final.confirmed_at)
+        self.assertIsNotNone(final.cancelled_at)
 
 
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
