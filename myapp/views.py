@@ -1,5 +1,5 @@
 import json
-import os
+import logging
 
 import requests
 from django.conf import settings
@@ -34,8 +34,6 @@ from .models import (
     Event,
     HELP_TYPE_CHOICES,
     HelpRequest,
-    OVERDUE_THRESHOLD,
-    STALE_PENDING_THRESHOLD,
     PET_REPORT_TYPE_CHOICES,
     PET_SPECIES_CHOICES,
     PetReport,
@@ -47,9 +45,11 @@ from .models import (
 )
 from .models.emergency import STATUS_CHOICES as EMERGENCY_STATUS_CHOICES
 from .notifications import notify_users, staff_recipients, volunteer_queryset_for_region
-from .services import analytics, donations, emergency, maps, overdue, pets
+from .services import analytics, donations, emergency, maps, overdue, pets, stale
 from .services.geo import get_route, is_valid_coordinate
 from .services.matching import location_freshness_label, recommend_volunteers
+
+logger = logging.getLogger(__name__)
 
 
 def role_required(*roles):
@@ -87,6 +87,9 @@ def dashboard_view(request):
     return redirect("profile")
 
 
+ADMIN_PANEL_TASK_LIMIT = 100
+
+
 @role_required("admin", "curator")
 def admin_panel_view(request):
     requests_qs = HelpRequest.objects.select_related("client", "volunteer")
@@ -102,10 +105,12 @@ def admin_panel_view(request):
             requests_qs = requests_qs.filter(is_urgent=True)
 
     now = timezone.now()
+    # Bound the two grids — the full, paginated list is one click away at
+    # crm/tasks/. Without a cap this page renders every pending+active row.
     context = {
         "filter_form": filter_form,
-        "free_requests": requests_qs.filter(status="pending"),
-        "busy_requests": requests_qs.filter(status="active"),
+        "free_requests": requests_qs.filter(status="pending")[:ADMIN_PANEL_TASK_LIMIT],
+        "busy_requests": requests_qs.filter(status="active")[:ADMIN_PANEL_TASK_LIMIT],
         "archive_count": HelpRequest.objects.filter(status="completed").count(),
         "upcoming_events": Event.objects.select_related("curator").filter(date__gte=now).order_by("date")[:5],
         "recent_broadcasts": Broadcast.objects.select_related("sender")[:5],
@@ -213,13 +218,16 @@ def crm_tasks_view(request):
                 | Q(client__username__icontains=query)
             )
 
+    # The "overdue"/"stale" predicates live in one place each (services.overdue /
+    # services.stale) so this CRM filter can't drift from the sweep, the
+    # dashboard queue or the analytics count.
     overdue_only = request.GET.get("overdue") == "1"
     if overdue_only:
-        tasks = tasks.filter(status="active", accepted_at__lt=timezone.now() - OVERDUE_THRESHOLD)
+        tasks = tasks.filter(overdue.currently_overdue_q())
 
     stale_only = request.GET.get("stale") == "1"
     if stale_only:
-        tasks = tasks.filter(status="pending", created_at__lt=timezone.now() - STALE_PENDING_THRESHOLD)
+        tasks = tasks.filter(stale.currently_stale_pending_q())
 
     paginator = Paginator(tasks, 20)
     page_obj = paginator.get_page(request.GET.get("page"))
@@ -458,7 +466,18 @@ def accept_task_view(request, pk):
 @require_POST
 def complete_task_view(request, pk):
     task = get_object_or_404(HelpRequest, pk=pk, volunteer=request.user, status="active")
-    task.complete()
+    # Conditional UPDATE, not task.complete() (fetch-then-save): a double-click or
+    # a retried POST would otherwise complete the task twice and award the rating
+    # points twice. Only the request that still sees status="active" wins; the
+    # loser gets 0 rows and bails out before add_points / the client notice.
+    completed = HelpRequest.objects.filter(pk=task.pk, volunteer=request.user, status="active").update(
+        status="completed", completed_at=timezone.now(), updated_at=timezone.now()
+    )
+    if not completed:
+        messages.info(request, "Этот запрос уже завершён.")
+        return redirect("task_list")
+
+    task.refresh_from_db()
     profile, _ = Profile.objects.get_or_create(user=request.user)
     profile.add_points(5 if task.is_urgent else 3)
     notify_users([task.client], "Запрос выполнен", f"Ваш запрос #{task.id} отмечен как выполненный. Спасибо!")
@@ -541,6 +560,14 @@ def ai_assistant_view(request):
     return render(request, "myapp/ai_assistant.html")
 
 
+# Per-user ceiling on calls to the (billed, network-bound) Groq endpoint, so one
+# logged-in account can't run up cost or saturate the upstream. Process-local
+# LocMemCache like the login/reset throttles — a soft guard, not a hard quota.
+AI_CHAT_RATE_LIMIT = 30
+AI_CHAT_RATE_WINDOW_SECONDS = 5 * 60
+AI_CHAT_MAX_MESSAGE_CHARS = 2000
+
+
 @login_required
 def ai_chat_view(request):
     if request.method != "POST":
@@ -551,9 +578,17 @@ def ai_chat_view(request):
     except json.JSONDecodeError:
         return JsonResponse({"error": "Invalid JSON"}, status=400)
 
-    user_message = data.get("message", "").strip()
+    user_message = data.get("message", "").strip()[:AI_CHAT_MAX_MESSAGE_CHARS]
     if not user_message:
         return JsonResponse({"error": "Напишите вопрос"}, status=400)
+
+    rate_key = f"ai_chat_rate:{request.user.pk}"
+    if cache.get(rate_key, 0) >= AI_CHAT_RATE_LIMIT:
+        return JsonResponse(
+            {"error": "Слишком много запросов к ассистенту. Попробуйте через несколько минут."},
+            status=429,
+        )
+    cache.set(rate_key, cache.get(rate_key, 0) + 1, AI_CHAT_RATE_WINDOW_SECONDS)
 
     if request.user.is_client:
         system_prompt = "Ты спокойный помощник для пожилого клиента. Отвечай просто, заботливо, не назначай лекарства, при опасных симптомах советуй врача или 103."
@@ -564,10 +599,9 @@ def ai_chat_view(request):
 
     system_prompt += " Answer only in Tajik, Russian, or English. Use the same language as the user's message. If the message mixes languages, choose the clearest of these three languages."
 
-    from dotenv import load_dotenv
-    load_dotenv()
-
-    api_key = getattr(settings, "GROQ_API_KEY", "") or os.getenv("GROQ_API_KEY", "") or os.getenv("GEMINI_API_KEY", "")
+    # settings.GROQ_API_KEY is already resolved from GROQ_API_KEY|GEMINI_API_KEY
+    # at startup (server/settings.py) — no need to re-read the .env per request.
+    api_key = getattr(settings, "GROQ_API_KEY", "")
 
     if not api_key:
         return JsonResponse({"reply": fallback})
@@ -595,7 +629,7 @@ def ai_chat_view(request):
         reply = result["choices"][0]["message"]["content"].strip()
         return JsonResponse({"reply": reply or fallback})
     except Exception as e:
-        print(f"Groq error: {e}")
+        logger.warning("Groq chat request failed: %s", e)
         return JsonResponse({"reply": fallback})
 
 
@@ -642,7 +676,7 @@ def photo_reports_view(request):
         if not can_create:
             messages.error(request, "Фотоотчеты может публиковать только волонтер, куратор или админ.")
             return redirect("photo_reports")
-        form = PhotoReportForm(request.POST, request.FILES)
+        form = PhotoReportForm(request.POST, request.FILES, user=request.user)
         if form.is_valid():
             report = form.save(commit=False)
             report.author = request.user
@@ -652,7 +686,7 @@ def photo_reports_view(request):
             messages.success(request, "Фотоотчет добавлен.")
             return redirect("photo_reports")
     else:
-        form = PhotoReportForm()
+        form = PhotoReportForm(user=request.user)
     return render(request, "myapp/photo_reports.html", {"reports": reports, "form": form, "can_create": can_create})
 
 
@@ -794,6 +828,17 @@ def _task_point(task, subtitle_extra=""):
     }
 
 
+# Per-category ceilings for the operations map JSON. The querysets are already
+# scoped (by status / ownership / region), so these are not a security boundary —
+# they stop one request from loading and serialising an unbounded result set on a
+# large deployment (a memory/CPU DoS that would hit every legitimate viewer too).
+# Each category is ordered so the cap keeps the most operationally relevant rows;
+# generous enough that a normal region never reaches them.
+MAP_TASK_LIMIT = 500
+MAP_VOLUNTEER_LIMIT = 500
+MAP_EMERGENCY_LIMIT = 200
+
+
 @login_required
 def map_data_view(request):
     user = request.user
@@ -804,13 +849,18 @@ def map_data_view(request):
             HelpRequest.objects.filter(status__in=["pending", "active"])
             .exclude(latitude__isnull=True)
             .select_related("client", "volunteer")
+            .order_by("-is_urgent", "-created_at")[:MAP_TASK_LIMIT]
         )
         for task in tasks:
             points.append(_task_point(task, task.volunteer.username if task.volunteer else ""))
 
-        volunteers = Users.objects.filter(
-            is_volunteer=True, is_active=True, profile__latitude__isnull=False
-        ).select_related("profile")
+        volunteers = (
+            Users.objects.filter(
+                is_volunteer=True, is_active=True, profile__latitude__isnull=False
+            )
+            .select_related("profile")
+            .order_by("-profile__location_updated_at")[:MAP_VOLUNTEER_LIMIT]
+        )
         availability_colors = {
             "available": "--ok",
             "busy": "--accent",
@@ -836,6 +886,7 @@ def map_data_view(request):
                 status__in=EmergencyReport.OPEN_STATUSES, latitude__isnull=False
             )
             .select_related("help_request", "volunteer")
+            .order_by("-created_at")[:MAP_EMERGENCY_LIMIT]
         )
         for report in emergencies:
             points.append({
@@ -855,14 +906,18 @@ def map_data_view(request):
         tasks = HelpRequest.objects.filter(status="pending").exclude(latitude__isnull=True).select_related("client")
         if user.region:
             tasks = tasks.filter(Q(region=user.region) | Q(region=""))
-        for task in tasks:
+        for task in tasks.order_by("-is_urgent", "-created_at")[:MAP_TASK_LIMIT]:
             points.append(_task_point(task))
 
         my_active = HelpRequest.objects.filter(volunteer=user, status="active").exclude(latitude__isnull=True)
         for task in my_active:
             points.append(_task_point(task, "Моя задача"))
     elif user.is_client:
-        tasks = HelpRequest.objects.filter(client=user).exclude(latitude__isnull=True)
+        tasks = (
+            HelpRequest.objects.filter(client=user)
+            .exclude(latitude__isnull=True)
+            .order_by("-created_at")[:MAP_TASK_LIMIT]
+        )
         for task in tasks:
             points.append(_task_point(task))
 

@@ -27,6 +27,14 @@ URGENT_WEIGHTS = {"distance": 0.50, "availability": 0.22, "workload": 0.10, "reg
 
 DISTANCE_CAP_KM = 40  # beyond this a volunteer is technically included but the distance component floors at 0
 WORKLOAD_CAP = 3  # active tasks at/above this floor the workload component at 0
+# Upper bound on how many located volunteers a single recommend_volunteers()
+# call scores. Applied to the volunteers *nearest* the task (SQL proximity
+# pre-filter, exactly the trick recommend_tasks uses the other direction), so on
+# a large deployment one dispatch/dashboard call can't load and haversine the
+# whole volunteer directory. Generous: any realistic region has far fewer than
+# this many available volunteers with a saved pin, so the true top-`limit` is
+# never dropped — the cap only bites on an implausibly dense directory.
+CANDIDATE_CAP = 75
 # Haversine estimate only — calling OSRM for every candidate on every page load
 # is too slow. The precise driving ETA is on the route card once a volunteer is assigned.
 AVERAGE_SPEED_KMH = 30
@@ -145,6 +153,18 @@ def recommend_volunteers(task, limit=5):
         candidates = candidates.exclude(pk=task.volunteer_id)
 
     task_lat, task_lng = float(task.latitude), float(task.longitude)
+
+    # Bound the work: keep only the CANDIDATE_CAP volunteers nearest the task.
+    # Approximate distance in SQL with absolute degree offsets (longitude scaled
+    # by cos(latitude) so both axes carry their real length here) — this only
+    # decides which rows survive the cap; the exact haversine ranking still runs
+    # in Python below. Same approach and trade-off as recommend_tasks().
+    lng_weight = math.cos(math.radians(task_lat)) or 1.0
+    proximity = Abs(Cast(F("profile__latitude"), FloatField()) - task_lat) + (
+        Abs(Cast(F("profile__longitude"), FloatField()) - task_lng) * lng_weight
+    )
+    candidates = candidates.alias(_proximity=proximity).order_by("_proximity", "id")[:CANDIDATE_CAP]
+
     ranked = []
 
     for volunteer in candidates:
@@ -187,7 +207,11 @@ def recommend_volunteers(task, limit=5):
             if item["distance_km"] == closest:
                 item["reasons"].insert(0, "Ближайший подходящий волонтёр")
 
-    ranked.sort(key=lambda item: (-item["score"], item["distance_km"]))
+    # Deterministic order: score desc, then nearer first, then volunteer id as a
+    # stable final tie-breaker so two identically-scored, equidistant volunteers
+    # never swap places between calls (the candidate queryset has no inherent
+    # ordering the DB is obliged to keep). Mirrors recommend_tasks().
+    ranked.sort(key=lambda item: (-item["score"], item["distance_km"], item["volunteer"].id))
     return ranked[:limit]
 
 

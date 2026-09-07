@@ -17,6 +17,7 @@ overdue sweep and accept_task_view use to settle a race.
 
 import logging
 
+from django.db.models import Q
 from django.utils import timezone
 
 from ..models import STALE_PENDING_THRESHOLD, HelpRequest
@@ -25,6 +26,14 @@ from ..notifications import notify_users, staff_recipients
 logger = logging.getLogger(__name__)
 
 STALE_SUBJECT = "Запрос долго ждёт волонтёра"
+
+
+def currently_stale_pending_q():
+    """The predicate for "pending and past STALE_PENDING_THRESHOLD right now", as
+    a Q so the sweep, the CRM ``crm/tasks/?stale=1`` filter, the curator
+    dashboard and analytics all test the exact same rule against the one
+    threshold — the mirror of ``overdue.currently_overdue_q()``."""
+    return Q(status="pending", created_at__lt=timezone.now() - STALE_PENDING_THRESHOLD)
 
 
 def _stale_message(task):
@@ -40,11 +49,8 @@ def find_stale_pending():
     """Pending help requests created more than ``STALE_PENDING_THRESHOLD`` ago
     that have not yet been alerted on (``stale_alert_sent=False``). Read-only
     queryset — the sweep's "still needs a first alert" set."""
-    cutoff = timezone.now() - STALE_PENDING_THRESHOLD
     return (
-        HelpRequest.objects.filter(
-            status="pending", stale_alert_sent=False, created_at__lt=cutoff
-        )
+        HelpRequest.objects.filter(currently_stale_pending_q(), stale_alert_sent=False)
         .select_related("client")
         .order_by("created_at")
     )
@@ -55,9 +61,8 @@ def currently_stale_pending():
     of ``stale_alert_sent``. The "what is stuck right now" view for the CRM /
     curator dashboard; ``find_stale_pending()`` is the narrower "still needs a
     first alert" set used by the sweep."""
-    cutoff = timezone.now() - STALE_PENDING_THRESHOLD
     return (
-        HelpRequest.objects.filter(status="pending", created_at__lt=cutoff)
+        HelpRequest.objects.filter(currently_stale_pending_q())
         .select_related("client")
         .order_by("created_at")
     )

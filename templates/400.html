@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Bad request - Generation Connect{% endblock %}
+{% block content %}
+<section class="status-screen">
+    <div class="status-card">
+        <div class="status-icon is-rejected">
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 8v5M12 16h.01"></path></svg>
+        </div>
+        <p class="status-code">400</p>
+        <h1 data-i18n="error400.title">Bad request</h1>
+        <p data-i18n="error400.desc">The request could not be processed. Please check the address and try again.</p>
+        <div class="button-row">
+            <a class="button primary" href="{% url 'about' %}" data-i18n="error.back_home">Go to home</a>
+        </div>
+    </div>
+</section>
+{% endblock %}

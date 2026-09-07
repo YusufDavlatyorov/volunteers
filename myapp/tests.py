@@ -24,6 +24,9 @@ from .models import (
     Donation,
     EmergencyReport,
     HelpRequest,
+    MAX_DONATION_AMOUNT,
+    MAX_DONATION_QUANTITY,
+    MIN_MONEY,
     PetReport,
     PhotoReport,
     Product,
@@ -4580,3 +4583,386 @@ class PetRegressionGuardTests(TestCase):
         kinds = {p["kind"] for p in resp.json()["points"]}
         self.assertIn("task", kinds)
         self.assertIn("pet", kinds)
+
+
+# ===========================================================================
+# Stage 7 — production-hardening regression tests
+# ===========================================================================
+# One class per finding fixed in Stage 7. Each reproduces the pre-fix failure
+# (or asserts the new invariant) deterministically — no reliance on thread
+# timing or the network.
+
+
+class PetReportCoordinateValidationTests(TestCase):
+    """Stage 7 LOW 1: PetReportAdmin left latitude/longitude editable, and a
+    bare DecimalField(max_digits=9) accepts latitude 800. PetReport.clean() now
+    closes that path by reusing services.geo.is_valid_coordinate."""
+
+    def setUp(self):
+        self.admin, self.curator, self.reporter, self.other, self.volunteer = _pet_users()
+
+    def test_model_clean_rejects_out_of_range_coordinates(self):
+        report = PetReport(
+            reporter=self.reporter, report_type="lost", species="dog",
+            description="x", region="dushanbe", latitude=Decimal("800"), longitude=Decimal("10"),
+        )
+        with self.assertRaises(ValidationError):
+            report.full_clean()
+
+    def test_model_clean_rejects_half_a_coordinate_pair(self):
+        report = PetReport(
+            reporter=self.reporter, report_type="lost", species="dog",
+            description="x", region="dushanbe", latitude=Decimal("38.5"), longitude=None,
+        )
+        with self.assertRaises(ValidationError):
+            report.full_clean()
+
+    def test_model_clean_accepts_a_valid_pair_and_no_pair(self):
+        PetReport(
+            reporter=self.reporter, report_type="lost", species="dog",
+            description="x", region="dushanbe", latitude=Decimal("38.5"), longitude=Decimal("68.7"),
+        ).full_clean()
+        PetReport(
+            reporter=self.reporter, report_type="lost", species="dog",
+            description="x", region="dushanbe",
+        ).full_clean()
+
+    def test_admin_change_form_rejects_bad_coordinates(self):
+        """The Django-admin edit path specifically — an admin fat-fingering a
+        pin must not persist latitude 800."""
+        from django.contrib.admin.sites import AdminSite
+        from myapp.admin import PetReportAdmin
+
+        report = _pet(self.reporter, latitude=Decimal("38.5"), longitude=Decimal("68.7"))
+        model_admin = PetReportAdmin(PetReport, AdminSite())
+        FormClass = model_admin.get_form(request=None, obj=report, change=True)
+        form = FormClass(
+            data={
+                "report_type": "lost", "species": "dog", "breed": "", "pet_name": "",
+                "description": "x", "region": "dushanbe", "contact_phone": "",
+                "latitude": "800", "longitude": "10",
+            },
+            instance=report,
+        )
+        self.assertFalse(form.is_valid())
+
+
+class PossibleMatchesCoordinateSafetyTests(TestCase):
+    """Stage 7 LOW 2: possible_matches() fed float(report.latitude) straight to
+    haversine_km. A malformed stored pin (e.g. saved before clean() existed)
+    must not crash it or skew the distance — it falls back to the region signal."""
+
+    def setUp(self):
+        self.admin, self.curator, self.reporter, self.other, self.volunteer = _pet_users()
+
+    def test_malformed_stored_coordinate_does_not_crash_and_falls_back_to_region(self):
+        lost = _pet(self.reporter, report_type="lost", species="cat", region="dushanbe")
+        found = _pet(self.other, report_type="found", species="cat", region="dushanbe",
+                     latitude=Decimal("38.55"), longitude=Decimal("68.77"))
+        # Force an out-of-range latitude past the model/form guards.
+        PetReport.objects.filter(pk=lost.pk).update(latitude=Decimal("900"), longitude=Decimal("10"))
+        lost.refresh_from_db()
+
+        matches = pets.possible_matches(lost)
+        self.assertEqual([m["report"].pk for m in matches], [found.pk])
+        self.assertIsNone(matches[0]["distance_km"])   # distance dropped, not garbage
+        self.assertTrue(matches[0]["same_region"])
+
+    def test_malformed_candidate_coordinate_is_ignored_for_distance(self):
+        lost = _pet(self.reporter, report_type="lost", species="cat", region="dushanbe",
+                    latitude=Decimal("38.55"), longitude=Decimal("68.77"))
+        found = _pet(self.other, report_type="found", species="cat", region="dushanbe")
+        PetReport.objects.filter(pk=found.pk).update(latitude=Decimal("-500"), longitude=Decimal("1"))
+
+        matches = pets.possible_matches(lost)
+        self.assertEqual([m["report"].pk for m in matches], [found.pk])
+        self.assertIsNone(matches[0]["distance_km"])
+
+
+class RecommendVolunteersDeterminismTests(TestCase):
+    """Stage 7 LOW 3: with identical score and distance, two volunteers could
+    swap order between calls (the candidate queryset carries no stable order).
+    The sort now ends with volunteer.id."""
+
+    def setUp(self):
+        self.client_user = Users.objects.create_user(
+            username="det_client", email="det_client@example.com", password="pass12345",
+            is_client=True, region="dushanbe",
+        )
+        self.task = HelpRequest.objects.create(
+            client=self.client_user, help_type="grocery", description="x", address="a", phone="p",
+            region="dushanbe", status="pending", latitude=TASK_LAT, longitude=TASK_LNG,
+        )
+
+    def _twin_volunteer(self, name):
+        v = Users.objects.create_user(
+            username=name, email=f"{name}@example.com", password="pass12345",
+            is_volunteer=True, region="dushanbe",
+        )
+        p = v.profile
+        p.latitude = TASK_LAT + 5 / KM_PER_DEGREE_LAT
+        p.longitude = TASK_LNG
+        p.location_updated_at = timezone.now()
+        p.availability_status = "available"
+        p.save()
+        return v
+
+    def test_identical_candidates_order_is_stable_and_by_id(self):
+        a = self._twin_volunteer("twin_a")
+        b = self._twin_volunteer("twin_b")
+        first = [i["volunteer"].id for i in recommend_volunteers(self.task)]
+        second = [i["volunteer"].id for i in recommend_volunteers(self.task)]
+        self.assertEqual(first, second)
+        self.assertEqual(first, sorted([a.id, b.id]))
+
+    def test_candidate_cap_keeps_the_nearest(self):
+        from myapp.services import matching as _m
+        with mock.patch.object(_m, "CANDIDATE_CAP", 2):
+            near = self._twin_volunteer("near")
+            near.profile.latitude = TASK_LAT + 1 / KM_PER_DEGREE_LAT
+            near.profile.save()
+            self._twin_volunteer("mid")
+            far = self._twin_volunteer("far")
+            far.profile.latitude = TASK_LAT + 30 / KM_PER_DEGREE_LAT
+            far.profile.save()
+            ids = [i["volunteer"].id for i in recommend_volunteers(self.task, limit=5)]
+            self.assertIn(near.id, ids)
+            self.assertNotIn(far.id, ids)   # dropped by the proximity pre-filter
+            self.assertEqual(len(ids), 2)
+
+
+class DonationAmountFieldValidatorTests(TestCase):
+    """Stage 7 LOW 4: Donation.amount / quantity now carry field-level
+    Min/Max validators, so the money rule holds on any full_clean() path
+    (Django admin, shell) — not only Donation.clean() and the service."""
+
+    def setUp(self):
+        self.admin, _, self.client_a, _ = _donation_users()
+
+    def test_amount_field_has_bounds_validators(self):
+        validators = Donation._meta.get_field("amount").validators
+        self.assertTrue(any(getattr(v, "limit_value", None) == MIN_MONEY for v in validators))
+        self.assertTrue(any(getattr(v, "limit_value", None) == MAX_DONATION_AMOUNT for v in validators))
+
+    def test_quantity_field_has_bounds_validators(self):
+        validators = Donation._meta.get_field("quantity").validators
+        self.assertTrue(any(getattr(v, "limit_value", None) == MAX_DONATION_QUANTITY for v in validators))
+
+    def test_full_clean_rejects_zero_and_over_cap_amounts(self):
+        for bad in (Decimal("0.00"), Decimal("-1.00"), MAX_DONATION_AMOUNT + Decimal("0.01")):
+            with self.assertRaises(ValidationError):
+                Donation(donor=self.client_a, amount=bad).full_clean(exclude=["donor"])
+
+
+class MapEndpointBoundsTests(TestCase):
+    """Stage 7 LOW 5: the operations-map JSON built unbounded querysets. Each
+    category is now capped (an order + slice), so one request can't serialise
+    an arbitrarily large result."""
+
+    def setUp(self):
+        self.admin, self.curator, self.vol_a, self.vol_b, self.cli_a, self.cli_b = _dash_users()
+
+    def test_client_task_markers_are_capped(self):
+        for i in range(4):
+            _hr(self.cli_a, latitude="38.55", longitude="68.77", status="pending")
+        self.client.login(username="d5_cli_a", password="pass12345")
+        with mock.patch("myapp.views.MAP_TASK_LIMIT", 2):
+            resp = self.client.get(reverse("map_data"))
+        task_points = [p for p in resp.json()["points"] if p["kind"] == "task"]
+        self.assertEqual(len(task_points), 2)
+
+    def test_staff_volunteer_markers_are_capped(self):
+        for i in range(4):
+            v = Users.objects.create_user(
+                username=f"mv_{i}", email=f"mv_{i}@example.com", password="pass12345",
+                is_volunteer=True, region="dushanbe",
+            )
+            v.profile.latitude = "38.55"
+            v.profile.longitude = "68.77"
+            v.profile.location_updated_at = timezone.now()
+            v.profile.save()
+        self.client.login(username="d5_curator", password="pass12345")
+        with mock.patch("myapp.views.MAP_VOLUNTEER_LIMIT", 3):
+            resp = self.client.get(reverse("map_data"))
+        vol_points = [p for p in resp.json()["points"] if p["kind"] == "volunteer"]
+        self.assertEqual(len(vol_points), 3)
+
+    def test_open_board_points_respects_limit(self):
+        for i in range(4):
+            _pet(self.cli_a, latitude="38.55", longitude="68.77")
+        self.assertEqual(len(pets.open_board_points(limit=2)), 2)
+
+    def test_admin_panel_task_grids_are_capped(self):
+        for i in range(4):
+            _hr(self.cli_a, status="pending")
+        self.client.login(username="d5_admin", password="pass12345")
+        with mock.patch("myapp.views.ADMIN_PANEL_TASK_LIMIT", 2):
+            resp = self.client.get(reverse("admin_panel"))
+        self.assertEqual(len(resp.context["free_requests"]), 2)
+
+
+class CrmOverdueStaleFilterCentralisationTests(TestCase):
+    """Stage 7 LOW 6: crm/tasks/?overdue=1 and ?stale=1 re-inlined the threshold
+    comparison. They now apply the one predicate from services.overdue /
+    services.stale, so the CRM filter, the sweep and the dashboard can't drift."""
+
+    def setUp(self):
+        self.admin, self.curator, self.vol_a, self.vol_b, self.cli_a, self.cli_b = _dash_users()
+        self.client.login(username="d5_curator", password="pass12345")
+
+    def test_overdue_filter_matches_the_service_queryset(self):
+        fresh = _hr(self.cli_a, status="active", volunteer=self.vol_a, accepted_at=timezone.now())
+        old = _hr(self.cli_a, status="active", volunteer=self.vol_a,
+                  accepted_at=timezone.now() - timezone.timedelta(hours=4))
+        resp = self.client.get(reverse("crm_tasks") + "?overdue=1")
+        shown = {t.id for t in resp.context["page_obj"]}
+        self.assertEqual(shown, {t.id for t in overdue.currently_overdue_tasks()})
+        self.assertIn(old.id, shown)
+        self.assertNotIn(fresh.id, shown)
+
+    def test_stale_filter_matches_the_service_queryset(self):
+        fresh = _hr(self.cli_a)
+        stuck = _hr(self.cli_a)
+        HelpRequest.objects.filter(pk=stuck.pk).update(
+            created_at=timezone.now() - timezone.timedelta(hours=60)
+        )
+        resp = self.client.get(reverse("crm_tasks") + "?stale=1")
+        shown = {t.id for t in resp.context["page_obj"]}
+        self.assertEqual(shown, {t.id for t in stale.currently_stale_pending()})
+        self.assertIn(stuck.id, shown)
+        self.assertNotIn(fresh.id, shown)
+
+    def test_q_helpers_agree_with_analytics_counts(self):
+        _hr(self.cli_a, status="active", volunteer=self.vol_a,
+            accepted_at=timezone.now() - timezone.timedelta(hours=4))
+        stuck = _hr(self.cli_a)
+        HelpRequest.objects.filter(pk=stuck.pk).update(
+            created_at=timezone.now() - timezone.timedelta(hours=60)
+        )
+        stats = analytics.dashboard_stats()
+        self.assertEqual(stats["tasks_overdue"], HelpRequest.objects.filter(overdue.currently_overdue_q()).count())
+        self.assertEqual(stats["tasks_stale"], HelpRequest.objects.filter(stale.currently_stale_pending_q()).count())
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class CompleteTaskConcurrencyTests(TestCase):
+    """Stage 7: complete_task_view used task.complete() (fetch-then-save), so a
+    double-click / retried POST completed the task twice and added the rating
+    points twice. It now claims the row with a conditional UPDATE."""
+
+    def setUp(self):
+        self.volunteer = Users.objects.create_user(
+            username="ct_vol", email="ct_vol@example.com", password="pass12345",
+            is_volunteer=True, region="dushanbe",
+        )
+        self.client_user = Users.objects.create_user(
+            username="ct_client", email="ct_client@example.com", password="pass12345",
+            is_client=True, region="dushanbe",
+        )
+        self.task = HelpRequest.objects.create(
+            client=self.client_user, volunteer=self.volunteer, help_type="grocery",
+            description="x", address="a", phone="p", region="dushanbe", status="active",
+            accepted_at=timezone.now(),
+        )
+
+    def test_double_complete_awards_points_once(self):
+        self.client.login(username="ct_vol", password="pass12345")
+        self.client.post(reverse("complete_task", args=[self.task.pk]))
+        self.client.post(reverse("complete_task", args=[self.task.pk]))  # retry
+        self.volunteer.profile.refresh_from_db()
+        self.assertEqual(self.volunteer.profile.rating, 3)
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.status, "completed")
+
+    def test_racing_completion_loser_is_a_no_op(self):
+        # DB row already completed by a concurrent request a moment earlier.
+        HelpRequest.objects.filter(pk=self.task.pk).update(status="completed", completed_at=timezone.now())
+        self.client.login(username="ct_vol", password="pass12345")
+        resp = self.client.post(reverse("complete_task", args=[self.task.pk]))
+        self.assertEqual(resp.status_code, 404)  # get_object_or_404: no longer active
+        self.volunteer.profile.refresh_from_db()
+        self.assertEqual(self.volunteer.profile.rating, 0)
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class PhotoReportHelpRequestScopingTests(TestCase):
+    """Stage 7: PhotoReportForm.help_request enumerated every HelpRequest in the
+    system, and its option labels carry the client's username. A volunteer now
+    only sees tasks they are attached to; staff keep the full list."""
+
+    def setUp(self):
+        self.admin = Users.objects.create_superuser(username="ps_admin", email="ps_admin@example.com", password="pass12345")
+        self.vol = Users.objects.create_user(
+            username="ps_vol", email="ps_vol@example.com", password="pass12345", is_volunteer=True, region="dushanbe"
+        )
+        self.other_vol = Users.objects.create_user(
+            username="ps_vol2", email="ps_vol2@example.com", password="pass12345", is_volunteer=True, region="dushanbe"
+        )
+        self.cli = Users.objects.create_user(
+            username="ps_cli", email="ps_cli@example.com", password="pass12345", is_client=True, region="dushanbe"
+        )
+        self.mine = HelpRequest.objects.create(
+            client=self.cli, volunteer=self.vol, help_type="grocery", description="x",
+            address="a", phone="p", region="dushanbe", status="completed",
+        )
+        self.not_mine = HelpRequest.objects.create(
+            client=self.cli, volunteer=self.other_vol, help_type="grocery", description="y",
+            address="a", phone="p", region="dushanbe", status="active",
+        )
+
+    def test_volunteer_form_only_lists_their_own_tasks(self):
+        form = PhotoReportForm(user=self.vol)
+        qs_ids = set(form.fields["help_request"].queryset.values_list("id", flat=True))
+        self.assertEqual(qs_ids, {self.mine.id})
+
+    def test_staff_form_lists_all_tasks(self):
+        form = PhotoReportForm(user=self.admin)
+        qs_ids = set(form.fields["help_request"].queryset.values_list("id", flat=True))
+        self.assertEqual(qs_ids, {self.mine.id, self.not_mine.id})
+
+    def test_volunteer_cannot_attach_another_volunteers_task_via_post(self):
+        self.client.login(username="ps_vol", password="pass12345")
+        resp = self.client.post(reverse("photo_reports"), {
+            "title": "T", "description": "d", "image": _small_image_file(),
+            "help_request": self.not_mine.id,
+        })
+        # Out-of-queryset choice -> ModelChoiceField "invalid choice" -> form
+        # re-renders (200), nothing written.
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(PhotoReport.objects.filter(help_request=self.not_mine).exists())
+
+    def test_volunteer_can_attach_their_own_task(self):
+        self.client.login(username="ps_vol", password="pass12345")
+        resp = self.client.post(reverse("photo_reports"), {
+            "title": "T", "description": "d", "image": _small_image_file(),
+            "help_request": self.mine.id,
+        })
+        self.assertRedirects(resp, reverse("photo_reports"))
+        self.assertEqual(PhotoReport.objects.latest("id").help_request_id, self.mine.id)
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class AiChatRateLimitTests(TestCase):
+    """Stage 7: ai_chat_view had no throttle — one logged-in account could run
+    up cost / saturate the upstream Groq endpoint."""
+
+    def setUp(self):
+        cache.clear()
+        self.user = Users.objects.create_user(
+            username="ai_user", email="ai_user@example.com", password="pass12345", is_client=True,
+        )
+        self.client.login(username="ai_user", password="pass12345")
+
+    def tearDown(self):
+        cache.clear()
+
+    def test_requests_past_the_limit_get_429(self):
+        from myapp.views import AI_CHAT_RATE_LIMIT
+        with override_settings(GROQ_API_KEY="", GEMINI_API_KEY=""), mock.patch.dict(
+            "os.environ", {"GROQ_API_KEY": "", "GEMINI_API_KEY": ""}
+        ):
+            for _ in range(AI_CHAT_RATE_LIMIT):
+                ok = self.client.post(reverse("ai_chat"), data='{"message":"hi"}', content_type="application/json")
+                self.assertEqual(ok.status_code, 200)
+            blocked = self.client.post(reverse("ai_chat"), data='{"message":"hi"}', content_type="application/json")
+        self.assertEqual(blocked.status_code, 429)

@@ -62,8 +62,24 @@ CSRF_COOKIE_SECURE = not DEBUG
 SECURE_SSL_REDIRECT = not DEBUG
 SECURE_HSTS_SECONDS = 31536000 if not DEBUG else 0
 SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG
+SECURE_HSTS_PRELOAD = not DEBUG
 SECURE_CONTENT_TYPE_NOSNIFF = True
+SESSION_COOKIE_HTTPONLY = True
 X_FRAME_OPTIONS = 'DENY'
+
+# Behind a TLS-terminating reverse proxy (nginx/Caddy), Django only sees plain
+# HTTP on the loopback hop, so request.is_secure() is False and SECURE_SSL_REDIRECT
+# would loop forever. Opt in ONLY when the proxy is trusted to set (and to strip
+# any client-supplied) X-Forwarded-Proto — see the nginx snippet in README.
+if env_bool('DJANGO_BEHIND_TLS_PROXY', False):
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+# Full origins (scheme://host[:port]) that may send unsafe (POST/PUT/…) requests.
+# Django 4+ requires the production HTTPS origin(s) here for CSRF to pass; the
+# CSRF cookie/Host check alone is not enough once served cross-scheme.
+CSRF_TRUSTED_ORIGINS = [
+    o.strip() for o in os.getenv('DJANGO_CSRF_TRUSTED_ORIGINS', '').split(',') if o.strip()
+]
 
 
 # Application definition
@@ -129,6 +145,40 @@ DATABASES = {
         'NAME': BASE_DIR / 'Gen_connect.sqlite3',
     }
 }
+
+# PostgreSQL for production — set DJANGO_DB_* and the engine switches over with
+# no code change (psycopg must be installed). SQLite stays the default so a
+# fresh checkout and the test suite need no database server.
+if os.getenv('DJANGO_DB_NAME'):
+    DATABASES['default'] = {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.getenv('DJANGO_DB_NAME'),
+        'USER': os.getenv('DJANGO_DB_USER', ''),
+        'PASSWORD': os.getenv('DJANGO_DB_PASSWORD', ''),
+        'HOST': os.getenv('DJANGO_DB_HOST', 'localhost'),
+        'PORT': os.getenv('DJANGO_DB_PORT', '5432'),
+        'CONN_MAX_AGE': int(os.getenv('DJANGO_DB_CONN_MAX_AGE', '60')),
+    }
+
+
+# Cache — also the backing store for the login / password-reset / AI-assistant /
+# Telegram-link rate limiters. The default LocMemCache is per-process, so those
+# throttles only bite within a single worker: a multi-process (gunicorn) web
+# deployment MUST set DJANGO_DB_CACHE=True (a shared, dependency-free DB cache —
+# run `python manage.py createcachetable` once) or point CACHES at Redis/Memcached.
+if env_bool('DJANGO_DB_CACHE', False):
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
+            'LOCATION': os.getenv('DJANGO_DB_CACHE_TABLE', 'gc_cache'),
+        }
+    }
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        }
+    }
 
 
 LOGIN_URL = 'login'
@@ -221,6 +271,31 @@ MAPS_API_KEY = os.getenv('MAPS_API_KEY', '')
 GEOCODING_TIMEOUT_SECONDS = 5
 OSRM_BASE_URL = os.getenv('OSRM_BASE_URL', 'https://router.project-osrm.org').rstrip('/')
 NOMINATIM_USER_AGENT = os.getenv('NOMINATIM_USER_AGENT', 'generation-connect-dev')
+
+# Logging — without this the app's own logger.warning/error calls (the
+# zero-recipient safety net in the overdue/stale/emergency sweeps, OSRM/Nominatim
+# failures, Telegram send failures) propagate to the root logger, which has no
+# handler under DEBUG=False and silently drops them. Route them to stderr so the
+# process manager (systemd/journald, Docker) captures them.
+LOG_LEVEL = os.getenv('DJANGO_LOG_LEVEL', 'INFO').upper()
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'standard': {'format': '[{asctime}] {levelname} {name}: {message}', 'style': '{'},
+    },
+    'handlers': {
+        'console': {'class': 'logging.StreamHandler', 'formatter': 'standard'},
+    },
+    'root': {'handlers': ['console'], 'level': 'WARNING'},
+    'loggers': {
+        # Server errors (500s) to stderr; 4xx (Not Found / Method Not Allowed,
+        # logged at WARNING) stay quiet so they don't drown the signal.
+        'django.request': {'handlers': ['console'], 'level': 'ERROR', 'propagate': False},
+        'myapp': {'handlers': ['console'], 'level': LOG_LEVEL, 'propagate': False},
+        'accounts': {'handlers': ['console'], 'level': LOG_LEVEL, 'propagate': False},
+    },
+}
 
 LOGIN_REDIRECT_URL = 'profile'
 

@@ -14,10 +14,10 @@ from accounts.models import Profile, REGION_CHOICES, Users
 from ..models import (
     EmergencyReport,
     HelpRequest,
-    OVERDUE_THRESHOLD,
-    STALE_PENDING_THRESHOLD,
     VolunteerApplication,
 )
+from .overdue import currently_overdue_q
+from .stale import currently_stale_pending_q
 
 
 def volunteer_availability_breakdown():
@@ -35,26 +35,19 @@ def volunteer_availability_breakdown():
 
 
 def task_status_breakdown():
-    """Counts of tasks per lifecycle bucket, plus overdue/urgent. Overdue is
-    derived (see HelpRequest.is_overdue) rather than its own status value, so
-    it is computed here with the same OVERDUE_THRESHOLD, not a separate
-    magic number."""
+    """Counts of tasks per lifecycle bucket, plus overdue/urgent. Overdue and
+    stale are derived (not their own status value), so they reuse the one
+    predicate each — ``overdue.currently_overdue_q`` / ``stale.currently_stale_pending_q``
+    — rather than re-inlining the threshold comparison here."""
     counts = HelpRequest.objects.aggregate(
         pending=Count("id", filter=Q(status="pending")),
         active=Count("id", filter=Q(status="active")),
         completed=Count("id", filter=Q(status="completed")),
         cancelled=Count("id", filter=Q(status="cancelled")),
         urgent=Count("id", filter=Q(is_urgent=True, status__in=["pending", "active"])),
+        overdue=Count("id", filter=currently_overdue_q()),
+        stale=Count("id", filter=currently_stale_pending_q()),
     )
-    now = timezone.now()
-    counts["overdue"] = HelpRequest.objects.filter(
-        status="active", accepted_at__lt=now - OVERDUE_THRESHOLD
-    ).count()
-    # Pending requests waiting past the stale threshold — the same "derived, not
-    # a stored status" treatment as overdue, using the one STALE_PENDING_THRESHOLD.
-    counts["stale"] = HelpRequest.objects.filter(
-        status="pending", created_at__lt=now - STALE_PENDING_THRESHOLD
-    ).count()
     return counts
 
 

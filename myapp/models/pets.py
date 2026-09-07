@@ -13,6 +13,7 @@ transitions are the model methods here (same pattern as ``EmergencyReport`` /
 ``Donation``).
 """
 
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
 
@@ -117,6 +118,21 @@ class PetReport(models.Model):
 
     def __str__(self):
         return f"{self.get_report_type_display()}: {self.pet_name or self.get_species_display()} (#{self.pk})"
+
+    def clean(self):
+        """Latitude/longitude must be a real WGS84 pair or both empty. The form
+        and services.pets.create_pet_report already enforce this on the two
+        normal entry points; repeating it here (via the same is_valid_coordinate
+        primitive, not a second rule) closes the Django-admin edit path, where a
+        bare DecimalField(max_digits=9) would otherwise accept latitude 800."""
+        super().clean()
+        from ..services.geo import is_valid_coordinate
+
+        lat, lng = self.latitude, self.longitude
+        if (lat is None) != (lng is None):
+            raise ValidationError("Укажите широту и долготу вместе или не указывайте вовсе.")
+        if lat is not None and lng is not None and not is_valid_coordinate(lat, lng):
+            raise ValidationError({"latitude": "Некорректные координаты."})
 
     @property
     def has_location(self):

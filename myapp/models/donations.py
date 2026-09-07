@@ -18,7 +18,7 @@ up by ``clean()`` here):
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
-from django.core.validators import MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
 
@@ -99,12 +99,22 @@ class Donation(models.Model):
     product = models.ForeignKey(
         Product, on_delete=models.SET_NULL, null=True, blank=True, related_name="donations"
     )
-    quantity = models.PositiveIntegerField(default=1)
+    quantity = models.PositiveIntegerField(
+        default=1, validators=[MinValueValidator(1), MaxValueValidator(MAX_DONATION_QUANTITY)]
+    )
     # Frozen copy of Product.price at creation — historical amounts never move.
     unit_price_snapshot = models.DecimalField(
         max_digits=10, decimal_places=2, null=True, blank=True
     )
-    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    # Field-level bounds in addition to clean() and the service/form checks, so
+    # the money rule holds on any path that runs validators — including a
+    # Product/Donation created straight through the Django admin or a shell
+    # full_clean(), not just the donate flow.
+    amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        validators=[MinValueValidator(MIN_MONEY), MaxValueValidator(MAX_DONATION_AMOUNT)],
+    )
     currency = models.CharField(max_length=3, choices=CURRENCY_CHOICES, default=DEFAULT_CURRENCY)
     status = models.CharField(
         max_length=20, choices=DONATION_STATUS_CHOICES, default=DONATION_PENDING, db_index=True

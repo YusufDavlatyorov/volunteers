@@ -27,7 +27,7 @@ python manage.py geocode_missing [--limit N --dry-run --profiles]   # backfill l
 python manage.py check_overdue_tasks [--dry-run]        # alert curators/admins about tasks overdue past 3h; idempotent, runs on cron (see README "Background jobs")
 python manage.py check_stale_requests [--dry-run]       # mirror of the above for the *pending* side: alert about requests waiting >48h without a volunteer; idempotent, hourly cron
 
-python manage.py test                                    # full suite (473 tests, ~150s)
+python manage.py test                                    # full suite (505 tests, ~150s)
 python manage.py test myapp.tests.MatchingAlgorithmTests  # one test class
 python manage.py test myapp.tests.MatchingAlgorithmTests.test_closer_volunteer_ranks_higher  # one test
 python manage.py test accounts                           # one app
@@ -62,6 +62,14 @@ Access control is two decorators, both used together where needed:
 - `@login_required` (Django's)
 - `@role_required(*roles)` — defined in `myapp/views.py`; superusers pass any check that includes
   `"admin"`. **It is not wrapped with `functools.wraps`**, so wrapped views lose `__name__`.
+
+**Curators are national coordinators — no CRM view is scoped to a curator's own region.** The
+task/people/emergency/matching lists offer region as a *filter*, not a boundary; a curator in
+Dushanbe can legitimately triage and dispatch a Sogd task. Region-scoping applies only to the
+*volunteer* task feed (`task_list` / `map_data_view` volunteer branch) and to notification
+fan-out (`volunteer_queryset_for_region`). The one thing a curator can't do that an admin can:
+see the curator directory (`people_list/curator`), review volunteer applications, and any
+financial view (donations).
 
 Registering as "volunteer" no longer grants the role directly — it creates a pending
 `VolunteerApplication`, reviewed by an admin (`approve()`/`reject()` flip `is_volunteer` and
@@ -104,7 +112,11 @@ can't both win.
 **Emergency / SOS** (`EmergencyReport`, always linked to one `HelpRequest`): the *assigned*
 volunteer of an *active* task raises one from the danger button (`emergency_report_view`, POST,
 `@role_required("volunteer")` + must be `task.volunteer` and `status="active"`). Lifecycle
-`open → acknowledged → resolved` (+ `cancelled` from either open state), transitions are
+`open → acknowledged → resolved` (+ `cancelled` from either open state). **`open → resolved`
+directly is deliberately allowed** (`ALLOWED_TRANSITIONS`, test-locked in
+`EmergencyModelTests.test_open_can_go_straight_to_resolved_or_cancelled`) — staff can close a
+false-alarm SOS in one step without a mandatory acknowledge; the "normal" narrative path is
+still `open → acknowledged → resolved`. Transitions are
 `EmergencyReport` model methods, driven only by curator/admin through `emergency_update_view`
 (`action=acknowledge|resolve|cancel`). `_can_view_emergency` gates the detail page: staff see
 every report, a volunteer sees only their own (read-only, no controls). CRM list + tabs at
@@ -120,25 +132,43 @@ A hardening pass added a cross-cutting layer that is easy to regress — keep it
   in the emailed URL or a one-time UI reveal. `generate_*_token()` returns the raw token and
   persists the hash; every lookup hashes the incoming token before querying.
 - **Cache-based rate limiting.** Login (per-IP **and** per-username counters), password reset
-  (per-IP), and Telegram-link redemption (per-chat) throttle via `django.core.cache`. No
-  `CACHES` setting is configured, so this is the process-local `LocMemCache` — fine for the
-  single-process Telegram bot and the dev server, but a real multi-process web deployment needs
-  a shared cache backend for the web throttles to actually bite.
+  (per-IP), Telegram-link redemption (per-chat) and the AI assistant (`ai_chat_view`, per-user)
+  throttle via `django.core.cache`. `CACHES` defaults to the process-local `LocMemCache` — fine
+  for the single-process Telegram bot and the dev server. A multi-process (Gunicorn) web
+  deployment **must** set `DJANGO_DB_CACHE=True` (+ `createcachetable`) or point `CACHES` at
+  Redis/Memcached, or the web throttles only bite within one worker.
 - **Upload size cap.** `accounts.models.validate_file_size` (`MAX_UPLOAD_SIZE_MB` = 5) guards
   every `ImageField` (avatars, photo reports). `update_profile` calls it explicitly because
-  `Model.save()` skips field validators.
+  `Model.save()` skips field validators. `update_profile` also validates `region` against
+  `REGION_CHOICES` and coerces `age` (it has no ModelForm).
 - **Coordinate validation.** `myapp.services.geo.is_valid_coordinate` enforces real WGS84
-  ranges in `HelpRequestForm` / `ProfileForm`; a bare `DecimalField(max_digits=9)` would accept
-  nonsense like latitude 800.
+  ranges in `HelpRequestForm` / `ProfileForm`, in `PetReport.clean()` (closes the Django-admin
+  edit path), and in `pets.possible_matches()` before any `haversine_km` (never trust a stored
+  pin); a bare `DecimalField(max_digits=9)` would accept nonsense like latitude 800.
+- **Money field validation.** `Donation.amount` / `.quantity` carry `Min/MaxValueValidator`s in
+  addition to `Donation.clean()` and the service/form checks, so the bounds hold on any
+  `full_clean()` path (admin, shell), not only the donate flow.
 - **Startup guards.** `server/settings.py` raises `ImproperlyConfigured` if `DJANGO_SECRET_KEY`
   is unset (no built-in fallback anymore) or if `DJANGO_DEBUG=False` with a `*` in
-  `ALLOWED_HOSTS`. `DEBUG` now defaults to **False**; secure-cookie / HSTS / SSL-redirect
-  settings switch on automatically whenever `not DEBUG`.
-- **`accept_task_view` concurrency.** A per-volunteer `cache.add()` lock plus a conditional
-  `UPDATE ... WHERE status='pending'` (not fetch-then-save) prevent double-accept races. This is
-  deliberately **not** a DB constraint — CRM/admin dispatch and matching's workload scoring
-  legitimately model a volunteer holding several active tasks; "one active task" is a rule of
-  the self-service accept flow only.
+  `ALLOWED_HOSTS`. `DEBUG` now defaults to **False**; secure-cookie / HSTS (preload) /
+  SSL-redirect settings switch on automatically whenever `not DEBUG`. `CSRF_TRUSTED_ORIGINS`
+  (`DJANGO_CSRF_TRUSTED_ORIGINS`) and `SECURE_PROXY_SSL_HEADER` (`DJANGO_BEHIND_TLS_PROXY`) are
+  env-driven for a reverse-proxy deployment. `LOGGING` routes the `myapp`/`accounts` loggers to
+  stderr — without it the zero-recipient `ERROR` safety nets are silently dropped under `DEBUG=False`.
+- **`accept_task_view` / `complete_task_view` concurrency.** `accept_task_view` uses a
+  per-volunteer `cache.add()` lock plus a conditional `UPDATE ... WHERE status='pending'`;
+  `complete_task_view` uses a conditional `UPDATE ... WHERE status='active'` (not
+  `task.complete()`) so a double-click can't complete twice or award the rating points twice.
+  Neither is a DB constraint — CRM/admin dispatch and matching's workload scoring legitimately
+  model a volunteer holding several active tasks; "one active task" is a rule of the
+  self-service accept flow only.
+- **`PhotoReportForm.help_request`** is scoped to the volunteer's own tasks (staff see all) —
+  its option labels carry the client's username, so an unscoped queryset enumerated every
+  request in the system.
+- **Map JSON bounds.** `map_data_view` and `pets.open_board_points()` cap each marker category
+  (`MAP_TASK_LIMIT` / `MAP_VOLUNTEER_LIMIT` / `MAP_EMERGENCY_LIMIT` / `MAP_POINT_CAP`, ordered so
+  the cap keeps the most relevant rows). Not a permission boundary — the querysets are already
+  scoped — a bound on response size.
 - **Emergency dedup.** `EmergencyReport` *does* carry a partial `UniqueConstraint` on
   `(help_request, volunteer)` for the open statuses — the LocMemCache cooldown alone can't span
   Gunicorn workers, and a duplicate SOS row / duplicate staff alert is a real failure. The
@@ -169,13 +199,19 @@ Business logic that needs to be unit-testable without the ORM or network lives h
   **mirror adapter** for the volunteer dashboard — reuses the exact same primitives
   (`_distance_score`, `_skill_score`, `haversine_km`, the km caps) from the volunteer's point of
   view over *pending* tasks, dropping the components that aren't task signals and adding priority +
-  wait-time. Both are read-only and never assign/notify. `location_freshness_label()` is a public
-  wrapper reusing the freshness thresholds. Distinct from the Groq-based conversational AI
+  wait-time. Both are read-only and never assign/notify. Both sort with a final `id` tie-breaker
+  so identically-scored candidates never swap order between calls, and both bound the candidate
+  set with the same SQL proximity pre-filter (`CANDIDATE_CAP` / `TASK_REC_CANDIDATE_CAP`, kept
+  generous) so one call can't haversine an unbounded directory. `location_freshness_label()` is a
+  public wrapper reusing the freshness thresholds. Distinct from the Groq-based conversational AI
   assistant in `views.py::ai_chat_view` — do not conflate the two "AI"s.
 - **`analytics.py`** — aggregate CRM dashboard queries (`dashboard_stats`, `recent_activity`,
   `users_by_role`, `region_task_breakdown`, `platform_totals`, availability/task breakdowns),
   built with annotated `Count`/`Q` aggregates rather than per-row Python loops, so query count
-  stays constant regardless of data volume.
+  stays constant regardless of data volume. The overdue/stale counts reuse
+  `overdue.currently_overdue_q()` / `stale.currently_stale_pending_q()` — the one predicate each,
+  also used by the sweeps, the dashboard queues and the `crm/tasks/?overdue=1|?stale=1` filters,
+  so the threshold comparison lives in exactly one place per side.
 - **`dashboard.py`** — `for_user(user)`: the one role-aware dashboard payload, dispatched on
   `user.role`, **every query scoped to the passed user**. Composes `analytics` / `emergency` /
   `overdue` / `stale` / `matching` / `pets` — no aggregation is duplicated. Rendered by `accounts/profile.html`
@@ -308,9 +344,11 @@ controls** for the other startup guards.
 
 All templates extend `templates/base.html` (navbar, theme toggle, toast messages, language
 switcher). No CSS framework — `static/css/style.css` is a hand-written design system (light/dark
-via `[data-theme]` CSS variables). `crispy_forms` / `crispy_bootstrap5` are in `requirements.txt`
-and `INSTALLED_APPS` but **unused** (no `{% crispy %}`, no `FormHelper`) — forms render through
-the `templates/partials/_form.html` + `_field.html` includes; don't reach for crispy. `static/js/i18n.js` is a client-side EN/RU/TJ translation
+via `[data-theme]` CSS variables). `crispy_forms` / `crispy_bootstrap5` and `django_filters` are in
+`requirements.txt` and `INSTALLED_APPS` but **unused** (no `{% crispy %}`, no `FormHelper`, no
+`django_filters` import anywhere) — forms render through the `templates/partials/_form.html` +
+`_field.html` includes and list filtering is hand-rolled in views; don't reach for either.
+`static/js/i18n.js` is a client-side EN/RU/TJ translation
 table driven by `data-i18n` attributes — add new UI strings there, not as hardcoded template text,
 if they need to support all three languages. `static/js/map.js` drives the Leaflet map view
 (`GCMap`; `createOpsMap()` is the interactive split-view operations controller).

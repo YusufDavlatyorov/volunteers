@@ -11,7 +11,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from .forms import ForgotPasswordForm, LoginForm, ProfileForm, RegistrationForm, ResetPasswordForm, UserUpdateForm
-from .models import Profile, Users, hash_token, validate_file_size
+from .models import Profile, REGION_CHOICES, Users, hash_token, validate_file_size
 from myapp.models import VolunteerApplication
 from myapp.notifications import notify_users
 from myapp.services import dashboard
@@ -243,12 +243,28 @@ def update_profile(request):
             return JsonResponse({"success": False, "error": exc.messages[0]}, status=400)
 
     profile, _ = Profile.objects.get_or_create(user=request.user)
-    request.user.region = request.POST.get("region", request.user.region)
+
+    # Validate the same way the forms do — this endpoint has no ModelForm, so
+    # without these checks an arbitrary `region` string (breaking region
+    # filtering / matching for that user) or a non-numeric `age` (a 500 on
+    # profile.save()) would go straight to the database.
+    valid_regions = {value for value, _ in REGION_CHOICES}
+    submitted_region = request.POST.get("region")
+    if submitted_region is not None and (submitted_region in valid_regions or submitted_region == ""):
+        request.user.region = submitted_region
     # telegram_id is intentionally NOT settable here: binding a Telegram chat
     # requires the verified code round-trip in telegram_link_view.
     request.user.save()
-    profile.full_name = request.POST.get("full_name", profile.full_name)
-    profile.age = request.POST.get("age") or profile.age
+
+    profile.full_name = request.POST.get("full_name", profile.full_name)[:255]
+    raw_age = request.POST.get("age")
+    if raw_age:
+        try:
+            age = int(raw_age)
+        except (TypeError, ValueError):
+            return JsonResponse({"success": False, "error": "Некорректный возраст."}, status=400)
+        if 0 < age <= 120:
+            profile.age = age
     profile.bio = request.POST.get("bio", profile.bio)
     if "image" in request.FILES:
         profile.image = request.FILES["image"]

@@ -13,6 +13,7 @@ most once, so the command is safe to run on a short interval.
 
 import logging
 
+from django.db.models import Q
 from django.utils import timezone
 
 from ..models import OVERDUE_THRESHOLD, HelpRequest
@@ -25,6 +26,14 @@ logger = logging.getLogger(__name__)
 OVERDUE_SUBJECT = "Просроченный запрос"
 
 
+def currently_overdue_q():
+    """The predicate for "active and past OVERDUE_THRESHOLD right now", as a Q so
+    every reader (this module's querysets, the CRM ``crm/tasks/?overdue=1``
+    filter, analytics) applies the exact same rule against the one threshold —
+    no re-inlined ``accepted_at__lt=now - OVERDUE_THRESHOLD`` copies to drift."""
+    return Q(status="active", accepted_at__lt=timezone.now() - OVERDUE_THRESHOLD)
+
+
 def _overdue_message(task):
     return f"Запрос #{task.id} в работе больше 3 часов. Волонтер: {task.volunteer}"
 
@@ -32,9 +41,8 @@ def _overdue_message(task):
 def find_overdue_tasks():
     """Active help requests accepted more than ``OVERDUE_THRESHOLD`` ago that
     have not yet been alerted on (``alarm_sent=False``). Read-only queryset."""
-    cutoff = timezone.now() - OVERDUE_THRESHOLD
     return HelpRequest.objects.filter(
-        status="active", alarm_sent=False, accepted_at__lt=cutoff
+        currently_overdue_q(), alarm_sent=False
     ).select_related("volunteer")
 
 
@@ -43,9 +51,8 @@ def currently_overdue_tasks():
     ``alarm_sent``. This is the "what is overdue right now" view for the CRM /
     curator dashboard; ``find_overdue_tasks()`` is the narrower "still needs a
     first alert" set used by the sweep."""
-    cutoff = timezone.now() - OVERDUE_THRESHOLD
     return (
-        HelpRequest.objects.filter(status="active", accepted_at__lt=cutoff)
+        HelpRequest.objects.filter(currently_overdue_q())
         .select_related("client", "volunteer")
         .order_by("accepted_at")
     )

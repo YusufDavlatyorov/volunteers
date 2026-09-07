@@ -116,6 +116,15 @@ class BroadcastForm(forms.ModelForm):
 
 
 class PhotoReportForm(forms.ModelForm):
+    def __init__(self, *args, user=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        # A volunteer must not be able to enumerate every HelpRequest in the
+        # system through this <select> — its option labels carry the client's
+        # username ("<type> для <client>"). Scope it to tasks they are actually
+        # attached to; staff keep the full list.
+        if user is not None and not (user.is_superuser or user.is_curator):
+            self.fields["help_request"].queryset = HelpRequest.objects.filter(volunteer=user)
+
     class Meta:
         model = PhotoReport
         fields = ["title", "description", "image", "region", "event", "help_request"]

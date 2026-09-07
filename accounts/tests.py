@@ -546,3 +546,37 @@ class UpdateProfileUploadGuardTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.user.profile.refresh_from_db()
         self.assertFalse(self.user.profile.image)
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class UpdateProfileInputValidationTests(TestCase):
+    """Stage 7: the update-profile JSON endpoint has no ModelForm, so it wrote
+    `region` and `age` straight to the DB. An arbitrary region string broke
+    region filtering/matching for that user; a non-numeric age 500'd on save."""
+
+    def setUp(self):
+        self.user = Users.objects.create_user(
+            username="upv_user", email="upv_user@example.com",
+            password="Volunteer2026!", is_volunteer=True, region="dushanbe",
+        )
+        self.client.login(username="upv_user", password="Volunteer2026!")
+
+    def test_invalid_region_is_ignored(self):
+        resp = self.client.post(reverse("update_profile"), {"region": "not-a-real-region"})
+        self.assertEqual(resp.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.region, "dushanbe")  # unchanged
+
+    def test_valid_region_is_accepted(self):
+        self.client.post(reverse("update_profile"), {"region": "sogd"})
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.region, "sogd")
+
+    def test_non_numeric_age_returns_400_not_500(self):
+        resp = self.client.post(reverse("update_profile"), {"age": "twenty"})
+        self.assertEqual(resp.status_code, 400)
+
+    def test_out_of_range_age_is_ignored(self):
+        self.client.post(reverse("update_profile"), {"age": "500"})
+        self.user.profile.refresh_from_db()
+        self.assertIsNone(self.user.profile.age)

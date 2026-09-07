@@ -74,16 +74,25 @@ Generate a Django secret key:
 python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
 ```
 
-All variables are optional for local development and have safe fallbacks:
+Most variables are optional for local development and have safe fallbacks. The
+one exception is `DJANGO_SECRET_KEY` — the app refuses to start without it (there
+is **no** insecure built-in fallback). `.env.example` ships a placeholder so a
+fresh checkout boots; replace it with a real key.
 
 | Variable | Purpose | If unset |
 | --- | --- | --- |
-| `DJANGO_SECRET_KEY` | Django secret key | insecure dev key |
-| `DJANGO_DEBUG` | Debug mode (`True`/`False`) | `True` |
-| `DJANGO_ALLOWED_HOSTS` | Comma-separated hosts | `*` |
+| `DJANGO_SECRET_KEY` | Django secret key | **startup error** (required) |
+| `DJANGO_DEBUG` | Debug mode (`True`/`False`) | `False` |
+| `DJANGO_ALLOWED_HOSTS` | Comma-separated hosts | `localhost,127.0.0.1` (a `*` wildcard is refused once `DEBUG=False`) |
+| `DJANGO_CSRF_TRUSTED_ORIGINS` | Full HTTPS origins allowed to POST | empty (set your prod origin(s)) |
+| `DJANGO_BEHIND_TLS_PROXY` | Trust `X-Forwarded-Proto` from a reverse proxy | `False` |
+| `DJANGO_DB_NAME` / `DJANGO_DB_USER` / … | PostgreSQL connection | SQLite |
+| `DJANGO_DB_CACHE` | Use a shared DB cache for rate-limit counters | `False` (per-process LocMemCache) |
+| `DJANGO_LOG_LEVEL` | App logger level | `INFO` |
 | `SMTP_USER`, `SMTP_PASSWORD` | Gmail SMTP credentials | emails print to console |
-| `GEMINI_API_KEY` | Groq API key for the AI assistant | AI returns a fallback tip |
+| `GEMINI_API_KEY` | Groq API key for the AI assistant (also read as `GROQ_API_KEY`) | AI returns a fallback tip |
 | `TELEGRAM_BOT_TOKEN` | Telegram bot token | Telegram features disabled |
+| `OSRM_BASE_URL`, `NOMINATIM_USER_AGENT` | Routing / geocoding for the `osm` maps provider | public demo endpoints (rate-limited, not for production) |
 
 > **Never commit your real `.env`.** It is already listed in `.gitignore`.
 
@@ -179,14 +188,65 @@ working directory; the `cd` is for `manage.py` and the log path.
 ## Running tests
 
 ```bash
-python manage.py test
+python manage.py test            # full suite (~500 tests, ~135s)
+python manage.py test myapp      # one app
+python manage.py test myapp.tests.MatchingAlgorithmTests   # one class
 ```
 
-The suite covers user creation and roles, registration, password-reset (regression test), the
-client → volunteer request lifecycle, rating updates and the AI fallback path.
+The suite covers roles and auth, registration and password-reset (regression tests), the
+client → volunteer request lifecycle, rating updates, the AI fallback path, the geo/matching
+services, the CRM dashboards, emergency/SOS, overdue and stale-request monitoring, donations,
+the Lost & Found board, and a set of concurrency / IDOR / rate-limit regression tests.
+
+## Deployment
+
+There is no container or IaC in the repo; a conventional Gunicorn + nginx + systemd setup:
+
+1. **App server** — `gunicorn server.wsgi:application --workers 3 --bind 127.0.0.1:8001`
+   (run under systemd; `WorkingDirectory` = the dir with `manage.py`, `EnvironmentFile` = the
+   `.env`).
+2. **Reverse proxy (nginx)** terminates TLS and serves static/media directly:
+   ```nginx
+   location /static/ { alias /srv/generation-connect/staticfiles/; }
+   location /media/  { alias /srv/generation-connect/media/; }
+   location / {
+       proxy_pass http://127.0.0.1:8001;
+       proxy_set_header Host $host;
+       proxy_set_header X-Forwarded-Proto $scheme;   # required by DJANGO_BEHIND_TLS_PROXY
+       proxy_set_header X-Real-IP $remote_addr;
+   }
+   ```
+3. **Before the first boot with `DEBUG=False`:**
+   - set `DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS` (real hosts, no `*`),
+     `DJANGO_CSRF_TRUSTED_ORIGINS` (e.g. `https://your-host`), `DJANGO_BEHIND_TLS_PROXY=True`;
+   - `python manage.py collectstatic --noinput` (WhiteNoise is **not** configured — nginx serves
+     `staticfiles/`);
+   - `python manage.py migrate`;
+   - `DJANGO_DB_CACHE=True` and `python manage.py createcachetable` — otherwise the login /
+     password-reset / AI / Telegram-link rate limiters only throttle within a single Gunicorn
+     worker (they use the per-process LocMemCache);
+   - for PostgreSQL: `pip install "psycopg[binary]"` and set `DJANGO_DB_*`.
+4. **Cron** — add the background jobs (see above). Use absolute venv/`manage.py` paths.
+5. **Logs** — the app logs to stderr (`myapp` / `accounts` loggers, level `DJANGO_LOG_LEVEL`);
+   journald/Docker captures them. The zero-recipient safety nets in the overdue / stale /
+   emergency sweeps log at `ERROR`.
+
+`DEBUG=False` automatically switches on `SECURE_SSL_REDIRECT`, HSTS (1 year, preload),
+`SESSION_COOKIE_SECURE` / `CSRF_COOKIE_SECURE`; `SECURE_CONTENT_TYPE_NOSNIFF` and
+`X_FRAME_OPTIONS=DENY` are always on.
+
+### Known production limitations (intentional)
+
+- **No task queue.** Scheduled work is cron + idempotent management commands, by design.
+- **No object storage.** Uploads live on the local `media/` volume; back it up with the DB.
+- **AI assistant** depends on Groq; with no key it always returns the canned fallback tip.
+- **`osm` maps provider** uses public OSRM / Nominatim demo endpoints — self-host or use a paid
+  provider before real traffic (see `OSRM_BASE_URL`).
 
 ## Notes
 
 - The SQLite database and uploaded media are intentionally **not** tracked in git; run `migrate`
   (and optionally `seed_demo`) after cloning to recreate them.
-- Set `DJANGO_DEBUG=False` and a real `DJANGO_SECRET_KEY` / `DJANGO_ALLOWED_HOSTS` before deploying.
+- `django-filter` / `crispy-forms` / `crispy-bootstrap5` are in `requirements.txt` and
+  `INSTALLED_APPS` but currently unused (forms render through hand-written partials; list
+  filtering is hand-rolled in the views).

@@ -34,6 +34,9 @@ MATCH_RADIUS_KM = 25
 MATCH_SCAN_CAP = 50
 # How many of the new report's matches trigger a "you might have a match" ping.
 MATCH_NOTIFY_CAP = 3
+# Ceiling on how many pet markers the shared map JSON carries in one response —
+# a bound on result size, not a permission check (the board is already open-only).
+MAP_POINT_CAP = 500
 
 NEW_REPORT_SUBJECT = "Новое объявление о животном"
 MATCH_HINT_SUBJECT = "Возможное совпадение по вашему объявлению"
@@ -175,12 +178,14 @@ def reports_for(reporter):
     )
 
 
-def open_board_points():
+def open_board_points(limit=MAP_POINT_CAP):
     """Safe map markers for every open/matched, located report. Reusable by the
-    shared map_data view; carries no reporter identity or contact detail."""
+    shared map_data view; carries no reporter identity or contact detail. Bounded
+    (newest first) so one map request can't serialise an unbounded board."""
     located = (
         PetReport.objects.filter(status__in=PET_OPEN_STATUSES, latitude__isnull=False)
         .only("id", "report_type", "species", "pet_name", "breed", "region", "status", "latitude", "longitude")
+        .order_by("-created_at")[:limit]
     )
     return [public_point(report) for report in located]
 
@@ -237,12 +242,17 @@ def possible_matches(report, *, limit=5):
         .order_by("-created_at", "-id")[:MATCH_SCAN_CAP]
     )
 
-    located = report.has_location
+    # Trust nothing about stored coordinates: a bad pin saved through Django
+    # admin (a DecimalField(max_digits=9) accepts e.g. latitude 800) would feed
+    # haversine_km a garbage angle and skew the whole suggestion. is_valid_coordinate
+    # is two float comparisons — cheap enough to run per row — and an invalid pin
+    # just falls back to the region signal, exactly as a missing pin does.
+    located = report.has_location and is_valid_coordinate(report.latitude, report.longitude)
     matches = []
     for other in candidates:
         same_region = bool(report.region) and report.region == other.region
         distance = None
-        if located and other.has_location:
+        if located and other.has_location and is_valid_coordinate(other.latitude, other.longitude):
             distance = round(
                 haversine_km(
                     float(report.latitude), float(report.longitude),
