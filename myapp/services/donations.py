@@ -15,6 +15,7 @@ Money safety:
   * quantity and amount bounds are validated before the row is written.
 """
 
+import logging
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 from django.core.exceptions import ValidationError
@@ -28,6 +29,8 @@ from ..models import (
     Donation,
     Product,
 )
+
+logger = logging.getLogger(__name__)
 
 _CENTS = Decimal("0.01")
 
@@ -107,20 +110,33 @@ def create_donation(*, donor, product=None, quantity=1, amount=None, currency=No
     return donation
 
 
+def _log_transition(donation, action, actor):
+    # Amount + currency but never the donor's message — a financial audit line
+    # for the log aggregator, safe to keep.
+    logger.info(
+        "donation #%s %s by user #%s (%s %s, status=%s)",
+        donation.pk, action, getattr(actor, "pk", None),
+        donation.amount, donation.currency, donation.status,
+    )
+
+
 def confirm_donation(donation, *, actor):
     """Admin verified the funds arrived (out of band — there is no gateway)."""
     donation.confirm(actor)
+    _log_transition(donation, "confirmed", actor)
     return donation
 
 
 def fulfill_donation(donation, *, actor):
     """The purpose the donation was for has been delivered."""
     donation.fulfill(actor)
+    _log_transition(donation, "fulfilled", actor)
     return donation
 
 
 def cancel_donation(donation, *, actor):
     donation.cancel(actor)
+    _log_transition(donation, "cancelled", actor)
     return donation
 
 

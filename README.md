@@ -90,6 +90,7 @@ fresh checkout boots; replace it with a real key.
 | `DJANGO_DB_CACHE` | Use a shared DB cache for rate-limit counters | `False` (per-process LocMemCache) |
 | `DJANGO_LOG_LEVEL` | App logger level | `INFO` |
 | `SMTP_USER`, `SMTP_PASSWORD` | Gmail SMTP credentials | emails print to console |
+| `EMAIL_TIMEOUT` | Seconds before a synchronous SMTP send is abandoned | `10` |
 | `GEMINI_API_KEY` | Groq API key for the AI assistant (also read as `GROQ_API_KEY`) | AI returns a fallback tip |
 | `TELEGRAM_BOT_TOKEN` | Telegram bot token | Telegram features disabled |
 | `OSRM_BASE_URL`, `NOMINATIM_USER_AGENT` | Routing / geocoding for the `osm` maps provider | public demo endpoints (rate-limited, not for production) |
@@ -175,9 +176,9 @@ environment:
 
 ```cron
 # Generation Connect — alert curators/admins about tasks overdue past 3h, every 15 min.
-*/15 * * * * cd /srv/generation-connect && /srv/generation-connect/.venv/bin/python manage.py check_overdue_tasks >> /var/log/generation-connect/cron.log 2>&1
+*/15 * * * * cd /srv/generation-connect && flock -n /run/lock/gc-overdue.lock /srv/generation-connect/.venv/bin/python manage.py check_overdue_tasks >> /var/log/generation-connect/cron.log 2>&1
 # Generation Connect — alert about pending requests stuck without a volunteer past 48h, hourly.
-0 * * * * cd /srv/generation-connect && /srv/generation-connect/.venv/bin/python manage.py check_stale_requests >> /var/log/generation-connect/cron.log 2>&1
+0 * * * * cd /srv/generation-connect && flock -n /run/lock/gc-stale.lock /srv/generation-connect/.venv/bin/python manage.py check_stale_requests >> /var/log/generation-connect/cron.log 2>&1
 ```
 
 Replace `/srv/generation-connect` with the deployment path (the directory
@@ -185,10 +186,19 @@ containing `manage.py`) and `.venv` with the virtualenv location. `settings.py`
 loads `.env` by absolute path, so credentials are picked up regardless of cron's
 working directory; the `cd` is for `manage.py` and the log path.
 
+**`flock -n` is belt-and-braces, not load-bearing.** Both sweeps are already
+race-safe on their own — each task/request is claimed with a conditional
+`UPDATE ... WHERE alarm_sent=False` (resp. `stale_alert_sent=False`) *before* its
+alert is sent, so two overlapping runs can never double-notify. `flock` just
+skips a redundant run if the previous one is somehow still going (a very slow DB,
+say). Both commands are idempotent, exit non-zero only on an unhandled error,
+support `--dry-run`, and log every alert (and any zero-recipient failure, at
+`ERROR`) to stderr → the cron log.
+
 ## Running tests
 
 ```bash
-python manage.py test            # full suite (~500 tests, ~135s)
+python manage.py test            # full suite (525 tests, ~145s)
 python manage.py test myapp      # one app
 python manage.py test myapp.tests.MatchingAlgorithmTests   # one class
 ```
@@ -196,7 +206,8 @@ python manage.py test myapp.tests.MatchingAlgorithmTests   # one class
 The suite covers roles and auth, registration and password-reset (regression tests), the
 client → volunteer request lifecycle, rating updates, the AI fallback path, the geo/matching
 services, the CRM dashboards, emergency/SOS, overdue and stale-request monitoring, donations,
-the Lost & Found board, and a set of concurrency / IDOR / rate-limit regression tests.
+the Lost & Found board, the health endpoints, external-service failure handling, list-view
+pagination bounds, and a set of concurrency / IDOR / rate-limit regression tests.
 
 ## Deployment
 
@@ -209,6 +220,7 @@ There is no container or IaC in the repo; a conventional Gunicorn + nginx + syst
    ```nginx
    location /static/ { alias /srv/generation-connect/staticfiles/; }
    location /media/  { alias /srv/generation-connect/media/; }
+   location = /health/ { proxy_pass http://127.0.0.1:8001; access_log off; }
    location / {
        proxy_pass http://127.0.0.1:8001;
        proxy_set_header Host $host;
@@ -228,20 +240,89 @@ There is no container or IaC in the repo; a conventional Gunicorn + nginx + syst
    - for PostgreSQL: `pip install "psycopg[binary]"` and set `DJANGO_DB_*`.
 4. **Cron** — add the background jobs (see above). Use absolute venv/`manage.py` paths.
 5. **Logs** — the app logs to stderr (`myapp` / `accounts` loggers, level `DJANGO_LOG_LEVEL`);
-   journald/Docker captures them. The zero-recipient safety nets in the overdue / stale /
-   emergency sweeps log at `ERROR`.
+   journald/Docker captures them. Server errors (`django.request`, `ERROR`) and the
+   zero-recipient safety nets in the overdue / stale / emergency sweeps go to stderr too.
+   Administrative state changes (task assign/complete, application approve/reject, emergency and
+   donation and pet transitions, rate-limit hits) emit one `INFO` line each with IDs only.
+6. **Verify** — `curl -fsS http://127.0.0.1:8001/health/ready/` should return `{"status":"ready",...}`.
 
 `DEBUG=False` automatically switches on `SECURE_SSL_REDIRECT`, HSTS (1 year, preload),
 `SESSION_COOKIE_SECURE` / `CSRF_COOKIE_SECURE`; `SECURE_CONTENT_TYPE_NOSNIFF` and
-`X_FRAME_OPTIONS=DENY` are always on.
+`X_FRAME_OPTIONS=DENY` are always on. `EMAIL_TIMEOUT` bounds the synchronous SMTP send in
+request handlers (default 10s).
+
+## Health checks
+
+Two public, unauthenticated, no-secret endpoints (`server/health.py`):
+
+| Endpoint | Meaning | Cost | Codes |
+| --- | --- | --- | --- |
+| `GET /health/` | **liveness** — the Django process can serve a request | zero I/O | `200` |
+| `GET /health/ready/` | **readiness** — DB reachable, config sane, shared cache (if configured) round-trips | one `SELECT 1` (+ one cache op) | `200` ready / `503` not ready |
+
+Point the load balancer / `systemd` watchdog / uptime monitor at `/health/ready/`; use `/health/`
+for a bare "is the process up" check. External services (Groq, Telegram, OSRM, Nominatim) are
+**not** part of readiness — the app degrades gracefully without them, so their outage must not
+pull an instance out of rotation. Responses carry `Cache-Control: no-store`.
+
+A `systemd` unit can gate restarts on it:
+```ini
+ExecStartPost=/bin/sh -c 'for i in $(seq 30); do curl -fsS http://127.0.0.1:8001/health/ready/ && exit 0; sleep 1; done; exit 1'
+```
+
+## Backup & recovery
+
+The application's durable state is **two things**: the database and `media/` (user-uploaded
+avatars, photo-report and pet-report images). Neither is in git. **No backups are automated by
+this repository** — the deploy owner must schedule them.
+
+### Database backup (PostgreSQL)
+
+```bash
+# nightly, via cron on the DB host or the app host:
+pg_dump --format=custom --no-owner --dbname="$DJANGO_DB_NAME" \
+    --file=/var/backups/gc/db-$(date +\%F).dump
+find /var/backups/gc -name 'db-*.dump' -mtime +14 -delete    # keep ~2 weeks
+```
+Store the dumps off-box (another host / object storage / offline media) — a backup on the same
+disk does not survive a disk loss. For SQLite (dev only) the equivalent is copying
+`Gen_connect.sqlite3` while the app is stopped, or `sqlite3 Gen_connect.sqlite3 ".backup ..."`.
+
+### Media backup
+
+`media/` is append-mostly application data, not a cache. Back it up with the same cadence as the
+DB (`rsync -a --delete media/ /var/backups/gc/media/`, or a filesystem/volume snapshot). A DB
+restore without the matching media leaves image URLs pointing at missing files.
+
+### Restore / disaster recovery
+
+Backup and restore are **separate procedures**. Assumed disaster-recovery posture: a full host
+loss is recovered from the latest off-box DB dump + media copy; point-in-time recovery (WAL
+archiving) is **not** set up and is left to the deploy owner if the RPO requires it.
+
+1. Provision the host; install Python 3.12+, PostgreSQL client, nginx.
+2. `git clone` the repo at the deployed commit; create the venv; `pip install -r requirements.txt`
+   (plus `psycopg[binary]`).
+3. Restore `.env` from your secret store (it is never in git).
+4. Restore the database: `createdb "$DJANGO_DB_NAME" && pg_restore --no-owner -d "$DJANGO_DB_NAME" db-YYYY-MM-DD.dump`.
+5. Restore `media/` from the latest copy.
+6. `python manage.py migrate` (no-op if the dump is already current; safe to run).
+7. `python manage.py createcachetable` (if `DJANGO_DB_CACHE=True`); `python manage.py collectstatic --noinput`.
+8. Start Gunicorn (systemd), then nginx.
+9. `curl -fsS https://<host>/health/ready/` — expect `200 {"status":"ready"}`.
+10. Spot-check: log in, open a dashboard, open the map, load `/myapp/pets/`.
 
 ### Known production limitations (intentional)
 
 - **No task queue.** Scheduled work is cron + idempotent management commands, by design.
-- **No object storage.** Uploads live on the local `media/` volume; back it up with the DB.
+- **No object storage.** Uploads live on the local `media/` volume; back it up with the DB (above).
+- **No automated backups in-repo.** The `pg_dump` / `rsync` above must be scheduled by the operator.
+- **No WAL archiving / PITR.** Recovery granularity is "last nightly dump".
 - **AI assistant** depends on Groq; with no key it always returns the canned fallback tip.
 - **`osm` maps provider** uses public OSRM / Nominatim demo endpoints — self-host or use a paid
   provider before real traffic (see `OSRM_BASE_URL`).
+- **Rate-limit counters** need `DJANGO_DB_CACHE=True` (or Redis) to be effective across Gunicorn
+  workers; the default `LocMemCache` throttles per-process only.
 
 ## Notes
 

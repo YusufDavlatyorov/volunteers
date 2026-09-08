@@ -82,6 +82,7 @@
                 </tbody>
             </table>
         </div>
+        {% include "myapp/_pagination.html" with page_obj=page_obj querystring=querystring %}
     {% else %}
         <div class="empty-state">
             <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16l3 8v8H1v-8Z"></path><path d="M1 12h6l2 3h6l2-3h6"></path></svg>

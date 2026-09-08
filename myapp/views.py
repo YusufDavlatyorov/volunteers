@@ -51,6 +51,14 @@ from .services.matching import location_freshness_label, recommend_volunteers
 
 logger = logging.getLogger(__name__)
 
+# Page sizes for the list views that grow without bound at production scale
+# (10k+ users, 100k+ historical requests). Named so the regression tests can
+# shrink them instead of creating hundreds of rows.
+ARCHIVE_PAGE_SIZE = 30
+PEOPLE_PAGE_SIZE = 30
+APPLICATIONS_PAGE_SIZE = 25
+PHOTO_REPORTS_PAGE_SIZE = 24
+
 
 def role_required(*roles):
     def decorator(view_func):
@@ -169,8 +177,17 @@ def people_list_view(request, role):
             completed_request_count=Count("client_requests", filter=Q(client_requests__status="completed"), distinct=True),
         )
 
+    # The directory grows with the platform (10k+ volunteers at scale) — paginate.
+    page_obj = Paginator(people, PEOPLE_PAGE_SIZE).get_page(request.GET.get("page"))
+    querystring = request.GET.copy()
+    querystring.pop("page", None)
+
     context = {
-        "people": people,
+        # `people` stays the iteration variable in the template; it is the current
+        # page (iterable), `page_obj` drives the pager.
+        "people": page_obj,
+        "page_obj": page_obj,
+        "querystring": querystring.urlencode(),
         "role": role,
         "region_filter": region_filter,
         "search_query": search_query,
@@ -276,20 +293,25 @@ def crm_volunteer_detail_view(request, pk):
     return render(request, "myapp/crm_volunteer_detail.html", context)
 
 
+EVENT_LIST_PAST_LIMIT = 50
+BROADCAST_LIST_LIMIT = 50
+
+
 @role_required("admin", "curator")
 def event_list_view(request):
     now = timezone.now()
     events = Event.objects.select_related("curator")
     context = {
         "upcoming_events": events.filter(date__gte=now).order_by("date"),
-        "past_events": events.filter(date__lt=now).order_by("-date"),
+        # Past events accumulate forever — the recent ones are all that's useful.
+        "past_events": events.filter(date__lt=now).order_by("-date")[:EVENT_LIST_PAST_LIMIT],
     }
     return render(request, "myapp/event_list.html", context)
 
 
 @role_required("admin", "curator")
 def broadcast_list_view(request):
-    broadcasts = Broadcast.objects.select_related("sender")
+    broadcasts = Broadcast.objects.select_related("sender")[:BROADCAST_LIST_LIMIT]
     return render(request, "myapp/broadcast_list.html", {"broadcasts": broadcasts})
 
 
@@ -450,6 +472,7 @@ def accept_task_view(request, pk):
         return redirect("task_list")
 
     task.refresh_from_db()
+    logger.info("task #%s self-accepted by volunteer #%s", task.id, request.user.pk)
     subject = "Запрос принят волонтером"
     message = (
         f"Запрос #{task.id} принят.\n"
@@ -478,6 +501,7 @@ def complete_task_view(request, pk):
         return redirect("task_list")
 
     task.refresh_from_db()
+    logger.info("task #%s completed by volunteer #%s", task.id, request.user.pk)
     profile, _ = Profile.objects.get_or_create(user=request.user)
     profile.add_points(5 if task.is_urgent else 3)
     notify_users([task.client], "Запрос выполнен", f"Ваш запрос #{task.id} отмечен как выполненный. Спасибо!")
@@ -546,7 +570,10 @@ def create_request_view(request):
 @role_required("admin", "curator")
 def completed_tasks_view(request):
     tasks = HelpRequest.objects.filter(status="completed").select_related("client", "volunteer")
-    return render(request, "myapp/completed_tasks.html", {"tasks": tasks})
+    # The archive grows without bound (100k+ historical rows at scale) — paginate
+    # rather than render the whole table.
+    page_obj = Paginator(tasks, ARCHIVE_PAGE_SIZE).get_page(request.GET.get("page"))
+    return render(request, "myapp/completed_tasks.html", {"page_obj": page_obj})
 
 
 def rating_view(request):
@@ -622,7 +649,9 @@ def ai_chat_view(request):
                 "temperature": 0.4,
                 "max_completion_tokens": 500,
             },
-            timeout=25,
+            # (connect, read) — bound how long a single request can pin a worker
+            # waiting on Groq. llama-3.1-8b typically answers in <3s.
+            timeout=(5, 15),
         )
         response.raise_for_status()
         result = response.json()
@@ -670,7 +699,7 @@ def broadcast_view(request):
 
 @login_required
 def photo_reports_view(request):
-    reports = PhotoReport.objects.select_related("author", "event", "help_request")
+    reports_qs = PhotoReport.objects.select_related("author", "event", "help_request")
     can_create = request.user.is_superuser or request.user.is_curator or request.user.is_volunteer
     if request.method == "POST":
         if not can_create:
@@ -687,7 +716,11 @@ def photo_reports_view(request):
             return redirect("photo_reports")
     else:
         form = PhotoReportForm(user=request.user)
-    return render(request, "myapp/photo_reports.html", {"reports": reports, "form": form, "can_create": can_create})
+    # Visible to every authenticated user and grows without bound — paginate.
+    page_obj = Paginator(reports_qs, PHOTO_REPORTS_PAGE_SIZE).get_page(request.GET.get("page"))
+    return render(request, "myapp/photo_reports.html", {
+        "reports": page_obj, "page_obj": page_obj, "form": form, "can_create": can_create,
+    })
 
 
 @login_required
@@ -722,9 +755,16 @@ def volunteer_applications_view(request):
     if search_query:
         applications = applications.filter(Q(user__username__icontains=search_query) | Q(user__email__icontains=search_query))
 
+    # `approved` / `all` grow with every volunteer ever onboarded — paginate.
+    page_obj = Paginator(applications, APPLICATIONS_PAGE_SIZE).get_page(request.GET.get("page"))
+    querystring = request.GET.copy()
+    querystring.pop("page", None)
+
     all_applications = VolunteerApplication.objects.all()
     context = {
-        "applications": applications,
+        "applications": page_obj,
+        "page_obj": page_obj,
+        "querystring": querystring.urlencode(),
         "status_filter": status_filter,
         "region_filter": region_filter,
         "search_query": search_query,
@@ -750,6 +790,10 @@ def volunteer_application_approve_view(request, pk):
         messages.info(request, "Заявка уже одобрена.")
         return redirect("volunteer_applications")
     application.approve(request.user)
+    logger.info(
+        "volunteer application #%s approved by user #%s (applicant #%s)",
+        application.pk, request.user.pk, application.user_id,
+    )
     notify_users(
         [application.user],
         "Заявка на волонтерство одобрена",
@@ -767,6 +811,10 @@ def volunteer_application_reject_view(request, pk):
         messages.info(request, "Заявка уже отклонена.")
         return redirect("volunteer_applications")
     application.reject(request.user)
+    logger.info(
+        "volunteer application #%s rejected by user #%s (applicant #%s)",
+        application.pk, request.user.pk, application.user_id,
+    )
     notify_users(
         [application.user],
         "Заявка на волонтерство отклонена",
@@ -1077,6 +1125,10 @@ def task_assign_volunteer_view(request, pk, volunteer_id):
     if not updated:
         return JsonResponse({"success": False, "reason": "task_not_pending"})
 
+    logger.info(
+        "task #%s assigned to volunteer #%s by user #%s (direct dispatch)",
+        task.id, volunteer.pk, request.user.pk,
+    )
     message = (
         f"Куратор назначил вам запрос #{task.id} ({task.get_help_type_display()}).\n"
         f"Клиент: {task.client.username}, телефон: {task.phone}\nАдрес: {task.address}"

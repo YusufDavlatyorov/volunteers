@@ -157,7 +157,14 @@ if os.getenv('DJANGO_DB_NAME'):
         'PASSWORD': os.getenv('DJANGO_DB_PASSWORD', ''),
         'HOST': os.getenv('DJANGO_DB_HOST', 'localhost'),
         'PORT': os.getenv('DJANGO_DB_PORT', '5432'),
+        # Persistent connections (CONN_MAX_AGE) + a liveness check on reuse, so a
+        # connection dropped by PgBouncer / a DB restart is transparently
+        # reopened instead of erroring the first request that gets it.
         'CONN_MAX_AGE': int(os.getenv('DJANGO_DB_CONN_MAX_AGE', '60')),
+        'CONN_HEALTH_CHECKS': True,
+        # Bound the connect attempt so a request (and /health/ready/) fails fast
+        # instead of hanging on the OS TCP timeout when the DB is unreachable.
+        'OPTIONS': {'connect_timeout': int(os.getenv('DJANGO_DB_CONNECT_TIMEOUT', '5'))},
     }
 
 
@@ -230,6 +237,10 @@ EMAIL_HOST_USER = SMTP_USER
 EMAIL_HOST_PASSWORD = SMTP_PASSWORD
 EMAIL_USE_TLS = True
 DEFAULT_FROM_EMAIL = SMTP_USER or 'no-reply@generation-connect.local'
+# Django's SMTP backend has NO default timeout — a hung mail server would block
+# the Gunicorn worker (and the user's request) indefinitely, since notify_users()
+# sends mail synchronously inside request handlers. Bound it.
+EMAIL_TIMEOUT = int(os.getenv('EMAIL_TIMEOUT', '10'))
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/

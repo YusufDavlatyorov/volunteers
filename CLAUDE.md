@@ -26,8 +26,9 @@ python manage.py run_telegram_bot    # long-polling Telegram bot (separate proce
 python manage.py geocode_missing [--limit N --dry-run --profiles]   # backfill lat/lng for HelpRequests (and --profiles) via Nominatim; sleeps 1.1s/row for the usage policy
 python manage.py check_overdue_tasks [--dry-run]        # alert curators/admins about tasks overdue past 3h; idempotent, runs on cron (see README "Background jobs")
 python manage.py check_stale_requests [--dry-run]       # mirror of the above for the *pending* side: alert about requests waiting >48h without a volunteer; idempotent, hourly cron
+curl -s localhost:8000/health/ ; curl -s localhost:8000/health/ready/   # liveness / readiness (server/health.py) — public, no secrets
 
-python manage.py test                                    # full suite (505 tests, ~150s)
+python manage.py test                                    # full suite (525 tests, ~150s)
 python manage.py test myapp.tests.MatchingAlgorithmTests  # one test class
 python manage.py test myapp.tests.MatchingAlgorithmTests.test_closer_volunteer_ranks_higher  # one test
 python manage.py test accounts                           # one app
@@ -308,6 +309,31 @@ unset) and Telegram (`send_telegram_message`, silently no-ops without a bot toke
 the shared recipient querysets — reuse them rather than re-deriving the role filter.
 `myapp/signals.py` is **intentionally empty** — notification sends live in views, not signals, to
 avoid duplicate sends on every model `.save()`. Don't move notification logic into signals.
+Email is sent **synchronously inside the request** (no queue) — `EMAIL_TIMEOUT` (default 10s,
+`server/settings.py`) is what stops a hung SMTP server from pinning a Gunicorn worker; every
+other outbound call (`geo.get_route`, `maps._nominatim`, `ai_chat_view` → Groq,
+`send_telegram_message`) already has a finite `requests` timeout and a graceful fallback.
+
+### Health checks & operational logging
+
+- **`server/health.py`** — `GET /health/` (liveness, zero I/O, always 200) and
+  `GET /health/ready/` (readiness: DB `SELECT 1` + config + shared-cache round-trip → 200/503).
+  Public, no secrets, no tracebacks, `Cache-Control: no-store`. External services are **not**
+  readiness dependencies (the app degrades without them). A failing readiness poll logs one
+  `WARNING` line and sets `response._has_been_logged` so Django's request logger doesn't repeat it.
+- **Structured transition logs** — administrative state changes emit one `INFO` line with **IDs
+  only** (never message bodies, tokens, or PII): emergency ack/resolve/cancel
+  (`services/emergency.py`), donation confirm/fulfill/cancel (`services/donations.py`), pet
+  moderation (`services/pets.py::apply_action`), volunteer-application approve/reject + task
+  self-accept / direct-assign / completion (`myapp/views.py`), login / password-reset throttle
+  hits (`accounts/views.py`). The overdue/stale/emergency **zero-recipient** failures already log
+  `ERROR`. This log stream (→ stderr → journald) **is** the operational audit trail.
+- **No `AuditLog` model.** The `reviewed_by` / `*_by` + `*_at` fields on `VolunteerApplication`,
+  `EmergencyReport`, `Donation`, `PetReport` (and `volunteer` + `accepted_at` / `completed_at` on
+  `HelpRequest`) already make every sensitive admin action reconstructible from the row itself;
+  the structured logs cover the "who/when" trail for everything else. A generic audit table was
+  evaluated and deliberately **not** added (Stage 8) — don't introduce one without a concrete
+  requirement it can't meet.
 
 ### Telegram account linking
 
@@ -333,12 +359,21 @@ prompt tone differs by role (gentler for clients, practical for volunteers).
 ### Config
 
 `server/settings.py` loads everything from `.env` via `python-dotenv` — see `.env.example` for
-the full list (Django core, SMTP, Groq, Telegram incl. `TELEGRAM_BOT_USERNAME`, and for maps
-`MAPS_PROVIDER` + `MAPS_API_KEY`, `OSRM_BASE_URL`, `NOMINATIM_USER_AGENT`). Most vars have safe
-fallbacks and no real credentials are needed for local dev (`MAPS_PROVIDER=osm` is fully
-keyless), but `DJANGO_SECRET_KEY` is now mandatory with no built-in default (`.env.example`
-ships a placeholder, so a checkout without a `.env` won't boot). See **Security & abuse
-controls** for the other startup guards.
+the full list (Django core, SMTP + `EMAIL_TIMEOUT`, Groq, Telegram incl. `TELEGRAM_BOT_USERNAME`,
+maps `MAPS_PROVIDER` / `MAPS_API_KEY` / `OSRM_BASE_URL` / `NOMINATIM_USER_AGENT`, prod
+`DJANGO_CSRF_TRUSTED_ORIGINS` / `DJANGO_BEHIND_TLS_PROXY` / `DJANGO_DB_*` / `DJANGO_DB_CACHE` /
+`DJANGO_LOG_LEVEL`). Most vars have safe fallbacks and no real credentials are needed for local
+dev (`MAPS_PROVIDER=osm` is fully keyless), but `DJANGO_SECRET_KEY` is mandatory with no built-in
+default (`.env.example` ships a placeholder, so a checkout without a `.env` won't boot). The
+PostgreSQL branch (`DJANGO_DB_NAME` set) also enables `CONN_MAX_AGE=60` + `CONN_HEALTH_CHECKS`.
+See **Security & abuse controls** for the other startup guards, and README → **Deployment** /
+**Health checks** / **Backup & recovery**.
+
+Several staff list views that grow with platform size are paginated (page-size constants near the
+top of `myapp/views.py`: `ARCHIVE_PAGE_SIZE`, `PEOPLE_PAGE_SIZE`, `APPLICATIONS_PAGE_SIZE`,
+`PHOTO_REPORTS_PAGE_SIZE`; `event_list`/`broadcast_list` use a plain recent-N slice). The
+volunteer/curator dashboards, CRM lists, map JSON and matching candidate set were already bounded
+in Stages 5–7.
 
 ### Templates/static
 

@@ -152,20 +152,30 @@ def _notify_reporter(report, phrase):
     )
 
 
+def _log_transition(report, action, actor):
+    logger.info(
+        "emergency #%s %s by user #%s (task #%s, status=%s)",
+        report.pk, action, getattr(actor, "pk", None), report.help_request_id, report.status,
+    )
+
+
 def acknowledge(report, *, actor):
     report.acknowledge(actor)
+    _log_transition(report, "acknowledged", actor)
     _notify_reporter(report, "принят координатором")
     return report
 
 
 def resolve(report, *, actor, note=""):
     report.resolve(actor, note=note)
+    _log_transition(report, "resolved", actor)
     _notify_reporter(report, "закрыт координатором")
     return report
 
 
 def cancel(report, *, actor, note=""):
     report.cancel(actor, note=note)
+    _log_transition(report, "cancelled", actor)
     _notify_reporter(report, "отменён координатором")
     return report
 

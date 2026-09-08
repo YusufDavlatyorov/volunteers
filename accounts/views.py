@@ -1,3 +1,5 @@
+import logging
+
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
@@ -15,6 +17,8 @@ from .models import Profile, REGION_CHOICES, Users, hash_token, validate_file_si
 from myapp.models import VolunteerApplication
 from myapp.notifications import notify_users
 from myapp.services import dashboard
+
+logger = logging.getLogger(__name__)
 
 
 # Simple cache-based brute-force/abuse throttling (no new dependency: Django's
@@ -89,6 +93,11 @@ def login_view(request):
         ip_key = f"login_attempts:ip:{_client_ip(request)}"
         user_key = f"login_attempts:user:{username.lower()}"
         if _too_many_attempts(ip_key, LOGIN_IP_ATTEMPT_LIMIT) or _too_many_attempts(user_key, LOGIN_USER_ATTEMPT_LIMIT):
+            # Username (not a secret) + IP so an operator can spot a brute-force
+            # sweep in the logs; the password is never touched.
+            logger.warning(
+                "login throttled: ip=%s username=%s", _client_ip(request), username.lower(),
+            )
             form.add_error(None, "Слишком много попыток входа. Попробуйте снова через несколько минут.")
         else:
             user = authenticate(request, username=username, password=form.cleaned_data["password"])
@@ -148,6 +157,7 @@ def forgot_password_view(request):
     if request.method == "POST" and form.is_valid():
         ip_key = f"password_reset_attempts:ip:{_client_ip(request)}"
         if _too_many_attempts(ip_key, PASSWORD_RESET_IP_ATTEMPT_LIMIT):
+            logger.warning("password-reset throttled: ip=%s", _client_ip(request))
             messages.error(request, "Слишком много попыток. Попробуйте снова через несколько минут.")
             return redirect("forgot_password")
         _register_attempt(ip_key, PASSWORD_RESET_WINDOW_SECONDS)

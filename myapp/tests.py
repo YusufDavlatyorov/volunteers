@@ -4966,3 +4966,220 @@ class AiChatRateLimitTests(TestCase):
                 self.assertEqual(ok.status_code, 200)
             blocked = self.client.post(reverse("ai_chat"), data='{"message":"hi"}', content_type="application/json")
         self.assertEqual(blocked.status_code, 429)
+
+
+# ===========================================================================
+# Stage 8 — production operations & observability
+# ===========================================================================
+
+
+class HealthEndpointTests(TestCase):
+    """server/health.py — liveness + readiness. Public, cheap, no secrets."""
+
+    def test_liveness_is_cheap_and_ok(self):
+        resp = self.client.get(reverse("health_liveness"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), {"status": "ok"})
+        self.assertEqual(resp["Cache-Control"], "no-store")
+
+    def test_liveness_rejects_post(self):
+        self.assertEqual(self.client.post(reverse("health_liveness")).status_code, 405)
+
+    def test_readiness_ok_when_database_reachable(self):
+        resp = self.client.get(reverse("health_readiness"))
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["status"], "ready")
+        self.assertEqual(body["checks"]["database"], "ok")
+        self.assertEqual(body["checks"]["config"], "ok")
+
+    def test_readiness_503_when_database_down(self):
+        with mock.patch("server.health._check_database", return_value=False):
+            resp = self.client.get(reverse("health_readiness"))
+        self.assertEqual(resp.status_code, 503)
+        self.assertEqual(resp.json()["status"], "not ready")
+        self.assertEqual(resp.json()["checks"]["database"], "error")
+
+    def test_readiness_never_leaks_secrets_or_tracebacks(self):
+        with mock.patch(
+            "server.health.connections",
+            new=mock.MagicMock(**{"__getitem__.side_effect": RuntimeError("boom: password=hunter2")}),
+        ):
+            resp = self.client.get(reverse("health_readiness"))
+        text = resp.content.decode()
+        self.assertNotIn(settings.SECRET_KEY, text)
+        self.assertNotIn("Traceback", text)
+        self.assertNotIn("password", text)
+        self.assertNotIn("hunter2", text)
+
+    @override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.db.DatabaseCache", "LOCATION": "gc_cache"}})
+    def test_readiness_reports_cache_error_when_shared_cache_unreachable(self):
+        # DatabaseCache with no table -> the probe raises -> reported as "error".
+        resp = self.client.get(reverse("health_readiness"))
+        self.assertEqual(resp.status_code, 503)
+        self.assertEqual(resp.json()["checks"]["cache"], "error")
+
+    def test_readiness_omits_cache_check_for_locmem(self):
+        resp = self.client.get(reverse("health_readiness"))
+        self.assertNotIn("cache", resp.json()["checks"])
+
+
+class EmailTimeoutConfigTests(TestCase):
+    """Stage 8: Django's SMTP backend has no default timeout — a hung mail
+    server would block a worker forever (notify_users sends synchronously)."""
+
+    def test_email_timeout_is_configured_and_finite(self):
+        self.assertIsNotNone(getattr(settings, "EMAIL_TIMEOUT", None))
+        self.assertGreater(settings.EMAIL_TIMEOUT, 0)
+        self.assertLessEqual(settings.EMAIL_TIMEOUT, 30)
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class AiChatExternalFailureTests(TestCase):
+    """ai_chat_view must degrade to the canned fallback (200, never 5xx) on any
+    Groq failure, and the request must not hang — the call has a finite timeout."""
+
+    def setUp(self):
+        cache.clear()
+        self.user = Users.objects.create_user(
+            username="aicf_user", email="aicf_user@example.com", password="pass12345", is_volunteer=True,
+        )
+        self.client.login(username="aicf_user", password="pass12345")
+
+    def tearDown(self):
+        cache.clear()
+
+    def _post(self):
+        return self.client.post(
+            reverse("ai_chat"), data='{"message": "hello"}', content_type="application/json"
+        )
+
+    @override_settings(GROQ_API_KEY="test-key")
+    def test_groq_timeout_falls_back(self):
+        with mock.patch("myapp.views.requests.post", side_effect=requests.Timeout("slow")):
+            resp = self._post()
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("reply", resp.json())
+
+    @override_settings(GROQ_API_KEY="test-key")
+    def test_groq_connection_error_falls_back(self):
+        with mock.patch("myapp.views.requests.post", side_effect=requests.ConnectionError("no route")):
+            resp = self._post()
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("reply", resp.json())
+
+    @override_settings(GROQ_API_KEY="test-key")
+    def test_groq_malformed_response_falls_back(self):
+        bad = mock.Mock()
+        bad.raise_for_status.return_value = None
+        bad.json.return_value = {"unexpected": "shape"}
+        with mock.patch("myapp.views.requests.post", return_value=bad):
+            resp = self._post()
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("reply", resp.json())
+
+    @override_settings(GROQ_API_KEY="test-key")
+    def test_groq_request_uses_a_finite_timeout(self):
+        captured = {}
+
+        def fake_post(*args, **kwargs):
+            captured["timeout"] = kwargs.get("timeout")
+            raise requests.Timeout("slow")
+
+        with mock.patch("myapp.views.requests.post", side_effect=fake_post):
+            self._post()
+        self.assertIsNotNone(captured["timeout"])
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class StructuredTransitionLoggingTests(TestCase):
+    """Stage 8: administrative state changes emit one safe INFO line (IDs only,
+    never message contents or secrets)."""
+
+    def setUp(self):
+        self.admin, _, self.client_a, _ = _donation_users()
+        self.a2, self.c2, self.reporter, self.other, self.volunteer = _pet_users()
+
+    def test_donation_transition_logs_ids_only(self):
+        d = Donation.objects.create(donor=self.client_a, amount=Decimal("40.00"), currency="TJS", message="secret note")
+        with self.assertLogs("myapp.services.donations", level="INFO") as cm:
+            donations.confirm_donation(d, actor=self.admin)
+        line = "\n".join(cm.output)
+        self.assertIn(f"donation #{d.pk}", line)
+        self.assertIn("confirmed", line)
+        self.assertNotIn("secret note", line)
+
+    def test_emergency_transition_logs_ids_only(self):
+        _, curator, volunteer, _, client_user = _emergency_users()
+        task = _active_task(client_user, volunteer)
+        report = EmergencyReport.objects.create(help_request=task, volunteer=volunteer)
+        with self.assertLogs("myapp.services.emergency", level="INFO") as cm:
+            emergency.acknowledge(report, actor=curator)
+        self.assertIn(f"emergency #{report.pk}", "\n".join(cm.output))
+
+    def test_pet_moderation_logs(self):
+        report = _pet(self.reporter)
+        with self.assertLogs("myapp.services.pets", level="INFO") as cm:
+            pets.apply_action(report, "close", actor=self.reporter)
+        self.assertIn(f"pet report #{report.pk}", "\n".join(cm.output))
+
+
+class ListViewPaginationBoundsTests(TestCase):
+    """Stage 8 / Phase 8: staff list views that grow with the platform are
+    paginated, so one request can't render 10k+ rows."""
+
+    def setUp(self):
+        self.admin = Users.objects.create_superuser(
+            username="pg_admin", email="pg_admin@example.com", password="pass12345"
+        )
+        self.client.login(username="pg_admin", password="pass12345")
+        self.cli = Users.objects.create_user(
+            username="pg_cli", email="pg_cli@example.com", password="pass12345", is_client=True, region="dushanbe"
+        )
+        self.vol = Users.objects.create_user(
+            username="pg_vol", email="pg_vol@example.com", password="pass12345", is_volunteer=True, region="dushanbe"
+        )
+
+    def test_archive_is_paginated(self):
+        for _ in range(3):
+            HelpRequest.objects.create(
+                client=self.cli, volunteer=self.vol, help_type="grocery", description="x", address="a",
+                phone="p", region="dushanbe", status="completed", completed_at=timezone.now(),
+            )
+        with mock.patch("myapp.views.ARCHIVE_PAGE_SIZE", 2):
+            page1 = self.client.get(reverse("completed_tasks")).context["page_obj"]
+            page2 = self.client.get(reverse("completed_tasks") + "?page=2").context["page_obj"]
+        self.assertEqual(len(page1), 2)
+        self.assertEqual(page1.paginator.num_pages, 2)
+        self.assertEqual(len(page2), 1)
+
+    def test_people_list_is_paginated(self):
+        for i in range(3):
+            Users.objects.create_user(
+                username=f"pg_extra_{i}", email=f"pg_extra_{i}@example.com", password="pass12345",
+                is_volunteer=True, region="dushanbe",
+            )
+        with mock.patch("myapp.views.PEOPLE_PAGE_SIZE", 2):
+            resp = self.client.get(reverse("people_list", args=["volunteer"]))
+        self.assertEqual(len(resp.context["page_obj"]), 2)
+        self.assertGreaterEqual(resp.context["page_obj"].paginator.num_pages, 2)
+
+    def test_volunteer_applications_is_paginated(self):
+        for i in range(3):
+            u = Users.objects.create_user(
+                username=f"pg_app_{i}", email=f"pg_app_{i}@example.com", password="pass12345", region="dushanbe"
+            )
+            VolunteerApplication.objects.create(user=u, region="dushanbe")
+        with mock.patch("myapp.views.APPLICATIONS_PAGE_SIZE", 2):
+            resp = self.client.get(reverse("volunteer_applications") + "?status=all")
+        self.assertEqual(len(resp.context["page_obj"]), 2)
+
+    def test_photo_reports_is_paginated(self):
+        for i in range(3):
+            PhotoReport.objects.create(
+                author=self.admin, title=f"r{i}", description="d",
+                image=_small_image_file(f"r{i}.png"), region="dushanbe",
+            )
+        with mock.patch("myapp.views.PHOTO_REPORTS_PAGE_SIZE", 2):
+            resp = self.client.get(reverse("photo_reports"))
+        self.assertEqual(len(resp.context["page_obj"]), 2)

@@ -138,6 +138,10 @@ def apply_action(report, action, *, actor, notify_reporter=True):
     they are the one who did it. ``KeyError`` for an unknown action name."""
     handler = ACTIONS[action]
     handler(report, actor)
+    logger.info(
+        "pet report #%s action=%s by user #%s -> status=%s",
+        report.pk, action, getattr(actor, "pk", None), report.status,
+    )
     if notify_reporter and actor != report.reporter:
         notify_users(
             [report.reporter],
