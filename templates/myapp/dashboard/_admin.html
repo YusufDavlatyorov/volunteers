@@ -20,12 +20,12 @@
 </div>
 
 <div class="card reveal">
-    <div class="section-head"><h3 data-i18n="don.admin_title">Donations</h3><a class="button ghost" href="{% url 'donations_admin' %}" data-i18n="common.view_all">View all</a></div>
+    <div class="section-head"><h3 data-i18n="don.admin_title">Donation offers</h3><a class="button ghost" href="{% url 'donations_admin' %}" data-i18n="common.view_all">View all</a></div>
     <div class="kpi-row">
-        <a class="card stat-card {% if donation_summary.pending %}stat-card--alert{% endif %}" href="{% url 'donations_admin' %}?status=pending"><span class="metric">{{ donation_summary.pending }}</span><p data-i18n="don.kpi_pending">Pending</p></a>
-        <div class="card stat-card"><span class="metric">{{ donation_summary.total }}</span><p data-i18n="don.kpi_total">Total</p></div>
-        {% for row in donation_summary.raised %}
-            <div class="card stat-card"><span class="metric">{{ row.total }} {{ row.currency }}</span><p data-i18n="don.raised_short">Raised</p></div>
-        {% endfor %}
+        <a class="card stat-card {% if offer_summary.pending %}stat-card--alert{% endif %}" href="{% url 'donations_admin' %}?status=pending"><span class="metric">{{ offer_summary.pending }}</span><p data-i18n="don.kpi_pending">To review</p></a>
+        <div class="card stat-card"><span class="metric">{{ offer_summary.active_offers }}</span><p data-i18n="don.kpi_active_offers">Active offers</p></div>
+        <div class="card stat-card"><span class="metric">{{ offer_summary.items_received }}</span><p data-i18n="don.kpi_items_received">Items received</p></div>
+        <div class="card stat-card"><span class="metric">{{ offer_summary.items_distributed }}</span><p data-i18n="don.kpi_items_distributed">Items distributed</p></div>
+        <div class="card stat-card"><span class="metric">{{ offer_summary.businesses }}</span><p data-i18n="don.kpi_businesses">Businesses helping</p></div>
     </div>
 </div>

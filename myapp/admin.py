@@ -55,20 +55,23 @@ class BroadcastAdmin(admin.ModelAdmin):
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
-    list_display = ("name", "price", "currency", "is_active", "updated_at")
-    list_filter = ("is_active", "currency")
+    list_display = ("name", "category", "unit", "is_active", "updated_at")
+    list_filter = ("is_active", "category")
     search_fields = ("name", "description")
     readonly_fields = ("created_at", "updated_at")
 
 
 @admin.register(Donation)
 class DonationAdmin(admin.ModelAdmin):
-    list_display = ("id", "donor", "amount", "currency", "status", "product", "quantity", "created_at")
-    list_filter = ("status", "currency", "created_at")
-    search_fields = ("donor__username", "donor__email", "message")
-    # A financial record: the Django admin is read-only. Status changes go
+    list_display = (
+        "id", "donor", "donor_type", "category", "quantity", "status",
+        "assigned_volunteer", "created_at",
+    )
+    list_filter = ("status", "category", "donor_type", "region", "created_at")
+    search_fields = ("donor__username", "donor__email", "organization_name", "item_name", "message")
+    # A coordination record: the Django admin is read-only. Status changes go
     # through the app (services.donations, which enforces the transition rules);
-    # donations are only ever created by the donate flow.
+    # offers are only ever created by the donate flow.
     readonly_fields = tuple(f.name for f in Donation._meta.fields)
 
     def has_add_permission(self, request):

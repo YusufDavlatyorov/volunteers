@@ -9,14 +9,14 @@ New domain areas get their own module in this package plus an entry below.
 """
 
 from .donations import (
-    CURRENCY_CHOICES,
     DONATION_ALLOWED_TRANSITIONS,
+    DONATION_ASSIGNABLE_STATUSES,
+    DONATION_CATEGORY_CHOICES,
+    DONATION_DONOR_TYPE_CHOICES,
+    DONATION_FULFILMENT_CHOICES,
     DONATION_OPEN_STATUSES,
     DONATION_STATUS_CHOICES,
-    DEFAULT_CURRENCY,
-    MAX_DONATION_AMOUNT,
     MAX_DONATION_QUANTITY,
-    MIN_MONEY,
     Donation,
     Product,
 )
@@ -92,15 +92,15 @@ __all__ = [
     "EmergencyReport",
     "EMERGENCY_OPEN_STATUSES",
     "EMERGENCY_ALLOWED_TRANSITIONS",
-    # donations
+    # donations (in-kind / material assistance)
     "Product",
     "Donation",
-    "CURRENCY_CHOICES",
-    "DEFAULT_CURRENCY",
     "DONATION_STATUS_CHOICES",
     "DONATION_OPEN_STATUSES",
     "DONATION_ALLOWED_TRANSITIONS",
-    "MIN_MONEY",
-    "MAX_DONATION_AMOUNT",
+    "DONATION_ASSIGNABLE_STATUSES",
+    "DONATION_CATEGORY_CHOICES",
+    "DONATION_DONOR_TYPE_CHOICES",
+    "DONATION_FULFILMENT_CHOICES",
     "MAX_DONATION_QUANTITY",
 ]

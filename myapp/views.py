@@ -1298,50 +1298,66 @@ def emergency_update_view(request, pk):
 
 
 # ============================================================================
-# Donations / store foundation (Stage 6, increment C)
+# In-kind donations — material assistance (Stage 6 increment C, reworked Stage 9)
 # ============================================================================
-# Minimal: a Product catalogue + a Donation record. NO payment provider — a
-# donation is created `pending` and an admin confirms it out of band. All money
-# is computed in services.donations; views stay thin.
+# A Product catalogue of *needed items* + a Donation *offer* of physical goods.
+# NO payment provider, no money. An offer is created `pending`; curators/admins
+# review it (approve / cancel), a volunteer is optionally assigned to collect or
+# deliver, and the goods move ready -> received -> distributed. All logic lives
+# in services.donations; views stay thin.
 
 
-def _can_view_donation(user, donation):
-    """A donor sees only their own donations; admin (superuser) sees every one.
-    Curators are deliberately not given financial visibility."""
-    return user.is_superuser or donation.donor_id == user.id
+def _is_donation_staff(user):
+    return user.is_superuser or user.is_curator
+
+
+def _can_view_donation(offer, user):
+    """Donor, the assigned volunteer, and staff (curator + admin) can view an
+    offer. It carries no financial data — curators coordinate distribution."""
+    return (
+        _is_donation_staff(user)
+        or offer.donor_id == user.id
+        or offer.assigned_volunteer_id == user.id
+    )
 
 
 @login_required
 def donate_view(request):
-    """Create a donation — pick a catalogue product (amount = price × quantity,
-    computed server-side) or give a free amount."""
+    """Offer physical goods — pick a needed catalogue item or describe your own."""
     if request.method == "POST":
         form = DonationForm(request.POST)
         if form.is_valid():
             cd = form.cleaned_data
             try:
-                donation = donations.create_donation(
+                offer = donations.create_offer(
                     donor=request.user,
+                    donor_type=cd.get("donor_type") or "individual",
+                    organization_name=cd.get("organization_name", ""),
                     product=cd.get("product"),
+                    item_name=cd.get("item_name", ""),
+                    category=cd.get("category") or "other",
                     quantity=cd.get("quantity") or 1,
-                    amount=cd.get("amount"),
-                    currency=cd.get("currency"),
+                    unit=cd.get("unit", ""),
+                    description=cd.get("description", ""),
+                    fulfilment=cd.get("fulfilment") or "pickup",
+                    location=cd.get("location", ""),
+                    region=cd.get("region", ""),
                     message=cd.get("message", ""),
                 )
             except ValidationError as exc:
                 form.add_error(None, exc)
             else:
                 notify_users(
-                    list(staff_recipients().filter(is_superuser=True)),
-                    "Новое пожертвование",
-                    f"Пожертвование #{donation.id} на {donation.amount} {donation.currency} "
-                    f"от {request.user.username}. Ожидает подтверждения.",
+                    list(staff_recipients()),
+                    "Новое предложение помощи",
+                    f"Предложение #{offer.id}: {offer.item_label} ×{offer.quantity} "
+                    f"от {offer.donor_label}. Ожидает проверки координатора.",
                 )
                 messages.success(
                     request,
-                    "Спасибо! Пожертвование зарегистрировано и ожидает подтверждения администратором.",
+                    "Спасибо! Предложение записано и ожидает проверки координатором.",
                 )
-                return redirect("donation_detail", pk=donation.id)
+                return redirect("donation_detail", pk=offer.id)
     else:
         form = DonationForm()
 
@@ -1360,25 +1376,45 @@ def my_donations_view(request):
 
 
 @login_required
-def donation_detail_view(request, pk):
-    donation = get_object_or_404(
-        Donation.objects.select_related("donor", "product", "reviewed_by"), pk=pk
-    )
-    if not _can_view_donation(request.user, donation):
-        messages.error(request, "У вас нет доступа к этой странице")
-        return redirect("profile")
-    return render(request, "myapp/donation_detail.html", {
-        "donation": donation,
-        "is_admin": request.user.is_superuser,
+def my_assigned_donations_view(request):
+    """A volunteer's list of offers they have been asked to collect or deliver."""
+    return render(request, "myapp/my_assigned_donations.html", {
+        "donations": donations.assigned_to(request.user),
     })
 
 
-@role_required("admin")
+@login_required
+def donation_detail_view(request, pk):
+    offer = get_object_or_404(
+        Donation.objects.select_related("donor", "product", "reviewed_by", "assigned_volunteer"),
+        pk=pk,
+    )
+    if not _can_view_donation(offer, request.user):
+        messages.error(request, "У вас нет доступа к этой странице")
+        return redirect("profile")
+    is_staff = _is_donation_staff(request.user)
+    # A curator is a national coordinator — the assign list is every active
+    # volunteer, not the offer's region (region is shown in the option label so
+    # the dispatcher can still pick a local one).
+    assignable = None
+    if is_staff and offer.status in ("approved", "ready"):
+        assignable = Users.objects.filter(is_volunteer=True, is_active=True).order_by(
+            "region", "username"
+        )
+    return render(request, "myapp/donation_detail.html", {
+        "donation": offer,
+        "is_staff": is_staff,
+        "is_assigned_volunteer": offer.assigned_volunteer_id == request.user.id,
+        "assignable_volunteers": assignable,
+    })
+
+
+@role_required("admin", "curator")
 def donations_admin_view(request):
-    """Admin-only donation ledger — list, status tabs, summary. Curators have no
-    financial view."""
+    """Staff (curator + admin) offer ledger — list, status tabs, operational
+    summary. Carries no money."""
     status_filter = request.GET.get("status", "")
-    qs = donations.all_donations()
+    qs = donations.all_offers()
     valid = {value for value, _ in DONATION_STATUS_CHOICES}
     if status_filter in valid:
         qs = qs.filter(status=status_filter)
@@ -1393,40 +1429,82 @@ def donations_admin_view(request):
         "status_filter": status_filter,
         "status_choices": DONATION_STATUS_CHOICES,
         "querystring": querystring.urlencode(),
-        "summary": donations.donation_summary(),
+        "summary": donations.offer_summary(),
     })
 
 
 _DONATION_ACTIONS = {
-    "confirm": donations.confirm_donation,
-    "fulfill": donations.fulfill_donation,
-    "cancel": donations.cancel_donation,
+    "approve": donations.approve_offer,
+    "ready": donations.mark_offer_ready,
+    "received": donations.mark_offer_received,
+    "distributed": donations.mark_offer_distributed,
+    "cancel": donations.cancel_offer,
 }
+# The assigned volunteer may only advance the physical-handover steps.
+_VOLUNTEER_ACTIONS = {"received", "distributed"}
 
 
-@role_required("admin")
+@login_required
 @require_POST
 def donation_update_view(request, pk):
-    """Admin advances a donation: confirm (funds verified) / fulfill / cancel.
-    Status transitions are model methods; illegal moves raise ValueError."""
-    donation = get_object_or_404(Donation.objects.select_related("donor"), pk=pk)
-    handler = _DONATION_ACTIONS.get(request.POST.get("action", ""))
+    """Advance an offer: approve / ready / received / distributed / cancel, or
+    assign a volunteer. Staff (curator + admin) may do everything; the assigned
+    volunteer may only mark goods received / distributed. Transitions are model
+    methods; illegal moves raise ValueError."""
+    offer = get_object_or_404(
+        Donation.objects.select_related("donor", "assigned_volunteer"), pk=pk
+    )
+    action = request.POST.get("action", "")
+    is_staff = _is_donation_staff(request.user)
+    is_assigned = offer.assigned_volunteer_id == request.user.id
+
+    if not is_staff and not (is_assigned and action in _VOLUNTEER_ACTIONS):
+        messages.error(request, "У вас нет доступа к этому действию.")
+        return redirect("donation_detail", pk=pk)
+
+    if action == "assign":
+        if not is_staff:
+            messages.error(request, "У вас нет доступа к этому действию.")
+            return redirect("donation_detail", pk=pk)
+        volunteer = None
+        vol_id = request.POST.get("volunteer_id", "")
+        if vol_id:
+            volunteer = Users.objects.filter(pk=vol_id, is_volunteer=True, is_active=True).first()
+            if volunteer is None:
+                messages.warning(request, "Волонтёр не найден.")
+                return redirect("donation_detail", pk=pk)
+        try:
+            donations.assign_offer_volunteer(offer, volunteer=volunteer, actor=request.user)
+        except ValueError:
+            messages.warning(request, "Сейчас нельзя назначить волонтёра для этого предложения.")
+            return redirect("donation_detail", pk=pk)
+        if volunteer:
+            notify_users(
+                [volunteer],
+                "Вам назначено предложение помощи",
+                f"Предложение #{offer.id}: {offer.item_label} ×{offer.quantity}. "
+                f"Откройте детали, чтобы согласовать передачу.",
+            )
+        messages.success(request, "Волонтёр обновлён.")
+        return redirect("donation_detail", pk=pk)
+
+    handler = _DONATION_ACTIONS.get(action)
     if handler is None:
         messages.warning(request, "Неизвестное действие.")
         return redirect("donation_detail", pk=pk)
     try:
-        handler(donation, actor=request.user)
+        handler(offer, actor=request.user)
     except ValueError:
-        messages.warning(request, "Это действие недоступно для текущего статуса пожертвования.")
+        messages.warning(request, "Это действие недоступно для текущего статуса предложения.")
         return redirect("donation_detail", pk=pk)
 
-    if donation.donor_id:
+    if offer.donor_id:
         notify_users(
-            [donation.donor],
-            "Статус пожертвования обновлён",
-            f"Ваше пожертвование #{donation.id} теперь: {donation.get_status_display()}.",
+            [offer.donor],
+            "Статус предложения обновлён",
+            f"Ваше предложение #{offer.id} теперь: {offer.get_status_display()}.",
         )
-    messages.success(request, "Статус пожертвования обновлён.")
+    messages.success(request, "Статус предложения обновлён.")
     return redirect("donation_detail", pk=pk)
 
 

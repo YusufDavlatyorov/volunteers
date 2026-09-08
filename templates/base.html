@@ -44,6 +44,7 @@
             {% endif %}
             {% if user.is_volunteer %}
                 <a href="{% url 'task_list' %}" data-i18n="nav.requests" {% if active == 'task_list' %}aria-current="page"{% endif %}>Find Tasks</a>
+                <a href="{% url 'assigned_donations' %}" data-i18n="nav.deliveries" {% if active == 'assigned_donations' %}aria-current="page"{% endif %}>Deliveries</a>
             {% endif %}
             {% if user.is_client %}
                 <a href="{% url 'create_request' %}" data-i18n="nav.new_request" {% if active == 'create_request' %}aria-current="page"{% endif %}>Request Help</a>
@@ -52,7 +53,7 @@
                 <a href="{% url 'volunteer_application' %}" data-i18n="nav.my_application" {% if active == 'volunteer_application' %}aria-current="page"{% endif %}>My Application</a>
             {% endif %}
             <a href="{% url 'pet_list' %}" data-i18n="nav.pets" {% if active == 'pet_list' or active == 'pet_report_create' or active == 'pet_report_detail' or active == 'pet_report_edit' or active == 'my_pet_reports' %}aria-current="page"{% endif %}>Lost &amp; Found</a>
-            <a href="{% url 'donate' %}" data-i18n="nav.donate" {% if active == 'donate' or active == 'my_donations' or active == 'donation_detail' or active == 'donations_admin' %}aria-current="page"{% endif %}>Donate</a>
+            <a href="{% url 'donate' %}" data-i18n="nav.donate" {% if active == 'donate' or active == 'my_donations' or active == 'donation_detail' or active == 'donations_admin' or active == 'assigned_donations' %}aria-current="page"{% endif %}>Donate goods</a>
             <a href="{% url 'rating' %}" data-i18n="nav.rating" {% if active == 'rating' %}aria-current="page"{% endif %}>Rating</a>
             <form method="post" action="{% url 'logout' %}" class="nav-logout-form">
                 {% csrf_token %}
@@ -125,6 +126,35 @@ document.querySelector('[data-menu-toggle]')?.addEventListener('click', (e) => {
     const open = menu?.classList.toggle('open');
     e.currentTarget.setAttribute('aria-expanded', String(!!open));
 });
+
+/* ===== NAV LINKS: horizontal-scroll affordances =====
+   The link row scrolls sideways when it can't fit (see .nav-links in the CSS).
+   This keeps the edge-fade in sync with the scroll position and lets a plain
+   vertical wheel scroll the row where the browser wouldn't do it natively. */
+(function () {
+    const nav = document.querySelector('.nav-links');
+    if (!nav) return;
+    const sync = () => {
+        const max = nav.scrollWidth - nav.clientWidth;
+        nav.classList.toggle('is-overflowing', max > 1);
+        nav.classList.toggle('at-start', nav.scrollLeft <= 1);
+        nav.classList.toggle('at-end', nav.scrollLeft >= max - 1);
+    };
+    nav.addEventListener('scroll', sync, { passive: true });
+    window.addEventListener('resize', sync);
+    nav.addEventListener('wheel', (e) => {
+        if (!nav.classList.contains('is-overflowing') || e.deltaY === 0) return;
+        e.preventDefault();
+        nav.scrollLeft += e.deltaY;
+    }, { passive: false });
+    // Bring the current page's link into view (instant, no scroll animation).
+    const current = nav.querySelector('[aria-current="page"]');
+    if (current) {
+        const n = nav.getBoundingClientRect(), c = current.getBoundingClientRect();
+        nav.scrollLeft += (c.left - n.left) - (n.width - c.width) / 2;
+    }
+    sync();
+})();
 
 /* ===== SCROLL REVEAL ===== */
 const revealObserver = new IntersectionObserver((entries) => {

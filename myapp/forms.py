@@ -3,13 +3,13 @@ from django import forms
 from accounts.models import REGION_CHOICES
 from .models import (
     Broadcast,
-    CURRENCY_CHOICES,
-    DEFAULT_CURRENCY,
+    DONATION_CATEGORY_CHOICES,
+    DONATION_DONOR_TYPE_CHOICES,
+    DONATION_FULFILMENT_CHOICES,
     Event,
     HELP_TYPE_CHOICES,
     HelpRequest,
     MAX_DONATION_QUANTITY,
-    MIN_MONEY,
     PetReport,
     PhotoReport,
     PRIORITY_CHOICES,
@@ -195,17 +195,40 @@ class PetReportForm(forms.ModelForm):
 
 
 class DonationForm(forms.Form):
-    """One donation. Two shapes: pick a catalogue product (amount is computed
-    server-side from its price × quantity) or leave the product blank and enter
-    a free amount. The service (``services.donations.create_donation``) is the
-    real validator — this form only shapes the input and catches the obvious
-    mistakes early."""
+    """One in-kind offer of goods — no money. Two shapes: pick a catalogue item
+    (its category/unit carry over) or leave it blank and describe the item.
+    ``services.donations.create_offer`` is the real validator — this form only
+    shapes the input and catches the obvious mistakes early."""
 
+    donor_type = forms.ChoiceField(
+        label="Кто передаёт",
+        choices=DONATION_DONOR_TYPE_CHOICES,
+        initial="individual",
+        widget=forms.Select(attrs=FIELD_CLASS),
+    )
+    organization_name = forms.CharField(
+        label="Название организации",
+        required=False,
+        max_length=200,
+        widget=forms.TextInput(attrs={**FIELD_CLASS, "placeholder": "Пекарня, магазин, базар…"}),
+    )
     product = forms.ModelChoiceField(
-        label="Товар",
+        label="Товар из каталога",
         queryset=Product.objects.none(),
         required=False,
-        empty_label="Общее пожертвование (свободная сумма)",
+        empty_label="Другой предмет (укажу ниже)",
+        widget=forms.Select(attrs=FIELD_CLASS),
+    )
+    item_name = forms.CharField(
+        label="Что вы хотите передать",
+        required=False,
+        max_length=200,
+        widget=forms.TextInput(attrs={**FIELD_CLASS, "placeholder": "Хлеб, тёплые куртки, вода…"}),
+    )
+    category = forms.ChoiceField(
+        label="Категория",
+        choices=DONATION_CATEGORY_CHOICES,
+        initial="other",
         widget=forms.Select(attrs=FIELD_CLASS),
     )
     quantity = forms.IntegerField(
@@ -216,26 +239,41 @@ class DonationForm(forms.Form):
         initial=1,
         widget=forms.NumberInput(attrs={**FIELD_CLASS, "min": 1}),
     )
-    amount = forms.DecimalField(
-        label="Сумма",
+    unit = forms.CharField(
+        label="Единица",
         required=False,
-        min_value=MIN_MONEY,
-        max_digits=12,
-        decimal_places=2,
-        widget=forms.NumberInput(attrs={**FIELD_CLASS, "step": "0.01", "min": "0.01"}),
+        max_length=40,
+        widget=forms.TextInput(attrs={**FIELD_CLASS, "placeholder": "буханок, наборов, кг…"}),
     )
-    currency = forms.ChoiceField(
-        label="Валюта",
-        choices=CURRENCY_CHOICES,
+    description = forms.CharField(
+        label="Описание",
         required=False,
-        initial=DEFAULT_CURRENCY,
+        max_length=2000,
+        widget=forms.Textarea(attrs={**FIELD_CLASS, "rows": 3, "placeholder": "Необязательно"}),
+    )
+    fulfilment = forms.ChoiceField(
+        label="Как передать",
+        choices=DONATION_FULFILMENT_CHOICES,
+        initial="pickup",
+        widget=forms.Select(attrs=FIELD_CLASS),
+    )
+    location = forms.CharField(
+        label="Адрес / место получения",
+        required=False,
+        max_length=255,
+        widget=forms.TextInput(attrs=FIELD_CLASS),
+    )
+    region = forms.ChoiceField(
+        label="Регион",
+        choices=[("", "—")] + list(REGION_CHOICES),
+        required=False,
         widget=forms.Select(attrs=FIELD_CLASS),
     )
     message = forms.CharField(
-        label="Сообщение",
+        label="Сообщение координатору",
         required=False,
         max_length=1000,
-        widget=forms.Textarea(attrs={**FIELD_CLASS, "rows": 3, "placeholder": "Необязательно"}),
+        widget=forms.Textarea(attrs={**FIELD_CLASS, "rows": 2, "placeholder": "Необязательно"}),
     )
 
     def __init__(self, *args, **kwargs):
@@ -245,17 +283,15 @@ class DonationForm(forms.Form):
     def clean(self):
         cleaned = super().clean()
         product = cleaned.get("product")
+        cleaned["quantity"] = cleaned.get("quantity") or 1
         if product:
-            # Amount / currency are derived from the product server-side; ignore
-            # whatever the browser sent so a tampered amount can't take effect.
-            cleaned["amount"] = None
-            cleaned["currency"] = product.currency
-            cleaned["quantity"] = cleaned.get("quantity") or 1
-        else:
-            cleaned["quantity"] = 1
-            if cleaned.get("amount") is None:
-                raise forms.ValidationError("Укажите товар или сумму пожертвования.")
-            cleaned["currency"] = cleaned.get("currency") or DEFAULT_CURRENCY
+            cleaned["item_name"] = ""
+            cleaned["category"] = product.category
+            cleaned["unit"] = cleaned.get("unit") or product.unit
+        elif not (cleaned.get("item_name") or "").strip():
+            raise forms.ValidationError("Выберите товар из каталога или укажите, что вы хотите передать.")
+        if cleaned.get("donor_type") == "business" and not (cleaned.get("organization_name") or "").strip():
+            self.add_error("organization_name", "Укажите название организации.")
         return cleaned
 
 

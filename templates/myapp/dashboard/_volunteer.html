@@ -85,6 +85,23 @@
     {% endif %}
 </div>
 
+{% if assigned_donations %}
+<div class="card reveal">
+    <div class="section-head">
+        <h3 data-i18n="dash.assigned_deliveries">Assigned deliveries</h3>
+        <a class="button ghost" href="{% url 'assigned_donations' %}" data-i18n="common.view_all">View all</a>
+    </div>
+    <div class="mini-list">
+        {% for d in assigned_donations %}
+            <a class="mini-list-item mini-list-item--link" href="{% url 'donation_detail' d.id %}">
+                <h4>{% include "myapp/_donation_status_tag.html" with status=d.status status_display=d.get_status_display %} {{ d.item_label }} × {{ d.quantity }}{% if d.unit %} {{ d.unit }}{% endif %}</h4>
+                <p>{{ d.get_fulfilment_display }} · {{ d.get_region_display|default:"—" }}{% if d.location %} · {{ d.location }}{% endif %}</p>
+            </a>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
 {% if upcoming_events %}
 <div class="card reveal">
     <div class="section-head"><h3 data-i18n="events.upcoming">Upcoming Events</h3></div>

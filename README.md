@@ -198,16 +198,17 @@ support `--dry-run`, and log every alert (and any zero-recipient failure, at
 ## Running tests
 
 ```bash
-python manage.py test            # full suite (525 tests, ~145s)
+python manage.py test            # full suite (528 tests, ~145s)
 python manage.py test myapp      # one app
 python manage.py test myapp.tests.MatchingAlgorithmTests   # one class
 ```
 
 The suite covers roles and auth, registration and password-reset (regression tests), the
 client → volunteer request lifecycle, rating updates, the AI fallback path, the geo/matching
-services, the CRM dashboards, emergency/SOS, overdue and stale-request monitoring, donations,
-the Lost & Found board, the health endpoints, external-service failure handling, list-view
-pagination bounds, and a set of concurrency / IDOR / rate-limit regression tests.
+services, the CRM dashboards, emergency/SOS, overdue and stale-request monitoring, in-kind
+donation offers, the Lost & Found board, the health endpoints, external-service failure
+handling, list-view pagination bounds, and a set of concurrency / IDOR / rate-limit regression
+tests.
 
 ## Deployment
 

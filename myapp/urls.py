@@ -13,6 +13,7 @@ from .views import (
     donation_detail_view,
     donation_update_view,
     donations_admin_view,
+    my_assigned_donations_view,
     my_donations_view,
     my_pet_reports_view,
     pet_list_view,
@@ -124,9 +125,10 @@ urlpatterns = [
     path('pets/<int:pk>/delete/', pet_report_delete_view, name='pet_report_delete'),
     path('pets/<int:pk>/status/', pet_report_status_view, name='pet_report_status'),
 
-    # Donations / store foundation
+    # In-kind donations — material assistance (no money)
     path('donate/', donate_view, name='donate'),
     path('donations/', my_donations_view, name='my_donations'),
+    path('donations/assigned/', my_assigned_donations_view, name='assigned_donations'),
     path('donations/manage/', donations_admin_view, name='donations_admin'),
     path('donations/<int:pk>/', donation_detail_view, name='donation_detail'),
     path('donations/<int:pk>/update/', donation_update_view, name='donation_update'),

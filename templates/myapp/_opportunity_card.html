@@ -19,7 +19,7 @@
         {% if mode == "busy" %}
             <p class="opportunity-desc">{{ task.client.username }} → {{ task.volunteer.username|default:"—" }}</p>
         {% else %}
-            <p class="opportunity-desc">{{ task.description|truncatechars:110 }}</p>
+            <p class="opportunity-desc clamp-text">{{ task.description }}</p>
         {% endif %}
         <div class="button-row">
             <a class="button ghost" href="{% url 'task_detail' task.id %}" data-i18n="task.details">Details</a>

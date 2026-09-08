@@ -1,70 +1,114 @@
 {% extends "base.html" %}
-{% block title %}Donation #{{ donation.id }} - Generation Connect{% endblock %}
+{% block title %}Offer #{{ donation.id }} - Generation Connect{% endblock %}
 {% block content %}
 <section class="section">
-    {% if is_admin %}
+    {% if is_staff %}
         {% url 'donations_admin' as donations_admin_url %}
-        {% include "partials/_page_header.html" with title="Donation" title_i18n="don.detail_title" action_url=donations_admin_url action_label="All donations" action_i18n="don.admin_title" action_class="ghost" %}
+        {% include "partials/_page_header.html" with title="Donation offer" title_i18n="don.detail_title" action_url=donations_admin_url action_label="All offers" action_i18n="don.admin_title" action_class="ghost" %}
+    {% elif is_assigned_volunteer %}
+        {% url 'assigned_donations' as assigned_url %}
+        {% include "partials/_page_header.html" with title="Donation offer" title_i18n="don.detail_title" action_url=assigned_url action_label="Assigned deliveries" action_i18n="don.assigned_title" action_class="ghost" %}
     {% else %}
         {% url 'my_donations' as my_donations_url %}
-        {% include "partials/_page_header.html" with title="Donation" title_i18n="don.detail_title" action_url=my_donations_url action_label="My donations" action_i18n="don.my_title" action_class="ghost" %}
+        {% include "partials/_page_header.html" with title="Donation offer" title_i18n="don.detail_title" action_url=my_donations_url action_label="My offers" action_i18n="don.my_title" action_class="ghost" %}
     {% endif %}
 
     <div class="card">
         <p>{% include "myapp/_donation_status_tag.html" with status=donation.status status_display=donation.get_status_display %}</p>
         <div class="detail-meta">
-            <div><span class="meta-label" data-i18n="don.col_amount">Amount</span><p>{{ donation.amount }} {{ donation.currency }}</p></div>
-            <div><span class="meta-label" data-i18n="don.col_for">For</span>
-                <p>{% if donation.product %}{{ donation.product.name }} × {{ donation.quantity }} @ {{ donation.unit_price_snapshot }} {{ donation.currency }}{% else %}<span data-i18n="don.general">General donation</span>{% endif %}</p>
-            </div>
-            {% if is_admin %}<div><span class="meta-label" data-i18n="don.col_donor">Donor</span><p>{{ donation.donor.username|default:"—" }}</p></div>{% endif %}
+            <div><span class="meta-label" data-i18n="don.col_item">Item</span><p>{{ donation.item_label }}</p></div>
+            <div><span class="meta-label" data-i18n="don.col_quantity">Quantity</span><p>{{ donation.quantity }}{% if donation.unit %} {{ donation.unit }}{% endif %}</p></div>
+            <div><span class="meta-label" data-i18n="don.col_category">Category</span><p data-i18n="don.category_{{ donation.category }}">{{ donation.get_category_display }}</p></div>
+            <div><span class="meta-label" data-i18n="don.field_fulfilment">Handover</span><p data-i18n="don.fulfilment_{{ donation.fulfilment }}">{{ donation.get_fulfilment_display }}</p></div>
+            {% if donation.region %}<div><span class="meta-label" data-i18n="tbl.region">Region</span><p>{{ donation.get_region_display }}</p></div>{% endif %}
+            {% if donation.location %}<div><span class="meta-label" data-i18n="don.field_pickup">Pickup / drop-off</span><p>{{ donation.location }}</p></div>{% endif %}
+            {% if is_staff %}
+                <div><span class="meta-label" data-i18n="don.col_donor">Donor</span><p>{{ donation.donor_label }}{% if donation.donor_type == "business" %} <span class="tag muted" data-i18n="don.donor_type_business">Business</span>{% endif %}</p></div>
+            {% endif %}
+            {% if donation.assigned_volunteer %}<div><span class="meta-label" data-i18n="don.assigned_volunteer">Assigned volunteer</span><p>{{ donation.assigned_volunteer.username }}</p></div>{% endif %}
             <div><span class="meta-label" data-i18n="tbl.created">Created</span><p>{{ donation.created_at|date:"d M Y, H:i" }}</p></div>
-            {% if donation.reviewed_by and is_admin %}<div><span class="meta-label" data-i18n="don.reviewed_by">Reviewed by</span><p>{{ donation.reviewed_by.username }}</p></div>{% endif %}
         </div>
-        {% if donation.message %}
+        {% if donation.description %}
         <div class="detail-reason">
-            <span class="meta-label" data-i18n="don.field_message">Message</span>
+            <span class="meta-label" data-i18n="don.field_description">Description</span>
+            <p>{{ donation.description }}</p>
+        </div>
+        {% endif %}
+        {% if donation.message and is_staff %}
+        <div class="detail-reason">
+            <span class="meta-label" data-i18n="don.field_message">Note to coordinator</span>
             <p>{{ donation.message }}</p>
         </div>
         {% endif %}
         {% if donation.status == "pending" %}
-        <p class="field-hint" data-i18n="don.pending_note">This donation is awaiting confirmation by an administrator. No payment has been processed.</p>
+        <p class="field-hint" data-i18n="don.pending_note">A coordinator is reviewing this offer. Nothing is required from you yet.</p>
         {% endif %}
     </div>
 
-    {% if is_admin %}
+    {% if is_staff or is_assigned_volunteer %}
     <div class="card">
         <div class="section-head"><h2 data-i18n="emg.actions_title">Actions</h2></div>
         <div class="button-row">
-            {% if donation.status == "pending" %}
+            {% if is_staff and donation.status == "pending" %}
             <form method="post" action="{% url 'donation_update' donation.id %}" class="inline-form">
-                {% csrf_token %}<input type="hidden" name="action" value="confirm">
-                <button type="submit" class="button primary" data-i18n="don.action_confirm">Confirm</button>
+                {% csrf_token %}<input type="hidden" name="action" value="approve">
+                <button type="submit" class="button primary" data-i18n="don.action_approve">Approve</button>
             </form>
             {% endif %}
-            {% if donation.status == "confirmed" %}
+            {% if is_staff and donation.status == "approved" %}
             <form method="post" action="{% url 'donation_update' donation.id %}" class="inline-form">
-                {% csrf_token %}<input type="hidden" name="action" value="fulfill">
-                <button type="submit" class="button secondary" data-i18n="don.action_fulfill">Mark fulfilled</button>
+                {% csrf_token %}<input type="hidden" name="action" value="ready">
+                <button type="submit" class="button secondary" data-i18n="don.action_ready">Mark ready for pickup</button>
             </form>
             {% endif %}
-            {% if donation.is_open %}
+            {% if donation.status == "ready" %}
+            <form method="post" action="{% url 'donation_update' donation.id %}" class="inline-form">
+                {% csrf_token %}<input type="hidden" name="action" value="received">
+                <button type="submit" class="button secondary" data-i18n="don.action_received">Mark received</button>
+            </form>
+            {% endif %}
+            {% if donation.status == "received" %}
+            <form method="post" action="{% url 'donation_update' donation.id %}" class="inline-form">
+                {% csrf_token %}<input type="hidden" name="action" value="distributed">
+                <button type="submit" class="button primary" data-i18n="don.action_distributed">Mark distributed</button>
+            </form>
+            {% endif %}
+            {% if is_staff and donation.is_open %}
             <form method="post" action="{% url 'donation_update' donation.id %}" class="inline-form">
                 {% csrf_token %}<input type="hidden" name="action" value="cancel">
-                <button type="submit" class="button ghost" data-i18n="don.action_cancel">Cancel</button>
+                <button type="submit" class="button ghost" data-i18n="don.action_cancel">Cancel offer</button>
             </form>
             {% endif %}
         </div>
-        {% if not donation.is_open %}<p class="field-hint" data-i18n="don.closed_note">This donation is closed.</p>{% endif %}
+
+        {% if assignable_volunteers is not None %}
+        <form method="post" action="{% url 'donation_update' donation.id %}" class="filter-bar">
+            {% csrf_token %}<input type="hidden" name="action" value="assign">
+            <div class="field-group">
+                <label for="assignVol" data-i18n="don.assign_volunteer_label">Assign a volunteer</label>
+                <select id="assignVol" name="volunteer_id" class="control">
+                    <option value="" data-i18n="don.assign_none">— nobody —</option>
+                    {% for v in assignable_volunteers %}
+                        <option value="{{ v.id }}" {% if donation.assigned_volunteer_id == v.id %}selected{% endif %}>{{ v.username }}{% if v.region %} · {{ v.get_region_display }}{% endif %}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button type="submit" class="button ghost" data-i18n="don.action_assign">Save volunteer</button>
+        </form>
+        {% endif %}
+
+        {% if not donation.is_open %}<p class="field-hint" data-i18n="don.closed_note">This offer is closed.</p>{% endif %}
     </div>
     {% endif %}
 
     <div class="card">
         <div class="section-head"><h2 data-i18n="emg.timeline_title">Timeline</h2></div>
         <div class="mini-list">
-            <div class="mini-list-item"><h4 data-i18n="don.timeline_created">Created</h4><p>{{ donation.created_at|date:"d M Y, H:i" }}</p></div>
-            {% if donation.confirmed_at %}<div class="mini-list-item"><h4 data-i18n="don.timeline_confirmed">Confirmed</h4><p>{{ donation.confirmed_at|date:"d M Y, H:i" }}</p></div>{% endif %}
-            {% if donation.fulfilled_at %}<div class="mini-list-item"><h4 data-i18n="don.timeline_fulfilled">Fulfilled</h4><p>{{ donation.fulfilled_at|date:"d M Y, H:i" }}</p></div>{% endif %}
+            <div class="mini-list-item"><h4 data-i18n="don.timeline_created">Offered</h4><p>{{ donation.created_at|date:"d M Y, H:i" }}</p></div>
+            {% if donation.approved_at %}<div class="mini-list-item"><h4 data-i18n="don.timeline_approved">Approved</h4><p>{{ donation.approved_at|date:"d M Y, H:i" }}</p></div>{% endif %}
+            {% if donation.ready_at %}<div class="mini-list-item"><h4 data-i18n="don.timeline_ready">Ready</h4><p>{{ donation.ready_at|date:"d M Y, H:i" }}</p></div>{% endif %}
+            {% if donation.received_at %}<div class="mini-list-item"><h4 data-i18n="don.timeline_received">Received</h4><p>{{ donation.received_at|date:"d M Y, H:i" }}</p></div>{% endif %}
+            {% if donation.distributed_at %}<div class="mini-list-item"><h4 data-i18n="don.timeline_distributed">Distributed</h4><p>{{ donation.distributed_at|date:"d M Y, H:i" }}</p></div>{% endif %}
             {% if donation.cancelled_at %}<div class="mini-list-item"><h4 data-i18n="don.timeline_cancelled">Cancelled</h4><p>{{ donation.cancelled_at|date:"d M Y, H:i" }}</p></div>{% endif %}
         </div>
     </div>

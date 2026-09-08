@@ -1,27 +1,17 @@
 {% extends "base.html" %}
-{% block title %}Donations - Generation Connect{% endblock %}
+{% block title %}Donation offers - Generation Connect{% endblock %}
 {% block content %}
 <section class="section section-xl">
     {% url 'admin_panel' as admin_panel_url %}
-    {% include "partials/_page_header.html" with title="Donations" title_i18n="don.admin_title" lede="Every donation on the platform. Confirm once funds are verified." lede_i18n="don.admin_lede" action_url=admin_panel_url action_label="Back to dashboard" action_i18n="crm.back_dashboard" action_class="ghost" %}
+    {% include "partials/_page_header.html" with title="Donation offers" title_i18n="don.admin_title" lede="Every offer of goods on the platform. Approve, assign a volunteer, and track it to distribution." lede_i18n="don.admin_lede" action_url=admin_panel_url action_label="Back to dashboard" action_i18n="crm.back_dashboard" action_class="ghost" %}
 
     <div class="kpi-row">
-        <div class="card stat-card {% if summary.pending %}stat-card--alert{% endif %}"><span class="metric">{{ summary.pending }}</span><p data-i18n="don.kpi_pending">Pending</p></div>
-        <div class="card stat-card"><span class="metric">{{ summary.confirmed }}</span><p data-i18n="don.kpi_confirmed">Confirmed</p></div>
-        <div class="card stat-card"><span class="metric">{{ summary.fulfilled }}</span><p data-i18n="don.kpi_fulfilled">Fulfilled</p></div>
-        <div class="card stat-card"><span class="metric">{{ summary.total }}</span><p data-i18n="don.kpi_total">Total</p></div>
+        <div class="card stat-card {% if summary.pending %}stat-card--alert{% endif %}"><span class="metric">{{ summary.pending }}</span><p data-i18n="don.kpi_pending">To review</p></div>
+        <div class="card stat-card"><span class="metric">{{ summary.active_offers }}</span><p data-i18n="don.kpi_active_offers">Active offers</p></div>
+        <div class="card stat-card"><span class="metric">{{ summary.items_received }}</span><p data-i18n="don.kpi_items_received">Items received</p></div>
+        <div class="card stat-card"><span class="metric">{{ summary.items_distributed }}</span><p data-i18n="don.kpi_items_distributed">Items distributed</p></div>
+        <div class="card stat-card"><span class="metric">{{ summary.businesses }}</span><p data-i18n="don.kpi_businesses">Businesses helping</p></div>
     </div>
-
-    {% if summary.raised %}
-    <div class="card reveal">
-        <div class="section-head"><h3 data-i18n="don.raised">Raised (confirmed + fulfilled)</h3></div>
-        <div class="mini-list">
-            {% for row in summary.raised %}
-                <div class="mini-list-item"><h4>{{ row.total }} {{ row.currency }}</h4></div>
-            {% endfor %}
-        </div>
-    </div>
-    {% endif %}
 
     <div class="tab-bar">
         <a href="{% url 'donations_admin' %}" {% if not status_filter %}aria-current="page"{% endif %} data-i18n="va.filter_all">All</a>
@@ -37,10 +27,11 @@
                     <tr>
                         <th data-i18n="don.col_id">#</th>
                         <th data-i18n="don.col_donor">Donor</th>
-                        <th data-i18n="don.col_for">For</th>
-                        <th data-i18n="don.col_amount">Amount</th>
+                        <th data-i18n="don.col_item">Item</th>
+                        <th data-i18n="don.col_quantity">Quantity</th>
+                        <th data-i18n="tbl.region">Region</th>
+                        <th data-i18n="don.assigned_volunteer">Volunteer</th>
                         <th data-i18n="tbl.status">Status</th>
-                        <th data-i18n="tbl.created">Created</th>
                         <th></th>
                     </tr>
                 </thead>
@@ -48,11 +39,12 @@
                     {% for d in page_obj %}
                     <tr {% if d.status == "pending" %}class="row-alert"{% endif %}>
                         <td data-label="#"><span class="cell-title">#{{ d.id }}</span></td>
-                        <td data-label="Donor">{{ d.donor.username|default:"—" }}</td>
-                        <td data-label="For">{% if d.product %}{{ d.product.name }} × {{ d.quantity }}{% else %}<span data-i18n="don.general">General donation</span>{% endif %}</td>
-                        <td data-label="Amount" class="col-num">{{ d.amount }} {{ d.currency }}</td>
+                        <td data-label="Donor">{{ d.donor_label }}{% if d.donor_type == "business" %} <span class="tag muted" data-i18n="don.donor_type_business">Business</span>{% endif %}</td>
+                        <td data-label="Item">{{ d.item_label }}<span class="cell-sub" data-i18n="don.category_{{ d.category }}">{{ d.get_category_display }}</span></td>
+                        <td data-label="Quantity" class="col-num">{{ d.quantity }}{% if d.unit %} {{ d.unit }}{% endif %}</td>
+                        <td data-label="Region">{{ d.get_region_display|default:"—" }}</td>
+                        <td data-label="Volunteer">{{ d.assigned_volunteer.username|default:"—" }}</td>
                         <td data-label="Status">{% include "myapp/_donation_status_tag.html" with status=d.status status_display=d.get_status_display %}</td>
-                        <td data-label="Created" class="col-num">{{ d.created_at|date:"d M, H:i" }}</td>
                         <td data-label="" class="col-actions"><a class="button ghost" href="{% url 'donation_detail' d.id %}" data-i18n="task.details">Details</a></td>
                     </tr>
                     {% endfor %}
@@ -63,7 +55,7 @@
     {% else %}
         <div class="empty-state">
             <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 0 0 0-7.78Z"></path></svg>
-            <p data-i18n="don.admin_empty">No donations match this filter.</p>
+            <p data-i18n="don.admin_empty">No offers match this filter.</p>
         </div>
     {% endif %}
 </section>

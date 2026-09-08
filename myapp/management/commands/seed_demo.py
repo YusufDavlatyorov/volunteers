@@ -1,6 +1,5 @@
 import shutil
 from datetime import timedelta
-from decimal import Decimal
 from pathlib import Path
 
 from django.contrib.auth import get_user_model
@@ -131,7 +130,7 @@ class Command(BaseCommand):
         self._create_broadcasts(admin, curators)
         self._create_reports(volunteers, events, requests)
         self._create_emergencies(requests, admin)
-        self._create_donations(clients, admin)
+        self._create_donations(clients, volunteers, admin)
         self._create_pet_reports(clients, volunteers, admin)
 
         self.stdout.write(self.style.SUCCESS("Demo data ready."))
@@ -306,20 +305,22 @@ class Command(BaseCommand):
                 },
             )
 
-    def _create_donations(self, clients, admin):
-        """A small catalogue + a few donations across the status lifecycle, so
-        the donor history and the admin ledger aren't empty."""
+    def _create_donations(self, clients, volunteers, admin):
+        """A small catalogue of needed items + a few in-kind offers across the
+        lifecycle (including one from a local business and one already assigned
+        to a volunteer), so the donor history and the staff ledger aren't empty."""
         catalogue = [
-            ("Продуктовый набор на неделю", "Крупы, масло, консервы и хлеб для одного клиента.", Decimal("120.00")),
-            ("Аптечка первой помощи", "Базовый набор для волонтёра на выезде.", Decimal("85.00")),
-            ("Тёплый плед", "Для пожилых клиентов в холодный сезон.", Decimal("60.00")),
-            ("Проездной на месяц", "Компенсация транспортных расходов волонтёра.", Decimal("150.00")),
+            ("Продуктовый набор на неделю", "Крупы, масло, консервы и хлеб для одного клиента.", "food", "наборов"),
+            ("Набор средств гигиены", "Мыло, зубная паста, шампунь, средства ухода.", "hygiene", "наборов"),
+            ("Тёплый плед", "Для пожилых клиентов в холодный сезон.", "blankets", "шт"),
+            ("Зимняя куртка", "Тёплая верхняя одежда, разные размеры.", "clothing", "шт"),
+            ("Школьный набор", "Тетради, ручки, рюкзак для детей из семей клиентов.", "school", "наборов"),
         ]
         products = []
-        for name, description, price in catalogue:
+        for name, description, category, unit in catalogue:
             product, _ = Product.objects.update_or_create(
                 name=name,
-                defaults={"description": description, "price": price, "currency": "TJS", "is_active": True},
+                defaults={"description": description, "category": category, "unit": unit, "is_active": True},
             )
             product.refresh_from_db()
             products.append(product)
@@ -327,31 +328,33 @@ class Command(BaseCommand):
         if not clients or Donation.objects.exists():
             return
 
-        # donor, product, quantity, free amount, status
+        vol = volunteers[0] if volunteers else None
+        # donor, donor_type, org, product, item_name, category, qty, unit, region, target_status, assign
         plan = [
-            (clients[0], products[0], 1, None, Donation.CONFIRMED),
-            (clients[0], None, 1, Decimal("50.00"), Donation.PENDING),
-            (clients[1 % len(clients)], products[2], 2, None, Donation.FULFILLED),
-            (clients[2 % len(clients)], None, 1, Decimal("200.00"), Donation.PENDING),
+            (clients[0], "individual", "", products[0], "", "food", 3, "наборов", "dushanbe", Donation.APPROVED, False),
+            (clients[0], "business", "Пекарня «Нон»", None, "Свежий хлеб", "bakery", 50, "буханок", "dushanbe", Donation.DISTRIBUTED, False),
+            (clients[1 % len(clients)], "individual", "", products[2], "", "blankets", 10, "шт", "sogd", Donation.READY, True),
+            (clients[2 % len(clients)], "individual", "", None, "Детская одежда до 5 лет", "clothing", 15, "шт", "khatlon", Donation.PENDING, False),
+            (clients[0], "business", "Магазин «Баракат»", products[1], "", "hygiene", 20, "наборов", "dushanbe", Donation.RECEIVED, True),
         ]
-        for donor, product, quantity, amount, status in plan:
-            if product is not None:
-                unit = product.price
-                donation = Donation.objects.create(
-                    donor=donor, product=product, quantity=quantity,
-                    unit_price_snapshot=unit, amount=unit * quantity, currency=product.currency,
-                    status=Donation.PENDING, message="",
-                )
-            else:
-                donation = Donation.objects.create(
-                    donor=donor, amount=amount, currency="TJS",
-                    status=Donation.PENDING, message="Спасибо за вашу работу.",
-                )
-            if status == Donation.CONFIRMED:
-                donation.confirm(admin)
-            elif status == Donation.FULFILLED:
-                donation.confirm(admin)
-                donation.fulfill(admin)
+        for donor, dtype, org, product, item_name, category, qty, unit, region, target, assign in plan:
+            offer = Donation.objects.create(
+                donor=donor, donor_type=dtype, organization_name=org,
+                product=product, item_name=item_name, category=category,
+                quantity=qty, unit=unit, region=region,
+                fulfilment="dropoff" if dtype == "business" else "pickup",
+                status=Donation.PENDING, message="",
+            )
+            steps = {
+                Donation.APPROVED: ["approve"],
+                Donation.READY: ["approve", "mark_ready"],
+                Donation.RECEIVED: ["approve", "mark_ready", "mark_received"],
+                Donation.DISTRIBUTED: ["approve", "mark_ready", "mark_received", "mark_distributed"],
+            }.get(target, [])
+            for i, step in enumerate(steps):
+                getattr(offer, step)(admin)
+                if assign and vol and step == "approve":
+                    offer.assign_volunteer(vol, admin)
 
     def _create_pet_reports(self, clients, volunteers, admin):
         """A small Lost & Found board: a lost/found pair in the same region

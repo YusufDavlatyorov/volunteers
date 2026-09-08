@@ -21,14 +21,14 @@ which now exist. Verify anything from it against the actual code before relying 
 source .venv/bin/activate            # venv already present in repo (Python 3.14)
 python manage.py runserver           # dev server → http://127.0.0.1:8000/
 python manage.py migrate             # apply migrations
-python manage.py seed_demo           # demo data: admins/curators/volunteers/clients/tasks (also: coords, availability, priority, one overdue task, one stale pending request, a product catalogue + donations, a lost/found pet board)
+python manage.py seed_demo           # demo data: admins/curators/volunteers/clients/tasks (also: coords, availability, priority, one overdue task, one stale pending request, a needed-items catalogue + in-kind donation offers, a lost/found pet board)
 python manage.py run_telegram_bot    # long-polling Telegram bot (separate process, not part of the request cycle)
 python manage.py geocode_missing [--limit N --dry-run --profiles]   # backfill lat/lng for HelpRequests (and --profiles) via Nominatim; sleeps 1.1s/row for the usage policy
 python manage.py check_overdue_tasks [--dry-run]        # alert curators/admins about tasks overdue past 3h; idempotent, runs on cron (see README "Background jobs")
 python manage.py check_stale_requests [--dry-run]       # mirror of the above for the *pending* side: alert about requests waiting >48h without a volunteer; idempotent, hourly cron
 curl -s localhost:8000/health/ ; curl -s localhost:8000/health/ready/   # liveness / readiness (server/health.py) — public, no secrets
 
-python manage.py test                                    # full suite (525 tests, ~150s)
+python manage.py test                                    # full suite (528 tests, ~150s)
 python manage.py test myapp.tests.MatchingAlgorithmTests  # one test class
 python manage.py test myapp.tests.MatchingAlgorithmTests.test_closer_volunteer_ranks_higher  # one test
 python manage.py test accounts                           # one app
@@ -68,9 +68,11 @@ Access control is two decorators, both used together where needed:
 task/people/emergency/matching lists offer region as a *filter*, not a boundary; a curator in
 Dushanbe can legitimately triage and dispatch a Sogd task. Region-scoping applies only to the
 *volunteer* task feed (`task_list` / `map_data_view` volunteer branch) and to notification
-fan-out (`volunteer_queryset_for_region`). The one thing a curator can't do that an admin can:
-see the curator directory (`people_list/curator`), review volunteer applications, and any
-financial view (donations).
+fan-out (`volunteer_queryset_for_region`). What a curator can't do that an admin can:
+see the curator directory (`people_list/curator`) and review volunteer applications. Curators
+*do* review in-kind donation offers (`donations_admin` + `donation_update` are
+`@role_required("admin", "curator")`) — there is no money on the platform, so nothing is a
+"financial" view anymore; catalogue (`Product`) management stays in the Django admin.
 
 Registering as "volunteer" no longer grants the role directly — it creates a pending
 `VolunteerApplication`, reviewed by an admin (`approve()`/`reject()` flip `is_volunteer` and
@@ -146,9 +148,10 @@ A hardening pass added a cross-cutting layer that is easy to regress — keep it
   ranges in `HelpRequestForm` / `ProfileForm`, in `PetReport.clean()` (closes the Django-admin
   edit path), and in `pets.possible_matches()` before any `haversine_km` (never trust a stored
   pin); a bare `DecimalField(max_digits=9)` would accept nonsense like latitude 800.
-- **Money field validation.** `Donation.amount` / `.quantity` carry `Min/MaxValueValidator`s in
-  addition to `Donation.clean()` and the service/form checks, so the bounds hold on any
-  `full_clean()` path (admin, shell), not only the donate flow.
+- **Donation quantity validation.** `Donation.quantity` carries `Min/MaxValueValidator`s
+  (1..`MAX_DONATION_QUANTITY`) in addition to `Donation.clean()` and the service/form checks, so
+  the bound holds on any `full_clean()` path (admin, shell), not only the donate flow. There is
+  **no money field** — donations are physical goods (Stage 9).
 - **Startup guards.** `server/settings.py` raises `ImproperlyConfigured` if `DJANGO_SECRET_KEY`
   is unset (no built-in fallback anymore) or if `DJANGO_DEBUG=False` with a `*` in
   `ALLOWED_HOSTS`. `DEBUG` now defaults to **False**; secure-cookie / HSTS (preload) /
@@ -251,17 +254,23 @@ Business logic that needs to be unit-testable without the ORM or network lives h
   illegal move — `open → acknowledged → resolved`, `cancelled` from either open state, both
   terminal); the service wraps them to also notify the reporter. Curator/admin only for
   transitions; `check_overdue`-style CRM at `/myapp/emergency/`.
-- **`donations.py`** — the minimal donations/store foundation (`myapp/models/donations.py`:
-  `Product` catalogue + `Donation`). **No payment provider** — `create_donation()` returns a
-  `pending` donation; an admin runs `confirm` / `fulfill` / `cancel` (model methods,
-  `ValueError` on an illegal move — `pending → confirmed → fulfilled`, `cancelled` from either
-  open state). **All money is `Decimal` and computed here**: a product-linked donation's
-  `amount` is `unit_price_snapshot * quantity` (a client-submitted amount is discarded), and
-  `unit_price_snapshot` freezes the price so later `Product.price` edits never touch existing
-  rows. Donor-facing pages (`donate`, `my_donations`, `donation_detail`) are `@login_required`
-  with a `donor_id`/superuser object gate; the `donations_admin` ledger + `donation_update` are
-  **admin-only** (`@role_required("admin")`) — curators get no financial view. `DonationAdmin`
-  in Django admin is read-only.
+- **`donations.py`** — **in-kind** donations: material assistance, **no money anywhere**
+  (Stage 9 replaced the money model). `myapp/models/donations.py`: `Product` is a catalogue of
+  *needed items* (name / `category` / `unit`, no price); `Donation` is an *offer of physical
+  goods* (`donor_type` individual|business + `organization_name`, `product` **or** `item_name`,
+  `category`, `quantity`, `unit`, `fulfilment` pickup|dropoff, `location`, `region`,
+  `assigned_volunteer`). Lifecycle `pending → approved → ready → received → distributed`
+  (+ `cancelled` from any open state), forward-only model methods (`approve` / `mark_ready` /
+  `mark_received` / `mark_distributed` / `cancel`) using the same conditional
+  `UPDATE … WHERE status=<old>` guard as `accept_task_view`; `assign_volunteer()` is a separate
+  save allowed only while `approved`/`ready`. `create_offer()` (service) is the one creation
+  path; `offer_summary()` gives item-count / businesses-helping metrics (never money).
+  Donor-facing pages (`donate`, `my_donations`, `donation_detail`) are `@login_required` with a
+  donor/assigned-volunteer/staff object gate (`_can_view_donation`); the assigned volunteer may
+  POST only `received`/`distributed`. `donations_admin` + `donation_update` are
+  `@role_required("admin", "curator")` — **curators review offers, approve, and assign
+  volunteers**. `assigned_donations` (`/myapp/donations/assigned/`) is the volunteer's delivery
+  queue. `ProductAdmin`/`DonationAdmin` in Django admin stay read-only for `Donation`.
 - **`pets.py`** — the Lost & Found board (`myapp/models/pets.py::PetReport`: a `lost`/`found`
   flag, optional photo + location, lifecycle `open → matched → resolved`/`closed` via model
   methods `mark_matched` / `reopen` / `resolve` / `close`, `ValueError` on an illegal move).
@@ -323,7 +332,8 @@ other outbound call (`geo.get_route`, `maps._nominatim`, `ai_chat_view` → Groq
   `WARNING` line and sets `response._has_been_logged` so Django's request logger doesn't repeat it.
 - **Structured transition logs** — administrative state changes emit one `INFO` line with **IDs
   only** (never message bodies, tokens, or PII): emergency ack/resolve/cancel
-  (`services/emergency.py`), donation confirm/fulfill/cancel (`services/donations.py`), pet
+  (`services/emergency.py`), donation approve/ready/received/distributed/cancel/assign
+  (`services/donations.py`), pet
   moderation (`services/pets.py::apply_action`), volunteer-application approve/reject + task
   self-accept / direct-assign / completion (`myapp/views.py`), login / password-reset throttle
   hits (`accounts/views.py`). The overdue/stale/emergency **zero-recipient** failures already log
@@ -396,3 +406,20 @@ lists render as real tables on desktop, stacked labelled cards on mobile), `.tab
 at `templates/{404,403,500,403_csrf}.html`. `task_detail.html`, `login.html`, `register.html`
 and `ai_assistant.html` were left alone (test-coupled DOM ids / out of scope) — check
 `myapp/tests.py::TaskDetailCrmIntegrationTests` before touching `task_detail.html`.
+
+Stage 9 polish conventions (in `style.css`):
+- **`--nav-h`** (3.85rem) is the sticky-topbar row height; anything else that sticks offsets
+  from it. `.dash-rail` (the right column of `accounts/profile.html`) is `position: sticky;
+  top: calc(var(--nav-h) + var(--space-4))` and drops back to static below 820px (the
+  `.two-col` collapse point) so it never covers content on a phone.
+- **Equal-height cards**: `.grid > .card` (and `.opportunity-card` / `.pet-card`) are
+  `display: flex; flex-direction: column`; a trailing `.button-row`/`.card__foot` gets
+  `margin-top: auto`. CSS-grid already stretches a row's cards to the tallest. Panels whose
+  content length genuinely differs (admin-panel feed columns) opt out with `.grid.grid-top`
+  (`align-items: start`) — don't force those equal.
+- **`.clamp-text`** (line-clamp, `--clamp` default 3) + `.card__more` (a "View full →" link,
+  i18n key `common.view_full`) replace `|truncatechars` so a long description can't stretch a
+  card.
+- The navbar link row is one horizontal scroller (`.nav-links`, `overflow-x: auto`, edge-fade
+  mask kept in sync by `base.html` JS) that never wraps; below 960px it collapses to the
+  tap-to-open `.menu-button` dropdown.

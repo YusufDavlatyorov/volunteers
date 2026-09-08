@@ -65,13 +65,13 @@
             <img class="regions-photo" src="{% static 'images/tajikistan/mountains.jpg' %}" alt="Wakhan valley, Tajikistan">
             {% include "_peaks_mark.html" %}
             <h3 data-i18n="section.regions">Five regions, one platform</h3>
-            <ul class="region-list">
-                <li><span class="peak-dot" style="background:var(--peak-1)"></span><span data-i18n="region.dushanbe">Dushanbe</span></li>
-                <li><span class="peak-dot" style="background:var(--peak-2)"></span><span data-i18n="region.sogd">Sogd</span></li>
-                <li><span class="peak-dot" style="background:var(--peak-3)"></span><span data-i18n="region.khatlon">Khatlon</span></li>
-                <li><span class="peak-dot" style="background:var(--peak-4)"></span><span data-i18n="region.gbao">GBAO</span></li>
-                <li><span class="peak-dot" style="background:var(--peak-5)"></span><span data-i18n="region.rrp">RRP</span></li>
-            </ul>
+            <div class="region-grid">
+                <div class="region-card"><span class="peak-dot" style="background:var(--peak-1)"></span><span data-i18n="region.dushanbe">Dushanbe</span></div>
+                <div class="region-card"><span class="peak-dot" style="background:var(--peak-2)"></span><span data-i18n="region.sogd">Sogd</span></div>
+                <div class="region-card"><span class="peak-dot" style="background:var(--peak-3)"></span><span data-i18n="region.khatlon">Khatlon</span></div>
+                <div class="region-card"><span class="peak-dot" style="background:var(--peak-4)"></span><span data-i18n="region.gbao">GBAO</span></div>
+                <div class="region-card"><span class="peak-dot" style="background:var(--peak-5)"></span><span data-i18n="region.rrp">RRP</span></div>
+            </div>
         </div>
     </div>
 </section>
@@ -82,7 +82,7 @@
     {% if reports %}
     <div class="grid">
         {% for report in reports %}
-            <div class="card reveal"><img class="report-img" src="{{ report.image.url }}" alt="{{ report.title }}"><h3>{{ report.title }}</h3><p>{{ report.description|truncatechars:120 }}</p></div>
+            <div class="card reveal"><img class="report-img" src="{{ report.image.url }}" alt="{{ report.title }}"><h3>{{ report.title }}</h3><p class="clamp-text">{{ report.description }}</p></div>
         {% endfor %}
     </div>
     {% else %}

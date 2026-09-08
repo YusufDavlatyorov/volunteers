@@ -1,155 +1,232 @@
-"""Donations & store foundation.
+"""In-kind donations — material assistance, not money.
 
-Deliberately minimal: a ``Product`` catalogue (things the organisation needs
-funded) and a ``Donation`` record. There is **no payment provider** — a donation
-is created ``pending`` and an admin marks it ``confirmed`` once the transfer is
-verified out of band. The money seam is clean: a future payment service only
-has to flip status and stamp a reference.
+Donors (individuals or local businesses — bakeries, shops, bazaars, pharmacies)
+offer **physical goods**: food, bakery products, clothing, footwear, hygiene
+kits, blankets, school supplies, water, household items. Generation Connect
+routes an offer through a curator to a volunteer and on to a client or a help
+request.
 
-Money rules (enforced by the service in ``myapp.services.donations`` and backed
-up by ``clean()`` here):
-  * ``DecimalField`` only, never float.
-  * A product-linked donation's ``amount`` is computed server-side from
-    ``unit_price_snapshot * quantity`` — a client-submitted amount is ignored.
-  * ``unit_price_snapshot`` freezes the product price at donation time, so a
-    later ``Product.price`` change never rewrites history.
+There is **no payment provider and no money anywhere in this module.** A
+``Donation`` is an *offer of goods* with a physical-handover lifecycle:
+
+    pending -> approved -> ready -> received -> distributed
+                    \\----------- cancelled -----------/   (from any open state)
+
+Curators and admins review offers (``approve`` / ``cancel``), a volunteer can be
+assigned to collect or deliver them, and the volunteer or staff advance
+``ready -> received -> distributed`` as the goods change hands.
+
+``Product`` is a small catalogue of *needed* items — what the organisation is
+asking people to donate — not a priced store: no ``price``, no ``currency``, no
+stock counts. Add those only if a real inventory need appears.
 """
-
-from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
 
-from accounts.models import Users
+from accounts.models import REGION_CHOICES, Users
 
-CURRENCY_CHOICES = [
-    ("TJS", "Сомони (TJS)"),
-    ("USD", "USD"),
-    ("EUR", "EUR"),
+# What a donor can offer. Shared by Product.category and Donation.category.
+DONATION_CATEGORY_CHOICES = [
+    ("food", "Продукты питания"),
+    ("bakery", "Хлеб и выпечка"),
+    ("clothing", "Одежда"),
+    ("footwear", "Обувь"),
+    ("hygiene", "Гигиена"),
+    ("medicine", "Медикаменты"),
+    ("school", "Школьные принадлежности"),
+    ("blankets", "Пледы и постельное"),
+    ("water", "Питьевая вода"),
+    ("household", "Хозяйственные товары"),
+    ("other", "Другое"),
 ]
-DEFAULT_CURRENCY = "TJS"
 
-# Guard rails for a foundation with no payment gate — generous but finite.
-MIN_MONEY = Decimal("0.01")
-MAX_DONATION_AMOUNT = Decimal("1000000.00")
-MAX_DONATION_QUANTITY = 999
+DONOR_TYPE_INDIVIDUAL = "individual"
+DONOR_TYPE_BUSINESS = "business"
+DONATION_DONOR_TYPE_CHOICES = [
+    (DONOR_TYPE_INDIVIDUAL, "Частное лицо"),
+    (DONOR_TYPE_BUSINESS, "Организация / бизнес"),
+]
+
+FULFILMENT_PICKUP = "pickup"
+FULFILMENT_DROPOFF = "dropoff"
+DONATION_FULFILMENT_CHOICES = [
+    (FULFILMENT_PICKUP, "Забрать у донора"),
+    (FULFILMENT_DROPOFF, "Донор привезёт сам"),
+]
+
+# Generous but finite — a guard rail for a foundation with no approval gate on
+# creation. "50 loaves", "30 packages" — five digits is plenty.
+MAX_DONATION_QUANTITY = 100000
 
 DONATION_PENDING = "pending"
-DONATION_CONFIRMED = "confirmed"
-DONATION_FULFILLED = "fulfilled"
+DONATION_APPROVED = "approved"
+DONATION_READY = "ready"
+DONATION_RECEIVED = "received"
+DONATION_DISTRIBUTED = "distributed"
 DONATION_CANCELLED = "cancelled"
 DONATION_STATUS_CHOICES = [
-    (DONATION_PENDING, "Ожидает подтверждения"),
-    (DONATION_CONFIRMED, "Подтверждена"),
-    (DONATION_FULFILLED, "Исполнена"),
-    (DONATION_CANCELLED, "Отменена"),
+    (DONATION_PENDING, "Ожидает проверки"),
+    (DONATION_APPROVED, "Одобрено"),
+    (DONATION_READY, "Готово к передаче"),
+    (DONATION_RECEIVED, "Получено"),
+    (DONATION_DISTRIBUTED, "Распределено"),
+    (DONATION_CANCELLED, "Отменено"),
 ]
-DONATION_OPEN_STATUSES = (DONATION_PENDING, DONATION_CONFIRMED)
+# Non-terminal — an offer that still needs coordination.
+DONATION_OPEN_STATUSES = (
+    DONATION_PENDING,
+    DONATION_APPROVED,
+    DONATION_READY,
+    DONATION_RECEIVED,
+)
 
-# Forward-only. fulfilled / cancelled are terminal. Mirrors EmergencyReport.
+# Forward-only. distributed / cancelled are terminal. Mirrors EmergencyReport.
 DONATION_ALLOWED_TRANSITIONS = {
-    DONATION_PENDING: {DONATION_CONFIRMED, DONATION_CANCELLED},
-    DONATION_CONFIRMED: {DONATION_FULFILLED, DONATION_CANCELLED},
-    DONATION_FULFILLED: set(),
+    DONATION_PENDING: {DONATION_APPROVED, DONATION_CANCELLED},
+    DONATION_APPROVED: {DONATION_READY, DONATION_CANCELLED},
+    DONATION_READY: {DONATION_RECEIVED, DONATION_CANCELLED},
+    DONATION_RECEIVED: {DONATION_DISTRIBUTED},
+    DONATION_DISTRIBUTED: set(),
     DONATION_CANCELLED: set(),
 }
+# Statuses from which a volunteer can be assigned to collect/deliver the goods.
+DONATION_ASSIGNABLE_STATUSES = (DONATION_APPROVED, DONATION_READY)
 
 
 class Product(models.Model):
-    """A catalogue item a donor can fund. Not an inventory system — no stock
-    counts, SKUs or variants; add those only when a real store need appears."""
+    """A catalogue of items the organisation currently needs donated. Not an
+    inventory system — no stock counts, SKUs or variants; add those only when a
+    real store need appears."""
 
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True)
-    price = models.DecimalField(
-        max_digits=10, decimal_places=2, validators=[MinValueValidator(MIN_MONEY)]
+    category = models.CharField(
+        max_length=20, choices=DONATION_CATEGORY_CHOICES, default="other"
     )
-    currency = models.CharField(max_length=3, choices=CURRENCY_CHOICES, default=DEFAULT_CURRENCY)
+    # Free text: "loaves", "kits", "kg", "packages", "pairs".
+    unit = models.CharField(max_length=40, blank=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        verbose_name = "Товар"
-        verbose_name_plural = "Товары"
+        verbose_name = "Нужный товар"
+        verbose_name_plural = "Нужные товары"
         ordering = ["name"]
 
     def __str__(self):
-        return f"{self.name} ({self.price} {self.currency})"
-
-    def clean(self):
-        if self.price is not None and self.price < MIN_MONEY:
-            raise ValidationError({"price": "Цена должна быть больше нуля."})
+        return self.name
 
 
 class Donation(models.Model):
     PENDING = DONATION_PENDING
-    CONFIRMED = DONATION_CONFIRMED
-    FULFILLED = DONATION_FULFILLED
+    APPROVED = DONATION_APPROVED
+    READY = DONATION_READY
+    RECEIVED = DONATION_RECEIVED
+    DISTRIBUTED = DONATION_DISTRIBUTED
     CANCELLED = DONATION_CANCELLED
     OPEN_STATUSES = DONATION_OPEN_STATUSES
 
     # SET_NULL (not CASCADE/PROTECT): users are deactivated, not deleted, but if
-    # one ever is removed the financial record must survive.
+    # one ever is removed the coordination record must survive.
     donor = models.ForeignKey(
         Users, on_delete=models.SET_NULL, null=True, blank=True, related_name="donations"
     )
+    donor_type = models.CharField(
+        max_length=20, choices=DONATION_DONOR_TYPE_CHOICES, default=DONOR_TYPE_INDIVIDUAL
+    )
+    # The bakery / shop / bazaar name when donor_type == business.
+    organization_name = models.CharField(max_length=200, blank=True)
+
+    # Either a catalogue item…
     product = models.ForeignKey(
         Product, on_delete=models.SET_NULL, null=True, blank=True, related_name="donations"
+    )
+    # …or a free-text description of the goods.
+    item_name = models.CharField(max_length=200, blank=True)
+    category = models.CharField(
+        max_length=20, choices=DONATION_CATEGORY_CHOICES, default="other"
     )
     quantity = models.PositiveIntegerField(
         default=1, validators=[MinValueValidator(1), MaxValueValidator(MAX_DONATION_QUANTITY)]
     )
-    # Frozen copy of Product.price at creation — historical amounts never move.
-    unit_price_snapshot = models.DecimalField(
-        max_digits=10, decimal_places=2, null=True, blank=True
+    unit = models.CharField(max_length=40, blank=True)
+    description = models.TextField(blank=True)
+
+    fulfilment = models.CharField(
+        max_length=20, choices=DONATION_FULFILMENT_CHOICES, default=FULFILMENT_PICKUP
     )
-    # Field-level bounds in addition to clean() and the service/form checks, so
-    # the money rule holds on any path that runs validators — including a
-    # Product/Donation created straight through the Django admin or a shell
-    # full_clean(), not just the donate flow.
-    amount = models.DecimalField(
-        max_digits=12,
-        decimal_places=2,
-        validators=[MinValueValidator(MIN_MONEY), MaxValueValidator(MAX_DONATION_AMOUNT)],
-    )
-    currency = models.CharField(max_length=3, choices=CURRENCY_CHOICES, default=DEFAULT_CURRENCY)
+    location = models.CharField(max_length=255, blank=True)
+    region = models.CharField(max_length=100, choices=REGION_CHOICES, blank=True)
+
     status = models.CharField(
         max_length=20, choices=DONATION_STATUS_CHOICES, default=DONATION_PENDING, db_index=True
     )
     message = models.TextField(blank=True)
+
+    # The volunteer collecting / delivering the goods (optional).
+    assigned_volunteer = models.ForeignKey(
+        Users,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="assigned_donations",
+    )
+    # The curator / admin who last reviewed or advanced the offer.
     reviewed_by = models.ForeignKey(
         Users, on_delete=models.SET_NULL, null=True, blank=True, related_name="reviewed_donations"
     )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    confirmed_at = models.DateTimeField(null=True, blank=True)
-    fulfilled_at = models.DateTimeField(null=True, blank=True)
+    approved_at = models.DateTimeField(null=True, blank=True)
+    ready_at = models.DateTimeField(null=True, blank=True)
+    received_at = models.DateTimeField(null=True, blank=True)
+    distributed_at = models.DateTimeField(null=True, blank=True)
     cancelled_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        verbose_name = "Пожертвование"
-        verbose_name_plural = "Пожертвования"
+        verbose_name = "Предложение помощи"
+        verbose_name_plural = "Предложения помощи"
         ordering = ["-created_at"]
         indexes = [models.Index(fields=["status", "-created_at"])]
 
     def __str__(self):
         who = self.donor.username if self.donor else "—"
-        return f"Пожертвование #{self.pk} — {self.amount} {self.currency} ({who})"
+        return f"Предложение #{self.pk} — {self.item_label} ×{self.quantity} ({who})"
 
     def clean(self):
-        if self.amount is None or self.amount < MIN_MONEY:
-            raise ValidationError({"amount": "Сумма пожертвования должна быть больше нуля."})
-        if self.amount > MAX_DONATION_AMOUNT:
-            raise ValidationError({"amount": "Сумма слишком велика."})
-        if self.quantity < 1 or self.quantity > MAX_DONATION_QUANTITY:
+        if self.quantity is None or self.quantity < 1 or self.quantity > MAX_DONATION_QUANTITY:
             raise ValidationError({"quantity": "Некорректное количество."})
+        if not (self.item_name or "").strip() and self.product_id is None:
+            raise ValidationError("Укажите товар из каталога или название предмета.")
+        if self.donor_type == DONOR_TYPE_BUSINESS and not (self.organization_name or "").strip():
+            raise ValidationError({"organization_name": "Укажите название организации."})
+
+    # --- display helpers ---------------------------------------------------
+
+    @property
+    def item_label(self):
+        if self.item_name:
+            return self.item_name
+        return self.product.name if self.product else "—"
+
+    @property
+    def donor_label(self):
+        """Who offered this — the organisation name for a business, else the
+        donor's display name. Never contact details."""
+        if self.donor_type == DONOR_TYPE_BUSINESS and self.organization_name:
+            return self.organization_name
+        return self.donor.username if self.donor else "—"
 
     @property
     def is_open(self):
         return self.status in DONATION_OPEN_STATUSES
+
+    # --- lifecycle -------------------------------------------------------
 
     def can_transition_to(self, target):
         return target in DONATION_ALLOWED_TRANSITIONS.get(self.status, set())
@@ -158,12 +235,12 @@ class Donation(models.Model):
         if not self.can_transition_to(target):
             raise ValueError(f"donation #{self.pk}: {self.status} -> {target} is not allowed")
 
-        # Conditional UPDATE, not fetch-then-save: the WHERE clause is
-        # evaluated by the database as part of one atomic statement, so two
-        # concurrent admin actions on the same donation (e.g. one confirming,
-        # one cancelling) can't both win — the loser sees 0 rows affected
-        # instead of silently overwriting the winner's transition. Same idiom
-        # as accept_task_view and the overdue/stale sweep claims.
+        # Conditional UPDATE, not fetch-then-save: the WHERE clause is evaluated
+        # by the database as one atomic statement, so two concurrent staff
+        # actions on the same offer (e.g. one approving, one cancelling) can't
+        # both win — the loser sees 0 rows affected instead of silently
+        # overwriting the winner. Same idiom as accept_task_view and the
+        # overdue/stale sweep claims.
         now = timezone.now()
         updated = Donation.objects.filter(pk=self.pk, status=self.status).update(
             status=target, reviewed_by=actor, updated_at=now, **{at_field: now}
@@ -182,11 +259,33 @@ class Donation(models.Model):
         self.reviewed_by = actor
         self.updated_at = now
 
-    def confirm(self, actor):
-        self._apply_transition(DONATION_CONFIRMED, actor, "confirmed_at")
+    def approve(self, actor):
+        self._apply_transition(DONATION_APPROVED, actor, "approved_at")
 
-    def fulfill(self, actor):
-        self._apply_transition(DONATION_FULFILLED, actor, "fulfilled_at")
+    def mark_ready(self, actor):
+        self._apply_transition(DONATION_READY, actor, "ready_at")
+
+    def mark_received(self, actor):
+        self._apply_transition(DONATION_RECEIVED, actor, "received_at")
+
+    def mark_distributed(self, actor):
+        self._apply_transition(DONATION_DISTRIBUTED, actor, "distributed_at")
 
     def cancel(self, actor):
         self._apply_transition(DONATION_CANCELLED, actor, "cancelled_at")
+
+    def assign_volunteer(self, volunteer, actor):
+        """Assign (or clear, with volunteer=None) the volunteer who will collect
+        or deliver the goods. Not a status change — only allowed while the offer
+        is approved or ready. Conditional on status so it can't race a cancel."""
+        now = timezone.now()
+        updated = Donation.objects.filter(
+            pk=self.pk, status__in=DONATION_ASSIGNABLE_STATUSES
+        ).update(assigned_volunteer=volunteer, reviewed_by=actor, updated_at=now)
+        if not updated:
+            raise ValueError(
+                f"donation #{self.pk}: cannot assign a volunteer in status {self.status}"
+            )
+        self.assigned_volunteer = volunteer
+        self.reviewed_by = actor
+        self.updated_at = now

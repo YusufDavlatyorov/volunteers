@@ -24,9 +24,6 @@ from .models import (
     Donation,
     EmergencyReport,
     HelpRequest,
-    MAX_DONATION_AMOUNT,
-    MAX_DONATION_QUANTITY,
-    MIN_MONEY,
     PetReport,
     PhotoReport,
     Product,
@@ -3721,315 +3718,374 @@ class DashboardSecurityTests(TestCase):
 
 
 # ============================================================================
-# Donations / store foundation (Stage 6, increment C)
+# In-kind donations — material assistance (Stage 6 increment C, reworked Stage 9)
 # ============================================================================
 
 def _donation_users():
     admin = Users.objects.create_superuser(username="dn_admin", email="dn_admin@example.com", password="pass12345")
     curator = Users.objects.create_user(username="dn_curator", email="dn_curator@example.com", password="pass12345", is_curator=True)
+    volunteer = Users.objects.create_user(username="dn_vol", email="dn_vol@example.com", password="pass12345", is_volunteer=True, region="dushanbe")
     client_a = Users.objects.create_user(username="dn_cli_a", email="dn_cli_a@example.com", password="pass12345", is_client=True)
     client_b = Users.objects.create_user(username="dn_cli_b", email="dn_cli_b@example.com", password="pass12345", is_client=True)
-    return admin, curator, client_a, client_b
+    return admin, curator, volunteer, client_a, client_b
 
 
 class ProductModelTests(TestCase):
     def test_active_by_default(self):
-        p = Product.objects.create(name="Плед", price=Decimal("60.00"))
+        p = Product.objects.create(name="Плед", category="blankets", unit="шт")
         self.assertTrue(p.is_active)
-        self.assertEqual(p.currency, "TJS")
+        self.assertEqual(p.category, "blankets")
 
-    def test_zero_or_negative_price_rejected(self):
-        for bad in (Decimal("0.00"), Decimal("-5.00")):
-            with self.assertRaises(ValidationError):
-                Product(name="x", price=bad).full_clean()
+    def test_category_defaults_to_other(self):
+        self.assertEqual(Product.objects.create(name="x").category, "other")
 
     def test_ordering_is_by_name(self):
-        Product.objects.create(name="Яблоки", price=Decimal("10.00"))
-        Product.objects.create(name="Апельсины", price=Decimal("10.00"))
+        Product.objects.create(name="Яблоки")
+        Product.objects.create(name="Апельсины")
         self.assertEqual([p.name for p in Product.objects.all()], ["Апельсины", "Яблоки"])
 
 
 class DonationModelTests(TestCase):
     def setUp(self):
-        self.admin, _, self.client_a, _ = _donation_users()
+        self.admin, _, self.volunteer, self.client_a, _ = _donation_users()
 
-    def _donation(self, **kw):
-        data = dict(donor=self.client_a, amount=Decimal("100.00"), currency="TJS")
+    def _offer(self, **kw):
+        data = dict(donor=self.client_a, item_name="Хлеб", category="bakery", quantity=5)
         data.update(kw)
         return Donation.objects.create(**data)
 
-    def test_clean_rejects_bad_money_and_quantity(self):
+    def test_clean_rejects_bad_quantity_and_missing_item(self):
         with self.assertRaises(ValidationError):
-            Donation(donor=self.client_a, amount=Decimal("0.00")).full_clean(exclude=["donor"])
+            Donation(donor=self.client_a, item_name="x", quantity=0).full_clean(exclude=["donor"])
         with self.assertRaises(ValidationError):
-            Donation(donor=self.client_a, amount=Decimal("-1.00")).full_clean(exclude=["donor"])
+            Donation(donor=self.client_a, item_name="x", quantity=200000).full_clean(exclude=["donor"])
         with self.assertRaises(ValidationError):
-            Donation(donor=self.client_a, amount=Decimal("2000000.00")).full_clean(exclude=["donor"])
+            Donation(donor=self.client_a).full_clean(exclude=["donor"])  # no product, no item_name
+
+    def test_clean_requires_organization_name_for_business(self):
         with self.assertRaises(ValidationError):
-            Donation(donor=self.client_a, amount=Decimal("10.00"), quantity=0).full_clean(exclude=["donor"])
+            Donation(
+                donor=self.client_a, item_name="Хлеб", donor_type="business",
+            ).full_clean(exclude=["donor"])
+        # ok with an organization name
+        Donation(
+            donor=self.client_a, item_name="Хлеб", donor_type="business",
+            organization_name="Пекарня",
+        ).full_clean(exclude=["donor"])
+
+    def test_item_label_prefers_item_name_then_product(self):
+        product = Product.objects.create(name="Плед", category="blankets")
+        self.assertEqual(self._offer(item_name="", product=product).item_label, "Плед")
+        self.assertEqual(self._offer(item_name="Куртка").item_label, "Куртка")
 
     def test_transition_happy_path(self):
-        d = self._donation()
-        d.confirm(self.admin)
-        self.assertEqual(d.status, Donation.CONFIRMED)
-        self.assertIsNotNone(d.confirmed_at)
+        d = self._offer()
+        d.approve(self.admin)
+        self.assertEqual(d.status, Donation.APPROVED)
+        self.assertIsNotNone(d.approved_at)
         self.assertEqual(d.reviewed_by, self.admin)
-        d.fulfill(self.admin)
-        self.assertEqual(d.status, Donation.FULFILLED)
+        d.mark_ready(self.admin)
+        d.mark_received(self.admin)
+        d.mark_distributed(self.admin)
+        self.assertEqual(d.status, Donation.DISTRIBUTED)
+        self.assertIsNotNone(d.distributed_at)
 
-    def test_cancel_from_pending_or_confirmed(self):
-        self._donation().cancel(self.admin)
-        d = self._donation()
-        d.confirm(self.admin)
-        d.cancel(self.admin)
-        self.assertEqual(d.status, Donation.CANCELLED)
+    def test_cancel_from_each_open_state(self):
+        for step in ([], ["approve"], ["approve", "mark_ready"]):
+            d = self._offer()
+            for s in step:
+                getattr(d, s)(self.admin)
+            d.cancel(self.admin)
+            self.assertEqual(d.status, Donation.CANCELLED)
 
     def test_illegal_transitions_raise(self):
-        d = self._donation()
+        d = self._offer()
         with self.assertRaises(ValueError):
-            d.fulfill(self.admin)  # pending -> fulfilled not allowed
-        d.confirm(self.admin)
-        d.fulfill(self.admin)
+            d.mark_received(self.admin)  # pending -> received not allowed
+        d.approve(self.admin)
+        d.mark_ready(self.admin)
+        d.mark_received(self.admin)
+        d.mark_distributed(self.admin)
         with self.assertRaises(ValueError):
-            d.confirm(self.admin)  # fulfilled is terminal
-        cancelled = self._donation()
+            d.approve(self.admin)  # distributed is terminal
+        cancelled = self._offer()
         cancelled.cancel(self.admin)
         with self.assertRaises(ValueError):
-            cancelled.confirm(self.admin)
+            cancelled.approve(self.admin)
+
+    def test_assign_volunteer_only_while_approved_or_ready(self):
+        d = self._offer()
+        with self.assertRaises(ValueError):
+            d.assign_volunteer(self.volunteer, self.admin)  # still pending
+        d.approve(self.admin)
+        d.assign_volunteer(self.volunteer, self.admin)
+        self.assertEqual(d.assigned_volunteer, self.volunteer)
+        d.mark_ready(self.admin)
+        d.mark_received(self.admin)
+        with self.assertRaises(ValueError):
+            d.assign_volunteer(self.volunteer, self.admin)  # received — too late
 
 
 class DonationTransitionConcurrencyTests(TestCase):
-    """Regression test for the Stage 6 audit's MEDIUM finding: _apply_transition
-    used to be read-then-save with no conditional-UPDATE guard, so two admin
-    actions racing on the same pending donation (e.g. one confirming, one
-    cancelling) could both "succeed" and leave an inconsistent audit trail
-    (status=cancelled but confirmed_at also set).
+    """The model's _apply_transition uses a conditional UPDATE ... WHERE
+    status=<old> so two staff actions racing on the same offer can't both win.
 
-    Reproduced deterministically with two independently-loaded in-memory
-    copies of the same row — each holds the pre-race ``status`` it read, so
-    calling a transition on each in turn exercises exactly the interleaving a
-    real race would produce, without depending on real thread timing."""
+    Reproduced deterministically with two independently-loaded in-memory copies
+    of the same row — each holds the pre-race ``status`` it read, so calling a
+    transition on each in turn exercises exactly the interleaving a real race
+    would produce, without depending on thread timing."""
 
     def setUp(self):
-        self.admin, _, self.client_a, _ = _donation_users()
-        self.donation = Donation.objects.create(
-            donor=self.client_a, amount=Decimal("50.00"), currency="TJS",
+        self.admin, _, _, self.client_a, _ = _donation_users()
+        self.offer = Donation.objects.create(
+            donor=self.client_a, item_name="Плед", category="blankets", quantity=2,
         )
 
-    def test_confirm_then_racing_cancel_only_confirm_wins(self):
-        copy_a = Donation.objects.get(pk=self.donation.pk)
-        copy_b = Donation.objects.get(pk=self.donation.pk)
+    def test_approve_then_racing_cancel_only_approve_wins(self):
+        copy_a = Donation.objects.get(pk=self.offer.pk)
+        copy_b = Donation.objects.get(pk=self.offer.pk)
 
-        copy_a.confirm(self.admin)  # DB is still "pending" when this applies
+        copy_a.approve(self.admin)  # DB is still "pending" when this applies
         with self.assertRaises(ValueError):
-            copy_b.cancel(self.admin)  # DB is now "confirmed" — stale WHERE misses
+            copy_b.cancel(self.admin)  # DB is now "approved" — stale WHERE misses
 
-        final = Donation.objects.get(pk=self.donation.pk)
-        self.assertEqual(final.status, Donation.CONFIRMED)
-        self.assertIsNotNone(final.confirmed_at)
+        final = Donation.objects.get(pk=self.offer.pk)
+        self.assertEqual(final.status, Donation.APPROVED)
+        self.assertIsNotNone(final.approved_at)
         self.assertIsNone(final.cancelled_at)
 
-    def test_cancel_then_racing_confirm_only_cancel_wins(self):
-        copy_a = Donation.objects.get(pk=self.donation.pk)
-        copy_b = Donation.objects.get(pk=self.donation.pk)
+    def test_cancel_then_racing_approve_only_cancel_wins(self):
+        copy_a = Donation.objects.get(pk=self.offer.pk)
+        copy_b = Donation.objects.get(pk=self.offer.pk)
 
         copy_a.cancel(self.admin)
         with self.assertRaises(ValueError):
-            copy_b.confirm(self.admin)
+            copy_b.approve(self.admin)
 
-        final = Donation.objects.get(pk=self.donation.pk)
+        final = Donation.objects.get(pk=self.offer.pk)
         self.assertEqual(final.status, Donation.CANCELLED)
-        self.assertIsNone(final.confirmed_at)
+        self.assertIsNone(final.approved_at)
         self.assertIsNotNone(final.cancelled_at)
 
 
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
 class DonationServiceTests(TestCase):
     def setUp(self):
-        self.admin, _, self.client_a, self.client_b = _donation_users()
-        self.product = Product.objects.create(name="Набор продуктов", price=Decimal("120.00"), currency="TJS")
-
-    # --- free donations ---
-    def test_free_donation_created_pending(self):
-        d = donations.create_donation(donor=self.client_a, amount="75.50", message="  спасибо  ")
-        self.assertEqual(d.status, Donation.PENDING)
-        self.assertEqual(d.amount, Decimal("75.50"))
-        self.assertEqual(d.currency, "TJS")
-        self.assertIsNone(d.product)
-        self.assertIsNone(d.unit_price_snapshot)
-        self.assertEqual(d.message, "спасибо")
-
-    def test_free_donation_zero_negative_junk_and_missing_rejected(self):
-        for bad in ("0", "-10", "abc", "NaN", None, ""):
-            with self.assertRaises(ValidationError):
-                donations.create_donation(donor=self.client_a, amount=bad)
-        self.assertEqual(Donation.objects.count(), 0)
-
-    def test_free_donation_over_max_rejected(self):
-        with self.assertRaises(ValidationError):
-            donations.create_donation(donor=self.client_a, amount="1000000.01")
-        self.assertEqual(Donation.objects.count(), 0)
-
-    # --- product donations: money is server-side ---
-    def test_product_donation_amount_is_computed_server_side(self):
-        d = donations.create_donation(
-            donor=self.client_a, product=self.product, quantity=3, amount="1.00", currency="USD",
+        self.admin, _, self.volunteer, self.client_a, self.client_b = _donation_users()
+        self.product = Product.objects.create(
+            name="Продуктовый набор", category="food", unit="наборов", is_active=True,
         )
-        self.assertEqual(d.amount, Decimal("360.00"))          # 120 * 3, not the 1.00 sent
-        self.assertEqual(d.unit_price_snapshot, Decimal("120.00"))
-        self.assertEqual(d.currency, "TJS")                    # from the product, not "USD"
-        self.assertEqual(d.quantity, 3)
 
-    def test_product_donation_quantity_bounds(self):
-        for bad_qty in (0, -1, 1000):
-            with self.assertRaises(ValidationError):
-                donations.create_donation(donor=self.client_a, product=self.product, quantity=bad_qty)
+    def test_free_text_offer_created_pending(self):
+        d = donations.create_offer(
+            donor=self.client_a, item_name="  Тёплые куртки  ", category="clothing",
+            quantity=3, unit="шт", description="  разные размеры  ",
+        )
+        self.assertEqual(d.status, Donation.PENDING)
+        self.assertEqual(d.item_name, "Тёплые куртки")
+        self.assertEqual(d.category, "clothing")
+        self.assertEqual(d.quantity, 3)
+        self.assertIsNone(d.product)
+        self.assertEqual(d.description, "разные размеры")
+
+    def test_offer_needs_a_product_or_item_name(self):
+        with self.assertRaises(ValidationError):
+            donations.create_offer(donor=self.client_a, item_name="", product=None)
         self.assertEqual(Donation.objects.count(), 0)
 
-    def test_product_donation_amount_ceiling_enforced(self):
-        pricey = Product.objects.create(name="Авто", price=Decimal("900000.00"))
+    def test_business_offer_needs_organization_name(self):
         with self.assertRaises(ValidationError):
-            donations.create_donation(donor=self.client_a, product=pricey, quantity=2)
+            donations.create_offer(
+                donor=self.client_a, item_name="Хлеб", donor_type="business", organization_name="",
+            )
+        self.assertEqual(Donation.objects.count(), 0)
+        d = donations.create_offer(
+            donor=self.client_a, item_name="Хлеб", donor_type="business",
+            organization_name="Пекарня «Нон»", quantity=50, unit="буханок",
+        )
+        self.assertEqual(d.donor_label, "Пекарня «Нон»")
+
+    def test_product_offer_carries_category_and_unit(self):
+        d = donations.create_offer(donor=self.client_a, product=self.product, quantity=2)
+        self.assertEqual(d.category, "food")
+        self.assertEqual(d.unit, "наборов")
+        self.assertEqual(d.item_name, "")
+        self.assertEqual(d.item_label, "Продуктовый набор")
+
+    def test_quantity_bounds_enforced(self):
+        for bad_qty in (0, -1, 200000):
+            with self.assertRaises(ValidationError):
+                donations.create_offer(donor=self.client_a, item_name="x", quantity=bad_qty)
         self.assertEqual(Donation.objects.count(), 0)
 
     def test_inactive_product_rejected_and_nothing_written(self):
         self.product.is_active = False
         self.product.save()
         with self.assertRaises(ValidationError):
-            donations.create_donation(donor=self.client_a, product=self.product, quantity=1)
+            donations.create_offer(donor=self.client_a, product=self.product, quantity=1)
         self.assertEqual(Donation.objects.count(), 0)
 
-    def test_price_change_does_not_touch_existing_donation(self):
-        d = donations.create_donation(donor=self.client_a, product=self.product, quantity=2)
-        self.assertEqual(d.amount, Decimal("240.00"))
-        self.product.price = Decimal("999.00")
-        self.product.save()
-        d.refresh_from_db()
-        self.assertEqual(d.amount, Decimal("240.00"))
-        self.assertEqual(d.unit_price_snapshot, Decimal("120.00"))
-
-    def test_deleting_product_keeps_the_financial_record(self):
-        d = donations.create_donation(donor=self.client_a, product=self.product, quantity=1)
+    def test_deleting_product_keeps_the_offer_record(self):
+        d = donations.create_offer(donor=self.client_a, product=self.product, quantity=1)
         self.product.delete()
         d.refresh_from_db()
         self.assertIsNone(d.product)
-        self.assertEqual(d.amount, Decimal("120.00"))
-        self.assertEqual(d.unit_price_snapshot, Decimal("120.00"))
+        self.assertEqual(d.item_name, "")  # item_label falls back to "—"
 
     # --- read helpers ---
     def test_donations_for_is_scoped_and_ordered(self):
-        d1 = donations.create_donation(donor=self.client_a, amount="10")
-        donations.create_donation(donor=self.client_b, amount="20")
-        d3 = donations.create_donation(donor=self.client_a, amount="30")
+        d1 = donations.create_offer(donor=self.client_a, item_name="a")
+        donations.create_offer(donor=self.client_b, item_name="b")
+        d3 = donations.create_offer(donor=self.client_a, item_name="c")
         self.assertEqual([d.id for d in donations.donations_for(self.client_a)], [d3.id, d1.id])
 
-    def test_summary_counts_and_per_currency_raised(self):
-        donations.create_donation(donor=self.client_a, product=self.product, quantity=1).confirm(self.admin)
-        donations.create_donation(donor=self.client_a, amount="40", currency="USD").confirm(self.admin)
-        donations.create_donation(donor=self.client_b, amount="5")  # stays pending
-        summary = donations.donation_summary()
+    def test_assigned_to_is_scoped_to_the_volunteer_and_open_offers(self):
+        mine = donations.create_offer(donor=self.client_a, item_name="Плед", quantity=2)
+        donations.approve_offer(mine, actor=self.admin)
+        donations.assign_offer_volunteer(mine, volunteer=self.volunteer, actor=self.admin)
+        other = donations.create_offer(donor=self.client_b, item_name="Куртка")
+        donations.approve_offer(other, actor=self.admin)
+        self.assertEqual({d.id for d in donations.assigned_to(self.volunteer)}, {mine.id})
+        # once distributed it drops out of the assigned queue
+        donations.mark_offer_ready(mine, actor=self.admin)
+        donations.mark_offer_received(mine, actor=self.admin)
+        donations.mark_offer_distributed(mine, actor=self.admin)
+        self.assertEqual(list(donations.assigned_to(self.volunteer)), [])
+
+    def test_offer_summary_counts_items_and_businesses(self):
+        a = donations.create_offer(donor=self.client_a, product=self.product, quantity=4)
+        donations.approve_offer(a, actor=self.admin)
+        donations.mark_offer_ready(a, actor=self.admin)
+        donations.mark_offer_received(a, actor=self.admin)  # 4 received
+        b = donations.create_offer(
+            donor=self.client_a, item_name="Хлеб", donor_type="business",
+            organization_name="Пекарня", quantity=50,
+        )
+        donations.approve_offer(b, actor=self.admin)
+        donations.mark_offer_ready(b, actor=self.admin)
+        donations.mark_offer_received(b, actor=self.admin)
+        donations.mark_offer_distributed(b, actor=self.admin)  # 50 received + distributed
+        donations.create_offer(donor=self.client_b, item_name="x")  # stays pending
+        summary = donations.offer_summary()
         self.assertEqual(summary["total"], 3)
         self.assertEqual(summary["pending"], 1)
-        self.assertEqual(summary["confirmed"], 2)
-        raised = {r["currency"]: r["total"] for r in summary["raised"]}
-        self.assertEqual(raised["TJS"], Decimal("120.00"))
-        self.assertEqual(raised["USD"], Decimal("40.00"))
+        self.assertEqual(summary["items_received"], 54)
+        self.assertEqual(summary["items_distributed"], 50)
+        self.assertEqual(summary["businesses"], 1)
 
 
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
 class DonationViewTests(TestCase):
     def setUp(self):
-        self.admin, self.curator, self.client_a, self.client_b = _donation_users()
-        self.product = Product.objects.create(name="Плед", price=Decimal("60.00"))
+        self.admin, self.curator, self.volunteer, self.client_a, self.client_b = _donation_users()
+        self.product = Product.objects.create(name="Плед", category="blankets", unit="шт")
 
     def _login(self, username):
         self.client.login(username=username, password="pass12345")
 
     def test_anonymous_redirected_from_donation_pages(self):
-        for name, args in [("donate", []), ("my_donations", []), ("donations_admin", [])]:
-            resp = self.client.get(reverse(name, args=args))
+        for name in ("donate", "my_donations", "donations_admin", "assigned_donations"):
+            resp = self.client.get(reverse(name))
             self.assertEqual(resp.status_code, 302)
             self.assertIn("/login", resp.url)
 
-    def test_authenticated_user_creates_pending_donation(self):
+    def test_authenticated_user_creates_pending_offer(self):
         self._login("dn_cli_a")
-        resp = self.client.post(reverse("donate"), {"quantity": "1", "amount": "42.00", "currency": "TJS", "message": ""})
-        d = Donation.objects.get(donor=self.client_a)
-        self.assertEqual(d.status, Donation.PENDING)
-        self.assertEqual(d.amount, Decimal("42.00"))
-        self.assertRedirects(resp, reverse("donation_detail", args=[d.id]))
-
-    def test_tampered_amount_on_product_donation_is_ignored(self):
-        self._login("dn_cli_a")
-        self.client.post(reverse("donate"), {
-            "product": self.product.id, "quantity": "2", "amount": "0.01", "currency": "TJS",
+        resp = self.client.post(reverse("donate"), {
+            "donor_type": "individual", "item_name": "Тёплые куртки", "category": "clothing",
+            "quantity": "4", "unit": "шт", "fulfilment": "pickup",
         })
         d = Donation.objects.get(donor=self.client_a)
-        self.assertEqual(d.amount, Decimal("120.00"))  # 60 * 2
+        self.assertEqual(d.status, Donation.PENDING)
+        self.assertEqual(d.quantity, 4)
+        self.assertRedirects(resp, reverse("donation_detail", args=[d.id]))
 
     def test_my_donations_lists_only_own(self):
-        mine = donations.create_donation(donor=self.client_a, amount="10")
-        theirs = donations.create_donation(donor=self.client_b, amount="20")
+        mine = donations.create_offer(donor=self.client_a, item_name="a")
+        donations.create_offer(donor=self.client_b, item_name="b")
         self._login("dn_cli_a")
         resp = self.client.get(reverse("my_donations"))
-        ids = {d.id for d in resp.context["donations"]}
-        self.assertEqual(ids, {mine.id})
+        self.assertEqual({d.id for d in resp.context["donations"]}, {mine.id})
 
-    def test_donation_detail_idor_blocked(self):
-        theirs = donations.create_donation(donor=self.client_b, amount="20")
+    def test_donation_detail_idor_blocked_for_unrelated_user(self):
+        theirs = donations.create_offer(donor=self.client_b, item_name="b")
         self._login("dn_cli_a")
         resp = self.client.get(reverse("donation_detail", args=[theirs.id]))
         self.assertRedirects(resp, reverse("profile"))
 
-    def test_admin_can_view_any_donation(self):
-        theirs = donations.create_donation(donor=self.client_b, amount="20")
-        self._login("dn_admin")
+    def test_curator_can_view_ledger_and_any_offer(self):
+        theirs = donations.create_offer(donor=self.client_b, item_name="b")
+        self._login("dn_curator")
+        self.assertEqual(self.client.get(reverse("donations_admin")).status_code, 200)
         self.assertEqual(self.client.get(reverse("donation_detail", args=[theirs.id])).status_code, 200)
 
-    def test_donations_admin_ledger_is_admin_only(self):
-        self._login("dn_curator")
-        self.assertRedirects(self.client.get(reverse("donations_admin")), reverse("profile"))
+    def test_donations_ledger_is_staff_only(self):
+        offer = donations.create_offer(donor=self.client_a, item_name="a")
         self._login("dn_cli_a")
         self.assertRedirects(self.client.get(reverse("donations_admin")), reverse("profile"))
-        self._login("dn_admin")
+        self._login("dn_curator")
         self.assertEqual(self.client.get(reverse("donations_admin")).status_code, 200)
 
-    def test_donation_update_requires_post_and_admin(self):
-        d = donations.create_donation(donor=self.client_a, amount="10")
-        # GET rejected
-        self._login("dn_admin")
-        self.assertEqual(self.client.get(reverse("donation_update", args=[d.id])).status_code, 405)
-        # curator / client cannot act
-        self._login("dn_curator")
-        self.assertRedirects(
-            self.client.post(reverse("donation_update", args=[d.id]), {"action": "confirm"}),
-            reverse("profile"),
-        )
-        d.refresh_from_db()
-        self.assertEqual(d.status, Donation.PENDING)
-        self._login("dn_cli_a")
-        self.assertRedirects(
-            self.client.post(reverse("donation_update", args=[d.id]), {"action": "confirm"}),
-            reverse("profile"),
-        )
-        d.refresh_from_db()
-        self.assertEqual(d.status, Donation.PENDING)
-
-    def test_admin_confirm_advances_status_and_notifies_donor(self):
-        d = donations.create_donation(donor=self.client_a, amount="10")
+    def test_curator_approve_advances_status_and_notifies_donor(self):
+        d = donations.create_offer(donor=self.client_a, item_name="Плед", quantity=2)
         mail.outbox.clear()
-        self._login("dn_admin")
-        self.client.post(reverse("donation_update", args=[d.id]), {"action": "confirm"})
+        self._login("dn_curator")
+        self.client.post(reverse("donation_update", args=[d.id]), {"action": "approve"})
         d.refresh_from_db()
-        self.assertEqual(d.status, Donation.CONFIRMED)
-        self.assertEqual(d.reviewed_by, self.admin)
+        self.assertEqual(d.status, Donation.APPROVED)
+        self.assertEqual(d.reviewed_by, self.curator)
         self.assertEqual(len(mail.outbox), 1)
         self.assertIn(self.client_a.email, mail.outbox[0].to)
 
-    def test_illegal_transition_via_view_is_a_noop_with_warning(self):
-        d = donations.create_donation(donor=self.client_a, amount="10")
+    def test_donation_update_requires_post(self):
+        d = donations.create_offer(donor=self.client_a, item_name="a")
         self._login("dn_admin")
-        resp = self.client.post(reverse("donation_update", args=[d.id]), {"action": "fulfill"}, follow=True)
+        self.assertEqual(self.client.get(reverse("donation_update", args=[d.id])).status_code, 405)
+
+    def test_client_cannot_advance_someone_elses_offer(self):
+        d = donations.create_offer(donor=self.client_b, item_name="a")
+        self._login("dn_cli_a")
+        resp = self.client.post(reverse("donation_update", args=[d.id]), {"action": "approve"})
+        self.assertEqual(resp.status_code, 302)
+        d.refresh_from_db()
+        self.assertEqual(d.status, Donation.PENDING)
+
+    def test_assigned_volunteer_can_advance_received_and_distributed_only(self):
+        d = donations.create_offer(donor=self.client_a, item_name="Плед", quantity=2)
+        donations.approve_offer(d, actor=self.admin)
+        donations.assign_offer_volunteer(d, volunteer=self.volunteer, actor=self.admin)
+        donations.mark_offer_ready(d, actor=self.admin)
+        self._login("dn_vol")
+        # cannot approve/cancel
+        self.client.post(reverse("donation_update", args=[d.id]), {"action": "cancel"})
+        d.refresh_from_db()
+        self.assertEqual(d.status, Donation.READY)
+        # can mark received then distributed
+        self.client.post(reverse("donation_update", args=[d.id]), {"action": "received"})
+        d.refresh_from_db()
+        self.assertEqual(d.status, Donation.RECEIVED)
+        self.client.post(reverse("donation_update", args=[d.id]), {"action": "distributed"})
+        d.refresh_from_db()
+        self.assertEqual(d.status, Donation.DISTRIBUTED)
+
+    def test_staff_assign_volunteer_and_notify(self):
+        d = donations.create_offer(donor=self.client_a, item_name="Плед", region="dushanbe")
+        donations.approve_offer(d, actor=self.admin)
+        mail.outbox.clear()
+        self._login("dn_curator")
+        self.client.post(reverse("donation_update", args=[d.id]), {
+            "action": "assign", "volunteer_id": str(self.volunteer.id),
+        })
+        d.refresh_from_db()
+        self.assertEqual(d.assigned_volunteer, self.volunteer)
+        self.assertTrue(any(self.volunteer.email in m.to for m in mail.outbox))
+
+    def test_illegal_transition_via_view_is_a_noop_with_warning(self):
+        d = donations.create_offer(donor=self.client_a, item_name="a")
+        self._login("dn_admin")
+        resp = self.client.post(
+            reverse("donation_update", args=[d.id]), {"action": "distributed"}, follow=True
+        )
         d.refresh_from_db()
         self.assertEqual(d.status, Donation.PENDING)
         self.assertContains(resp, "недоступно")
@@ -4040,33 +4096,35 @@ class DonationDashboardTests(TestCase):
     def setUp(self):
         self.admin, self.curator, self.vol_a, self.vol_b, self.cli_a, self.cli_b = _dash_users()
 
-    def test_client_dashboard_carries_own_donations(self):
-        mine = donations.create_donation(donor=self.cli_a, amount="15")
-        donations.create_donation(donor=self.cli_b, amount="99")
+    def test_client_dashboard_carries_own_offers(self):
+        mine = donations.create_offer(donor=self.cli_a, item_name="Плед", quantity=2)
+        donations.create_offer(donor=self.cli_b, item_name="Куртка")
         self.client.login(username="d5_cli_a", password="pass12345")
         resp = self.client.get(reverse("profile"))
         self.assertEqual(resp.context["donation_count"], 1)
         self.assertEqual({d.id for d in resp.context["recent_donations"]}, {mine.id})
-        self.assertNotContains(resp, "99")
 
-    def test_admin_dashboard_has_donation_summary(self):
-        donations.create_donation(donor=self.cli_a, amount="10")
+    def test_admin_dashboard_has_offer_summary(self):
+        donations.create_offer(donor=self.cli_a, item_name="a")
         self.client.login(username="d5_admin", password="pass12345")
         resp = self.client.get(reverse("profile"))
-        self.assertIn("donation_summary", resp.context)
-        self.assertEqual(resp.context["donation_summary"]["pending"], 1)
+        self.assertIn("offer_summary", resp.context)
+        self.assertEqual(resp.context["offer_summary"]["pending"], 1)
 
-    def test_curator_dashboard_has_no_donation_data(self):
-        donations.create_donation(donor=self.cli_a, amount="10")
+    def test_curator_dashboard_has_pending_offers_queue(self):
+        donations.create_offer(donor=self.cli_a, item_name="a")
         self.client.login(username="d5_curator", password="pass12345")
         resp = self.client.get(reverse("profile"))
-        self.assertNotIn("donation_summary", resp.context)
+        self.assertIn("offer_summary", resp.context)
+        self.assertEqual(len(resp.context["donation_offers_pending"]), 1)
 
-    def test_volunteer_dashboard_has_no_donation_data(self):
+    def test_volunteer_dashboard_carries_assigned_deliveries(self):
+        d = donations.create_offer(donor=self.cli_a, item_name="Плед", quantity=2)
+        donations.approve_offer(d, actor=self.admin)
+        donations.assign_offer_volunteer(d, volunteer=self.vol_a, actor=self.admin)
         self.client.login(username="d5_vol_a", password="pass12345")
         resp = self.client.get(reverse("profile"))
-        self.assertNotIn("donation_summary", resp.context)
-        self.assertNotIn("recent_donations", resp.context)
+        self.assertEqual({x.id for x in resp.context["assigned_donations"]}, {d.id})
 
 # ===========================================================================
 # Lost & Found pets (Stage 6, increment D)
@@ -4731,27 +4789,26 @@ class RecommendVolunteersDeterminismTests(TestCase):
             self.assertEqual(len(ids), 2)
 
 
-class DonationAmountFieldValidatorTests(TestCase):
-    """Stage 7 LOW 4: Donation.amount / quantity now carry field-level
-    Min/Max validators, so the money rule holds on any full_clean() path
-    (Django admin, shell) — not only Donation.clean() and the service."""
+class DonationQuantityFieldValidatorTests(TestCase):
+    """Donation.quantity carries field-level Min/Max validators, so the bound
+    holds on any full_clean() path (Django admin, shell) — not only
+    Donation.clean() and the service."""
 
     def setUp(self):
-        self.admin, _, self.client_a, _ = _donation_users()
-
-    def test_amount_field_has_bounds_validators(self):
-        validators = Donation._meta.get_field("amount").validators
-        self.assertTrue(any(getattr(v, "limit_value", None) == MIN_MONEY for v in validators))
-        self.assertTrue(any(getattr(v, "limit_value", None) == MAX_DONATION_AMOUNT for v in validators))
+        self.admin, _, _, self.client_a, _ = _donation_users()
 
     def test_quantity_field_has_bounds_validators(self):
         validators = Donation._meta.get_field("quantity").validators
-        self.assertTrue(any(getattr(v, "limit_value", None) == MAX_DONATION_QUANTITY for v in validators))
+        limits = {getattr(v, "limit_value", None) for v in validators}
+        self.assertIn(1, limits)
+        self.assertIn(100000, limits)
 
-    def test_full_clean_rejects_zero_and_over_cap_amounts(self):
-        for bad in (Decimal("0.00"), Decimal("-1.00"), MAX_DONATION_AMOUNT + Decimal("0.01")):
+    def test_full_clean_rejects_zero_and_over_cap_quantity(self):
+        for bad in (0, 100001):
             with self.assertRaises(ValidationError):
-                Donation(donor=self.client_a, amount=bad).full_clean(exclude=["donor"])
+                Donation(
+                    donor=self.client_a, item_name="x", quantity=bad,
+                ).full_clean(exclude=["donor"])
 
 
 class MapEndpointBoundsTests(TestCase):
@@ -5097,16 +5154,19 @@ class StructuredTransitionLoggingTests(TestCase):
     never message contents or secrets)."""
 
     def setUp(self):
-        self.admin, _, self.client_a, _ = _donation_users()
+        self.admin, _, _, self.client_a, _ = _donation_users()
         self.a2, self.c2, self.reporter, self.other, self.volunteer = _pet_users()
 
     def test_donation_transition_logs_ids_only(self):
-        d = Donation.objects.create(donor=self.client_a, amount=Decimal("40.00"), currency="TJS", message="secret note")
+        d = Donation.objects.create(
+            donor=self.client_a, item_name="Плед", category="blankets", quantity=2,
+            message="secret note",
+        )
         with self.assertLogs("myapp.services.donations", level="INFO") as cm:
-            donations.confirm_donation(d, actor=self.admin)
+            donations.approve_offer(d, actor=self.admin)
         line = "\n".join(cm.output)
         self.assertIn(f"donation #{d.pk}", line)
-        self.assertIn("confirmed", line)
+        self.assertIn("approved", line)
         self.assertNotIn("secret note", line)
 
     def test_emergency_transition_logs_ids_only(self):

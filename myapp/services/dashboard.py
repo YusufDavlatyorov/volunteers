@@ -78,6 +78,8 @@ def _volunteer(user):
             .select_related("help_request")
             .order_by("-created_at")[:LIST_LIMIT]
         ),
+        # In-kind offers this volunteer has been asked to collect or deliver.
+        "assigned_donations": list(donations.assigned_to(user)[:LIST_LIMIT]),
         "upcoming_events": _upcoming_events(user.region),
     }
 
@@ -173,6 +175,10 @@ def _curator(user):
             PetReport.objects.filter(status__in=PetReport.OPEN_STATUSES)
             .order_by("-created_at")[:LIST_LIMIT]
         ),
+        # In-kind donation offers waiting for a curator's review + a compact
+        # operational summary (item counts, never money).
+        "offer_summary": donations.offer_summary(),
+        "donation_offers_pending": list(donations.pending_offers()[:QUEUE_LIMIT]),
     }
 
 
@@ -181,7 +187,6 @@ def _admin(user):
     data["dash_role"] = "admin"
     data["users_by_role"] = analytics.users_by_role()
     data["platform_totals"] = analytics.platform_totals()
-    data["donation_summary"] = donations.donation_summary()
     data["total_events"] = Event.objects.count()
     data["recent_applications"] = (
         VolunteerApplication.objects.select_related("user").order_by("-created_at")[:LIST_LIMIT]
