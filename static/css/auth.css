@@ -1,0 +1,112 @@
+/* ===== auth.css — login / register / password-reset pages =====
+   Consumers: accounts/login.html, accounts/register.html,
+   accounts/forgot_password.html, accounts/reset_password_confirm.html.
+   Loaded after style.css via {% block extra_css %}.
+
+   The shared form primitives (.field-group, .field-hint, .field-error,
+   .auth-alert, .checkbox-row, and every bare input/label/select/textarea rule)
+   stay in style.css — they are used by every form in the app, not just auth. */
+
+.auth-shell {
+    position: relative;
+    min-height: 78vh;
+    display: grid;
+    place-items: center;
+    padding: clamp(2rem, 6vw, 4rem) 1rem;
+}
+.auth-card {
+    width: 100%;
+    max-width: 460px;
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 16px;
+    box-shadow: var(--shadow);
+    padding: clamp(1.75rem, 4vw, 2.5rem);
+    text-align: center;
+}
+.auth-card.auth-card--wide { max-width: 620px; text-align: left; }
+.auth-card.auth-card--wide .auth-brand,
+.auth-card.auth-card--wide .eyebrow,
+.auth-card.auth-card--wide .auth-title,
+.auth-card.auth-card--wide .auth-subtitle { text-align: center; }
+.auth-brand { display: flex; justify-content: center; margin-bottom: 1rem; }
+.auth-brand .brand-mark { width: 2.7rem; height: 2.7rem; font-size: 1.05rem; }
+.auth-title { margin: 0.4rem 0 0.5rem; font-size: clamp(1.5rem, 3vw, 1.9rem); font-weight: 700; line-height: 1.2; }
+.auth-subtitle { margin: 0 auto 1.75rem; max-width: 34rem; font-size: 0.94rem; }
+.auth-form { text-align: left; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+
+.password-field { position: relative; }
+.password-field input { padding-right: 2.75rem; }
+.password-toggle {
+    position: absolute;
+    top: 50%;
+    right: 0.45rem;
+    transform: translateY(-50%);
+    width: 2.1rem;
+    height: 2.1rem;
+    min-height: unset;
+    padding: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--muted);
+    border: none;
+    display: grid;
+    place-items: center;
+}
+.password-toggle:hover { color: var(--primary); background: var(--surface-2); }
+.password-toggle svg[hidden] { display: none; }
+
+.auth-row { margin-bottom: var(--space-5); }
+
+.auth-submit { width: 100%; position: relative; }
+.auth-submit .btn-spinner {
+    display: none;
+    width: 1rem;
+    height: 1rem;
+    border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.4);
+    border-top-color: #fff;
+    animation: spin 0.7s linear infinite;
+}
+.auth-submit.is-loading .btn-label { opacity: 0.7; }
+.auth-submit.is-loading .btn-spinner { display: inline-block; }
+.auth-submit:disabled { cursor: not-allowed; opacity: 0.85; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.auth-footer-text { margin-top: var(--space-5); font-size: 0.9rem; text-align: center; }
+.auth-footer-text a { color: var(--primary); font-weight: 700; }
+.auth-footer-text a:hover { text-decoration: underline; }
+
+/* Role picker (registration) */
+.role-picker { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); margin-bottom: 1.3rem; }
+.role-option { display: block; cursor: pointer; }
+.role-option input { position: absolute; opacity: 0; pointer-events: none; }
+.role-option-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    height: 100%;
+    padding: var(--space-4);
+    border: 1.5px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+    transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+}
+.role-option-card svg { color: var(--primary-2); }
+.role-option-card strong { font-size: 0.98rem; color: var(--text); }
+.role-option-card span.role-desc { font-size: 0.82rem; color: var(--muted); line-height: 1.45; }
+.role-option input:checked + .role-option-card {
+    border-color: var(--primary);
+    background: var(--primary-glow);
+    transform: translateY(-1px);
+}
+.role-option input:focus-visible + .role-option-card { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ===== RESPONSIVE ===== */
+@media (max-width: 820px) {
+    .field-row, .role-picker { grid-template-columns: 1fr; }
+}
+@media (max-width: 480px) {
+    .auth-card { padding: 1.5rem; }
+}
