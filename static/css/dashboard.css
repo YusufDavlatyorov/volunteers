@@ -1,0 +1,51 @@
+/* ===== dashboard.css — the role dashboard (accounts/profile.html) =====
+   The single dashboard page (dashboard_view redirects here; the four role
+   partials are included into it). Page-specific chrome only: the greeting
+   header, the sticky side rail, and the quick-actions list.
+   Loaded after style.css via {% block extra_css %}.
+
+   .profile-head and .avatar* stay in style.css — they are also used by the
+   CRM volunteer detail page, the rating board, task detail and the AI page. */
+
+.dash-greeting { margin-bottom: var(--space-6); }
+.dash-greeting h1 { margin-bottom: 0.3rem; font-size: clamp(1.8rem, 3.6vw, 2.6rem); line-height: 1.12; }
+.dash-greeting p { font-size: 1.02rem; margin: 0; }
+
+/* The dashboard side rail (profile summary + quick actions) stays in view while
+   the main column scrolls. `.two-col` already sets align-items: start, so the
+   rail is free to stick. Below the .two-col collapse breakpoint it returns to
+   normal flow so it never covers content or the navbar on a phone. */
+.dash-rail { position: sticky; top: calc(var(--nav-h) + var(--space-4)); align-self: start; }
+@media (max-width: 820px) {
+    .dash-rail { position: static; }
+}
+
+/* ===== QUICK ACTIONS =====
+   A vertical list of navigational actions — icon badge, label, chevron —
+   instead of a grid of differently-sized buttons. */
+.quick-actions { display: flex; flex-direction: column; gap: var(--space-1); }
+.quick-action {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3);
+    border-radius: 10px;
+    font-weight: 600;
+    font-size: 0.92rem;
+    color: var(--text);
+    transition: background 0.18s ease;
+}
+.quick-action:hover { background: var(--surface-2); color: var(--primary); }
+.quick-action__icon {
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 9px;
+    background: var(--primary-glow);
+    color: var(--primary);
+    flex-shrink: 0;
+}
+.quick-action__icon svg { width: 17px; height: 17px; }
+.quick-action__label { flex: 1; min-width: 0; }
+.quick-action__chev { color: var(--muted); flex-shrink: 0; }

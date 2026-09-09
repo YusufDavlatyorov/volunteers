@@ -831,36 +831,6 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
 .tab-bar a.is-active .tab-count,
 .tab-bar a[aria-current="page"] .tab-count { color: rgba(255,255,255,0.75); }
 
-/* ===== QUICK ACTIONS (dashboard) =====
-   A vertical list of navigational actions — icon badge, label, chevron —
-   instead of a grid of differently-sized buttons. */
-.quick-actions { display: flex; flex-direction: column; gap: var(--space-1); }
-.quick-action {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    padding: var(--space-3);
-    border-radius: 10px;
-    font-weight: 600;
-    font-size: 0.92rem;
-    color: var(--text);
-    transition: background 0.18s ease;
-}
-.quick-action:hover { background: var(--surface-2); color: var(--primary); }
-.quick-action__icon {
-    display: grid;
-    place-items: center;
-    width: 34px;
-    height: 34px;
-    border-radius: 9px;
-    background: var(--primary-glow);
-    color: var(--primary);
-    flex-shrink: 0;
-}
-.quick-action__icon svg { width: 17px; height: 17px; }
-.quick-action__label { flex: 1; min-width: 0; }
-.quick-action__chev { color: var(--muted); flex-shrink: 0; }
-
 /* ===== CODE BLOCK (one-time codes, tokens) ===== */
 .code-block {
     display: block;
@@ -955,21 +925,15 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
 .opportunity-desc { font-size: 0.9rem; margin: 0; flex: 1; }
 .opportunity-cta { margin-top: 0.35rem; align-self: flex-start; }
 
-/* ===== PROFILE / DASHBOARD ===== */
+/* ===== PROFILE HEADER & AVATAR (shared) =====
+   Used by the dashboard, the CRM volunteer detail page, the rating board, task
+   detail and the AI page. Dashboard-only chrome (greeting, sticky rail,
+   quick-actions) lives in dashboard.css. */
 .profile-head { display: flex; gap: var(--space-4); align-items: center; }
 /* Let the text column shrink and wrap a long email instead of forcing the
    card (and, on a phone, the page) wider than the viewport. */
 .profile-head > :not(.avatar) { min-width: 0; }
 .profile-head p { overflow-wrap: anywhere; }
-
-/* The dashboard side rail (profile summary + quick actions) stays in view while
-   the main column scrolls. `.two-col` already sets align-items: start, so the
-   rail is free to stick. Below the .two-col collapse breakpoint it returns to
-   normal flow so it never covers content or the navbar on a phone. */
-.dash-rail { position: sticky; top: calc(var(--nav-h) + var(--space-4)); align-self: start; }
-@media (max-width: 820px) {
-    .dash-rail { position: static; }
-}
 .detail-card > .profile-head { margin-bottom: var(--space-5); }
 .avatar {
     width: 76px;
@@ -993,9 +957,6 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
 }
 .avatar-sm { width: 44px; height: 44px; border-width: 2px; }
 .avatar-fallback.avatar-sm { font-size: 1.05rem; }
-.dash-greeting { margin-bottom: var(--space-6); }
-.dash-greeting h1 { margin-bottom: 0.3rem; font-size: clamp(1.8rem, 3.6vw, 2.6rem); line-height: 1.12; }
-.dash-greeting p { font-size: 1.02rem; margin: 0; }
 
 /* ===== IMAGES ===== */
 .report-img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 9px; }
