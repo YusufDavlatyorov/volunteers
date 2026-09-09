@@ -11,7 +11,7 @@ or that would otherwise bloat views.py — lives here, one module per concern:
     overdue        detection + alerting for tasks active past the 3h threshold
     stale          detection + alerting for pending requests past the 48h SLA
     emergency      volunteer SOS reports: dedup, location, notification fan-out
-    donations      the one place a donation is created and its money is computed
+    donations      in-kind offers of goods: creation + physical-handover lifecycle (no money)
     pets           lost & found board: creation, safe serialisation, match hints
     telegram_link  redemption of one-time Telegram account-link codes
 

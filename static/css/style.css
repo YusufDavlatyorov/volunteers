@@ -502,6 +502,11 @@ form.inline-form { display: inline-block; }
     gap: var(--space-6);
     align-items: start;
 }
+/* Both columns are grid items whose default `min-width: auto` lets a long
+   unbreakable token (an email, a URL) push the track — and the page — wider
+   than the viewport once the grid has collapsed to one column on a phone.
+   Same guard the `.grid` / `.metric-row` / `.kpi-row` rows already carry. */
+.two-col > * { min-width: 0; }
 /* Vertical rhythm for a column of cards, replacing one-off margin-bottoms. */
 .stack { display: flex; flex-direction: column; gap: var(--space-5); }
 
@@ -1126,6 +1131,10 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
 
 /* ===== PROFILE / DASHBOARD ===== */
 .profile-head { display: flex; gap: var(--space-4); align-items: center; }
+/* Let the text column shrink and wrap a long email instead of forcing the
+   card (and, on a phone, the page) wider than the viewport. */
+.profile-head > :not(.avatar) { min-width: 0; }
+.profile-head p { overflow-wrap: anywhere; }
 
 /* The dashboard side rail (profile summary + quick actions) stays in view while
    the main column scrolls. `.two-col` already sets align-items: start, so the
