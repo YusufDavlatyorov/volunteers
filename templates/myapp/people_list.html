@@ -1,25 +1,25 @@
 {% extends "base.html" %}
 {% block title %}{% if role == "volunteer" %}Volunteers{% elif role == "client" %}Clients{% else %}Curators{% endif %} - Generation Connect{% endblock %}
 {% block content %}
-<section class="section">
-    <div class="section-head">
-        <h1>
-            {% if role == "volunteer" %}<span data-i18n="people.volunteers_title">Volunteers</span>
-            {% elif role == "client" %}<span data-i18n="people.clients_title">Clients</span>
-            {% else %}<span data-i18n="people.curators_title">Curators</span>{% endif %}
-        </h1>
-    </div>
+<section class="section section-xl">
+    {% if role == "volunteer" %}
+        {% include "partials/_page_header.html" with title="Volunteers" title_i18n="people.volunteers_title" lede="Everyone helping across the five regions." %}
+    {% elif role == "client" %}
+        {% include "partials/_page_header.html" with title="Clients" title_i18n="people.clients_title" lede="People who have asked for help." %}
+    {% else %}
+        {% include "partials/_page_header.html" with title="Curators" title_i18n="people.curators_title" %}
+    {% endif %}
 
-    <div class="button-row">
-        <a class="button {% if role == 'volunteer' %}primary{% else %}ghost{% endif %}" href="{% url 'people_list' 'volunteer' %}">
-            <span data-i18n="people.volunteers_title">Volunteers</span> · {{ volunteer_count }}
+    <div class="tab-bar">
+        <a href="{% url 'people_list' 'volunteer' %}" {% if role == 'volunteer' %}aria-current="page"{% endif %}>
+            <span data-i18n="people.volunteers_title">Volunteers</span> <span class="tab-count">{{ volunteer_count }}</span>
         </a>
-        <a class="button {% if role == 'client' %}primary{% else %}ghost{% endif %}" href="{% url 'people_list' 'client' %}">
-            <span data-i18n="people.clients_title">Clients</span> · {{ client_count }}
+        <a href="{% url 'people_list' 'client' %}" {% if role == 'client' %}aria-current="page"{% endif %}>
+            <span data-i18n="people.clients_title">Clients</span> <span class="tab-count">{{ client_count }}</span>
         </a>
         {% if user.is_superuser %}
-            <a class="button {% if role == 'curator' %}primary{% else %}ghost{% endif %}" href="{% url 'people_list' 'curator' %}">
-                <span data-i18n="people.curators_title">Curators</span> · {{ curator_count }}
+            <a href="{% url 'people_list' 'curator' %}" {% if role == 'curator' %}aria-current="page"{% endif %}>
+                <span data-i18n="people.curators_title">Curators</span> <span class="tab-count">{{ curator_count }}</span>
             </a>
         {% endif %}
     </div>
@@ -49,51 +49,64 @@
             </select>
         </div>
         {% endif %}
-        <button class="button ghost" type="submit" data-i18n="task.filter">Filter</button>
+        <button class="button primary" type="submit" data-i18n="task.filter">Filter</button>
     </form>
 
     {% if people %}
-        <div class="table-list">
-            {% for person in people %}
-                <div class="card reveal applicant-row">
-                    {% if person.profile.image %}
-                        <img class="avatar avatar-sm" src="{{ person.profile.image.url }}" alt="">
-                    {% else %}
-                        <div class="avatar avatar-fallback avatar-sm">{{ person.profile.full_name|default:person.username|first|upper }}</div>
-                    {% endif %}
-                    <div class="applicant-body">
-                        <span class="tag accent">{{ person.role_display }}</span>
+        <div class="table-scroll">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th data-i18n="tbl.name">Name</th>
+                        <th data-i18n="tbl.region">Region</th>
                         {% if role == "volunteer" %}
-                            <span class="tag {% if person.profile.availability_status == 'available' %}success{% elif person.profile.availability_status == 'busy' %}accent{% else %}muted{% endif %}">{{ person.profile.get_availability_status_display }}</span>
-                        {% endif %}
-                        {% if role == "volunteer" %}
-                            <h3><a href="{% url 'crm_volunteer_detail' person.pk %}">{{ person.profile.full_name|default:person.username }}</a></h3>
-                        {% else %}
-                            <h3>{{ person.profile.full_name|default:person.username }}</h3>
-                        {% endif %}
-                        <p class="opportunity-location">
-                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg>
-                            {{ person.get_region_display|default:"—" }}
-                            <span>· {{ person.email }}</span>
-                        </p>
-                        {% if role == "volunteer" %}
-                            <p class="opportunity-desc">{{ person.completed_task_count }} <span data-i18n="crm.completed_tasks_short">completed</span> · {{ person.active_task_count }} <span data-i18n="crm.active_tasks_short">active</span></p>
+                            <th data-i18n="tbl.availability">Availability</th>
+                            <th data-i18n="tbl.activity">Activity</th>
+                            <th data-i18n="tbl.rating">Rating</th>
+                            <th></th>
                         {% elif role == "client" %}
-                            <p class="opportunity-desc">{{ person.request_count }} <span data-i18n="crm.requests_short">requests</span> · {{ person.completed_request_count }} <span data-i18n="crm.completed_tasks_short">completed</span></p>
+                            <th data-i18n="tbl.requests">Requests</th>
+                            <th data-i18n="tbl.email">Email</th>
+                        {% else %}
+                            <th data-i18n="tbl.email">Email</th>
                         {% endif %}
-                    </div>
-                    {% if role == "volunteer" %}
-                        <div class="button-row">
-                            <div>
-                                <span class="meta-label" data-i18n="people.rating_label">Rating</span>
-                                <p>{{ person.profile.rating|default:0 }}</p>
-                            </div>
-                            <a class="button ghost" href="{% url 'crm_volunteer_detail' person.pk %}" data-i18n="crm.view_profile">Profile</a>
-                        </div>
-                    {% endif %}
-                </div>
-            {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for person in people %}
+                    <tr>
+                        <td data-label="Name">
+                            <span class="cell-title">
+                                {% if role == "volunteer" %}
+                                    <a href="{% url 'crm_volunteer_detail' person.pk %}">{{ person.profile.full_name|default:person.username }}</a>
+                                {% else %}
+                                    {{ person.profile.full_name|default:person.username }}
+                                {% endif %}
+                            </span>
+                            <span class="cell-sub">@{{ person.username }}</span>
+                        </td>
+                        <td data-label="Region">{{ person.get_region_display|default:"—" }}</td>
+                        {% if role == "volunteer" %}
+                            <td data-label="Availability">
+                                <span class="tag {% if person.profile.availability_status == 'available' %}success{% elif person.profile.availability_status == 'busy' %}muted{% else %}muted{% endif %}">{{ person.profile.get_availability_status_display }}</span>
+                            </td>
+                            <td data-label="Activity">{{ person.completed_task_count }} <span data-i18n="crm.completed_tasks_short">completed</span> · {{ person.active_task_count }} <span data-i18n="crm.active_tasks_short">active</span></td>
+                            <td data-label="Rating" class="col-num">{{ person.profile.rating|default:0 }}</td>
+                            <td data-label="" class="col-actions">
+                                <a class="button ghost" href="{% url 'crm_volunteer_detail' person.pk %}" data-i18n="crm.view_profile">Profile</a>
+                            </td>
+                        {% elif role == "client" %}
+                            <td data-label="Requests">{{ person.request_count }} <span data-i18n="crm.requests_short">requests</span> · {{ person.completed_request_count }} <span data-i18n="crm.completed_tasks_short">completed</span></td>
+                            <td data-label="Email">{{ person.email }}</td>
+                        {% else %}
+                            <td data-label="Email">{{ person.email }}</td>
+                        {% endif %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
+        {% include "myapp/_pagination.html" with page_obj=page_obj querystring=querystring %}
     {% else %}
         <div class="empty-state">
             <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="4"></circle><path d="M2 21v-2a5 5 0 0 1 5-5h4a5 5 0 0 1 5 5v2"></path><circle cx="17" cy="7" r="3"></circle></svg>

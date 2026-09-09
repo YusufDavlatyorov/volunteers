@@ -1,0 +1,25 @@
+"""Service layer for myapp.
+
+Business logic that needs to be unit-testable without the ORM or the network —
+or that would otherwise bloat views.py — lives here, one module per concern:
+
+    geo            pure (lat, lng) math + the OSRM routing client (never raises)
+    maps           provider-agnostic facade over tiles / routing / geocoding
+    matching       deterministic, explainable volunteer<->task scoring (both directions)
+    analytics      read-only CRM aggregate queries
+    dashboard      role-scoped dashboard payloads (composes analytics/emergency/overdue/matching)
+    overdue        detection + alerting for tasks active past the 3h threshold
+    stale          detection + alerting for pending requests past the 48h SLA
+    emergency      volunteer SOS reports: dedup, location, notification fan-out
+    donations      in-kind offers of goods: creation + physical-handover lifecycle (no money)
+    pets           lost & found board: creation, safe serialisation, match hints
+    telegram_link  redemption of one-time Telegram account-link codes
+
+Conventions:
+  - Functions take and return plain data (numbers, dicts, model instances), not
+    request/response objects. Views do permission checks and HTTP.
+  - I/O helpers degrade gracefully instead of raising for an expected failure
+    (a geocode miss returns None, a routing failure returns a fallback dict).
+  - No notifications or writes as a side effect of a "read"/"recommend" call —
+    those stay explicit in the view.
+"""

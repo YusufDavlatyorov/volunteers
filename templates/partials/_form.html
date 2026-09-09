@@ -1,0 +1,13 @@
+{% comment %}
+Renders every field of a Django form on the shared design system, so hand-built
+and generated forms look identical. Does NOT emit <form>, {% csrf_token %} or the
+submit button — the caller owns those.
+Usage: {% include "partials/_form.html" with form=form %}
+{% endcomment %}
+{% if form.non_field_errors %}
+<div class="auth-alert" role="alert">
+    {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+</div>
+{% endif %}
+{% for field in form.hidden_fields %}{{ field }}{% endfor %}
+{% for field in form.visible_fields %}{% include "partials/_field.html" with field=field %}{% endfor %}

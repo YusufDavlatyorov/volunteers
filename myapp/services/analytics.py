@@ -10,8 +10,14 @@ from django.db.models import Q
 from django.urls import reverse
 from django.utils import timezone
 
-from accounts.models import Profile, Users
-from ..models import HelpRequest, OVERDUE_THRESHOLD, VolunteerApplication
+from accounts.models import Profile, REGION_CHOICES, Users
+from ..models import (
+    EmergencyReport,
+    HelpRequest,
+    VolunteerApplication,
+)
+from .overdue import currently_overdue_q
+from .stale import currently_stale_pending_q
 
 
 def volunteer_availability_breakdown():
@@ -29,20 +35,30 @@ def volunteer_availability_breakdown():
 
 
 def task_status_breakdown():
-    """Counts of tasks per lifecycle bucket, plus overdue/urgent. Overdue is
-    derived (see HelpRequest.is_overdue) rather than its own status value, so
-    it is computed here with the same OVERDUE_THRESHOLD, not a separate
-    magic number."""
+    """Counts of tasks per lifecycle bucket, plus overdue/urgent. Overdue and
+    stale are derived (not their own status value), so they reuse the one
+    predicate each — ``overdue.currently_overdue_q`` / ``stale.currently_stale_pending_q``
+    — rather than re-inlining the threshold comparison here."""
     counts = HelpRequest.objects.aggregate(
         pending=Count("id", filter=Q(status="pending")),
         active=Count("id", filter=Q(status="active")),
         completed=Count("id", filter=Q(status="completed")),
         cancelled=Count("id", filter=Q(status="cancelled")),
         urgent=Count("id", filter=Q(is_urgent=True, status__in=["pending", "active"])),
+        overdue=Count("id", filter=currently_overdue_q()),
+        stale=Count("id", filter=currently_stale_pending_q()),
     )
-    counts["overdue"] = HelpRequest.objects.filter(
-        status="active", accepted_at__lt=timezone.now() - OVERDUE_THRESHOLD
-    ).count()
+    return counts
+
+
+def emergency_breakdown():
+    """{'open': n, 'acknowledged': n, 'active': open+acknowledged} — the SOS
+    reports that still need staff attention."""
+    counts = EmergencyReport.objects.aggregate(
+        open=Count("id", filter=Q(status=EmergencyReport.STATUS_OPEN)),
+        acknowledged=Count("id", filter=Q(status=EmergencyReport.STATUS_ACKNOWLEDGED)),
+    )
+    counts["active"] = counts["open"] + counts["acknowledged"]
     return counts
 
 
@@ -50,8 +66,12 @@ def dashboard_stats():
     """Every number the CRM dashboard tiles need, in one call."""
     availability = volunteer_availability_breakdown()
     tasks = task_status_breakdown()
+    emergencies = emergency_breakdown()
     today_start = timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
     return {
+        "emergencies_open": emergencies["open"],
+        "emergencies_acknowledged": emergencies["acknowledged"],
+        "emergencies_active": emergencies["active"],
         "volunteers_total": sum(availability.values()),
         "volunteers_available": availability.get(Profile.AVAILABILITY_AVAILABLE, 0),
         "volunteers_busy": availability.get(Profile.AVAILABILITY_BUSY, 0),
@@ -61,6 +81,7 @@ def dashboard_stats():
         "tasks_active": tasks["active"],
         "tasks_completed": tasks["completed"],
         "tasks_overdue": tasks["overdue"],
+        "tasks_stale": tasks["stale"],
         "tasks_urgent": tasks["urgent"],
         "tasks_completed_today": HelpRequest.objects.filter(
             status="completed", completed_at__gte=today_start
@@ -69,6 +90,50 @@ def dashboard_stats():
             status=VolunteerApplication.STATUS_PENDING
         ).count(),
     }
+
+
+def users_by_role():
+    """Active user counts per role, for the admin platform view. Admin is
+    ``is_superuser`` (not a role flag), so it is counted separately and excluded
+    from the curator tally."""
+    return Users.objects.filter(is_active=True).aggregate(
+        admins=Count("id", filter=Q(is_superuser=True)),
+        curators=Count("id", filter=Q(is_curator=True, is_superuser=False)),
+        volunteers=Count("id", filter=Q(is_volunteer=True)),
+        clients=Count("id", filter=Q(is_client=True)),
+    )
+
+
+def platform_totals():
+    """All-time request totals for the admin platform view."""
+    return HelpRequest.objects.aggregate(
+        requests_total=Count("id"),
+        requests_completed=Count("id", filter=Q(status="completed")),
+    )
+
+
+def region_task_breakdown():
+    """Pending/active task counts per region — the operational picture for the
+    curator dashboard. One annotated query, not a loop."""
+    labels = dict(REGION_CHOICES)
+    rows = (
+        HelpRequest.objects.filter(status__in=["pending", "active"])
+        .values("region")
+        .annotate(
+            pending=Count("id", filter=Q(status="pending")),
+            active=Count("id", filter=Q(status="active")),
+        )
+        .order_by("region")
+    )
+    return [
+        {
+            "region": row["region"],
+            "label": labels.get(row["region"]) or (row["region"] or "—"),
+            "pending": row["pending"],
+            "active": row["active"],
+        }
+        for row in rows
+    ]
 
 
 def recent_activity(limit=10):

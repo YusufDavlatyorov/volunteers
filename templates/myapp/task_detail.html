@@ -2,8 +2,10 @@
 {% load static %}
 {% block title %}{{ task.get_help_type_display }} - Generation Connect{% endblock %}
 {% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/task-detail.css' %}">
 {% if show_route or show_location_map %}
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<link rel="stylesheet" href="{% static 'css/map.css' %}">
 {% endif %}
 {% endblock %}
 {% block content %}
@@ -34,16 +36,55 @@
                         <button type="submit" class="button primary" data-i18n="task.accept">Accept</button>
                     </form>
                 </div>
-            {% elif user == task.volunteer and task.status == "active" %}
+            {% elif work_stage_steps %}
+                <ol class="stepper">
+                    {% for step in work_stage_steps %}
+                        <li class="stepper__step is-{{ step.state }}">
+                            <span class="stepper__dot"></span>
+                            <span class="stepper__label" data-i18n="work.stage_{{ step.key }}">{{ step.label }}</span>
+                        </li>
+                    {% endfor %}
+                    <li class="stepper__step is-upcoming">
+                        <span class="stepper__dot"></span>
+                        <span class="stepper__label" data-i18n="work.stage_completed">Completed</span>
+                    </li>
+                </ol>
+                {% if can_advance_stage %}
                 <div class="button-row">
+                    {% if next_stage %}
+                    <form method="post" action="{% url 'task_advance_stage' task.id %}" class="inline-form">
+                        {% csrf_token %}
+                        <input type="hidden" name="stage" value="{{ next_stage.key }}">
+                        <button type="submit" class="button primary" data-i18n="work.mark_{{ next_stage.key }}">Mark: {{ next_stage.label }}</button>
+                    </form>
+                    {% endif %}
+                    {% if user == task.volunteer %}
                     <form method="post" action="{% url 'complete_task' task.id %}" class="inline-form">
                         {% csrf_token %}
                         <button type="submit" class="button secondary" data-i18n="task.complete">Complete</button>
                     </form>
+                    {% endif %}
                 </div>
+                {% endif %}
             {% endif %}
         </div>
     </div>
+
+    {% if active_emergency %}
+    <div class="card emergency-notice">
+        <div>
+            {% include "myapp/_emergency_status_tag.html" with status=active_emergency.status status_display=active_emergency.get_status_display %}
+            <p data-i18n="emg.notice_active">An SOS report is open for this task.</p>
+        </div>
+        <a class="button ghost" href="{% url 'emergency_detail' active_emergency.id %}" data-i18n="emg.notice_view">View SOS report</a>
+    </div>
+    {% elif can_report_emergency %}
+    <div class="card emergency-card">
+        <div class="section-head"><h2 data-i18n="emg.card_title">Something wrong or unsafe?</h2></div>
+        <p class="field-hint" data-i18n="emg.card_lede">Use this only for a real problem during the visit. It alerts a coordinator right away.</p>
+        {% include "myapp/_emergency_button.html" with task=task %}
+    </div>
+    {% endif %}
 
     {% if show_location_map %}
     <div class="card reveal" id="locationMapCard" data-lat="{{ task.latitude }}" data-lng="{{ task.longitude }}">
@@ -85,12 +126,13 @@
     {% if show_recommendations %}
     <div class="card recommend-card reveal" id="recommendCard"
          data-recommend-url="{% url 'task_recommendations' task.id %}"
-         data-notify-url-template="{% url 'task_notify_volunteer' task.id 999999 %}">
+         data-notify-url-template="{% url 'task_notify_volunteer' task.id 999999 %}"
+         data-assign-url-template="{% url 'task_assign_volunteer' task.id 999999 %}">
         {% csrf_token %}
         <div class="section-head">
             <div>
                 <h2 data-i18n="rec.title">Smart Volunteer Matching</h2>
-                <p class="field-hint" data-i18n="rec.subtitle">Recommended volunteers — you choose who to notify.</p>
+                <p class="field-hint" data-i18n="rec.subtitle">Recommended volunteers — notify a candidate or assign one directly.</p>
             </div>
         </div>
         <p class="field-hint" id="recommendStatus" data-i18n="rec.loading">Finding nearby volunteers…</p>
@@ -110,7 +152,14 @@
         <div class="section-head">
             <h2 data-i18n="route.title">Route to client</h2>
             {% if user == task.volunteer %}
-            <button type="button" class="button ghost" id="routeLocateBtn" data-i18n="map.use_my_location" data-error-text="Не удалось определить местоположение">Use my location</button>
+            <div class="button-row">
+                <button type="button" class="button ghost" id="routeLocateBtn" data-i18n="map.use_my_location" data-error-text="Не удалось определить местоположение">Use my location</button>
+                {% if task.has_location %}
+                <a class="button primary" target="_blank" rel="noopener"
+                   href="https://www.google.com/maps/dir/?api=1&destination={{ task.latitude }},{{ task.longitude }}&travelmode=driving"
+                   data-i18n="map.start_route">Start Route</a>
+                {% endif %}
+            </div>
             {% endif %}
         </div>
         <p class="field-hint" id="routeStatus" data-i18n="route.loading">Calculating route…</p>
@@ -130,6 +179,30 @@
 </section>
 {% endblock %}
 {% block extra_js %}
+<script>
+/* SOS: best-effort fill of the hidden coords from the volunteer's live location
+   just before the report is sent. Falls back silently to the task's own
+   coordinates (already in the hidden inputs) if geolocation is unavailable. */
+(function () {
+    const form = document.getElementById('emergencySosForm');
+    if (!form || !navigator.geolocation) return;
+    let located = false;
+    form.addEventListener('submit', (e) => {
+        if (located) return;
+        e.preventDefault();
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                document.getElementById('emgLat').value = pos.coords.latitude.toFixed(6);
+                document.getElementById('emgLng').value = pos.coords.longitude.toFixed(6);
+                located = true;
+                form.submit();
+            },
+            () => { located = true; form.submit(); },
+            { enableHighAccuracy: true, timeout: 8000 },
+        );
+    });
+})();
+</script>
 {% if show_recommendations %}
 <script>
 (function () {
@@ -138,6 +211,7 @@
 
     const recommendUrl = card.dataset.recommendUrl;
     const notifyUrlTemplate = card.dataset.notifyUrlTemplate;
+    const assignUrlTemplate = card.dataset.assignUrlTemplate;
     const statusEl = document.getElementById('recommendStatus');
     const listEl = document.getElementById('recommendList');
     const emptyEl = document.getElementById('recommendEmpty');
@@ -157,6 +231,12 @@
         if (text) emptyTextEl.textContent = text;
     }
 
+    const skillTag = {
+        match: '<span class="tag success" data-i18n="rec.skill_match">Skills match</span>',
+        mismatch: '<span class="tag muted" data-i18n="rec.skill_nomatch">Skills differ</span>',
+        none: '',
+    };
+
     function renderCard(item, rank) {
         const initial = (item.full_name || item.username || '?').trim().charAt(0).toUpperCase();
         const availabilityTag = item.availability === 'available' ? 'success' : 'muted';
@@ -169,6 +249,7 @@
                 <span class="tag ${availabilityTag}">${item.availability_display}</span>
                 <span class="tag accent rec-score-tag">#${rank} · ${item.score}</span>
                 ${item.same_region ? '<span class="tag muted">' + item.region + '</span>' : ''}
+                ${skillTag[item.skill_match] || ''}
                 <h3>${item.full_name}</h3>
                 <p class="opportunity-location">
                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg>
@@ -178,14 +259,16 @@
                 <ul class="rec-reasons">${reasons}</ul>
             </div>
             <div class="button-row">
-                <button type="button" class="button primary rec-notify-btn" data-i18n="rec.notify">Notify</button>
+                <button type="button" class="button primary rec-assign-btn" data-i18n="rec.assign">Assign</button>
+                <button type="button" class="button ghost rec-notify-btn" data-i18n="rec.notify">Notify</button>
             </div>`;
 
         const notifyBtn = row.querySelector('.rec-notify-btn');
+        const assignBtn = row.querySelector('.rec-assign-btn');
+
         notifyBtn.addEventListener('click', () => {
             notifyBtn.disabled = true;
-            const url = notifyUrlTemplate.replace('999999', item.volunteer_id);
-            fetch(url, {
+            fetch(notifyUrlTemplate.replace('999999', item.volunteer_id), {
                 method: 'POST',
                 headers: { 'X-CSRFToken': csrfToken ? csrfToken.value : '' },
             })
@@ -199,6 +282,27 @@
                     }
                 })
                 .catch(() => { notifyBtn.disabled = false; });
+        });
+
+        assignBtn.addEventListener('click', () => {
+            if (!confirm(`Назначить ${item.full_name} на этот запрос?`)) return;
+            assignBtn.disabled = true;
+            notifyBtn.disabled = true;
+            fetch(assignUrlTemplate.replace('999999', item.volunteer_id), {
+                method: 'POST',
+                headers: { 'X-CSRFToken': csrfToken ? csrfToken.value : '' },
+            })
+                .then((r) => r.json())
+                .then((data) => {
+                    if (data.success) {
+                        window.location.reload();
+                    } else {
+                        assignBtn.disabled = false;
+                        notifyBtn.disabled = false;
+                        alert('Не удалось назначить (запрос уже не свободен).');
+                    }
+                })
+                .catch(() => { assignBtn.disabled = false; notifyBtn.disabled = false; });
         });
 
         return row;

@@ -1,0 +1,106 @@
+{% comment %}Client dashboard — "what's happening with my request?". Context from services.dashboard._client. No CRM / emergency / other-user data.{% endcomment %}
+{% if client_current %}
+    <div class="card reveal">
+        <div class="section-head"><h3 data-i18n="dash.your_request">Your request</h3></div>
+        <p>{% include "myapp/_task_status_tag.html" with status=client_current.status status_display=client_current.get_status_display %}</p>
+        <p class="opportunity-location">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+            {{ client_current.get_help_type_display }} · {{ client_current.get_region_display|default:"—" }}
+        </p>
+        <p>{{ client_current.description|truncatechars:160 }}</p>
+        {% if client_current.status == "active" and client_current_volunteer %}
+            <div class="detail-meta">
+                <div><span class="meta-label" data-i18n="detail.volunteer">Volunteer</span><p>{{ client_current_volunteer.name }}{% if client_current_volunteer.region %} · {{ client_current_volunteer.region }}{% endif %}</p></div>
+                <div><span class="meta-label" data-i18n="dash.stage">Progress</span><p data-i18n="work.stage_{{ client_current.work_stage }}">{{ client_current.get_work_stage_display }}</p></div>
+            </div>
+        {% elif client_current.status == "pending" %}
+            <p class="field-hint" data-i18n="dash.awaiting_volunteer">We're finding a volunteer for you.</p>
+        {% endif %}
+        <div class="button-row">
+            <a class="button ghost" href="{% url 'task_detail' client_current.id %}" data-i18n="task.details">Details</a>
+        </div>
+    </div>
+{% else %}
+    <div class="card reveal">
+        <div class="section-head"><h3 data-i18n="dash.need_help">Need a little help?</h3></div>
+        <p data-i18n="dash.client_sub">Need a little help today?</p>
+        <div class="button-row"><a class="button primary" href="{% url 'create_request' %}" data-i18n="profile.create_req">Create Request</a></div>
+    </div>
+{% endif %}
+
+{% if client_active %}
+<div class="card reveal">
+    <div class="section-head"><h3 data-i18n="dash.my_requests">My requests</h3></div>
+    <div class="mini-list">
+        {% for req in client_active %}
+            <a class="mini-list-item mini-list-item--link" href="{% url 'task_detail' req.id %}">
+                <h4>{% include "myapp/_task_status_tag.html" with status=req.status status_display=req.get_status_display %} {{ req.get_help_type_display }}</h4>
+                <p>{{ req.created_at|date:"d M Y" }}</p>
+            </a>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{% if client_completed %}
+<div class="card reveal">
+    <div class="section-head"><h3 data-i18n="dash.history">History</h3></div>
+    <div class="mini-list">
+        {% for req in client_completed %}
+            <a class="mini-list-item mini-list-item--link" href="{% url 'task_detail' req.id %}">
+                <h4>{% include "myapp/_task_status_tag.html" with status=req.status status_display=req.get_status_display %} {{ req.get_help_type_display }}</h4>
+                <p>{{ req.completed_at|date:"d M Y" }}</p>
+            </a>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<div class="card reveal">
+    <div class="section-head">
+        <h3 data-i18n="dash.offers">My offers of help</h3>
+        <a class="button ghost" href="{% url 'donate' %}" data-i18n="dash.offer_cta">Offer goods</a>
+    </div>
+    {% if recent_donations %}
+        <div class="mini-list">
+            {% for d in recent_donations %}
+                <a class="mini-list-item mini-list-item--link" href="{% url 'donation_detail' d.id %}">
+                    <h4>{% include "myapp/_donation_status_tag.html" with status=d.status status_display=d.get_status_display %} {{ d.item_label }} × {{ d.quantity }}{% if d.unit %} {{ d.unit }}{% endif %}</h4>
+                    <p>{{ d.get_category_display }} · {{ d.created_at|date:"d M Y" }}</p>
+                </a>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="opportunity-desc" data-i18n="dash.no_offers">No offers yet — donate what you have, not necessarily money.</p>
+    {% endif %}
+</div>
+
+<div class="card reveal">
+    <div class="section-head">
+        <h3 data-i18n="pet.dash_title">Lost &amp; Found</h3>
+        <a class="button ghost" href="{% url 'pet_report_create' %}" data-i18n="pet.report_cta">Report a pet</a>
+    </div>
+    {% if my_pet_reports %}
+        <div class="mini-list">
+            {% for report in my_pet_reports %}
+                <a class="mini-list-item mini-list-item--link" href="{% url 'pet_report_detail' report.id %}">
+                    <h4>{% include "myapp/_pet_status_tag.html" with status=report.status status_display=report.get_status_display %} {{ report.display_name }}</h4>
+                    <p>{{ report.get_report_type_display }} · {{ report.get_species_display }} · {{ report.created_at|date:"d M Y" }}</p>
+                </a>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="opportunity-desc" data-i18n="pet.dash_client_empty">Lost or found a pet? Post it on the community board.</p>
+    {% endif %}
+</div>
+
+{% if upcoming_events %}
+<div class="card reveal">
+    <div class="section-head"><h3 data-i18n="events.upcoming">Upcoming Events</h3></div>
+    <div class="mini-list">
+        {% for event in upcoming_events %}
+            <div class="mini-list-item"><h4>{{ event.title }}</h4><p>{{ event.date|date:"d M, H:i" }} · {{ event.get_region_display }}</p></div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}

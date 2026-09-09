@@ -1,38 +1,212 @@
 {% extends "base.html" %}
 {% load static %}
-{% block title %}{{ block.super }} - Map{% endblock %}
+{% block title %}Operations Map - Generation Connect{% endblock %}
 {% block extra_css %}
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<link rel="stylesheet" href="{% static 'css/map.css' %}">
 {% endblock %}
 {% block content %}
-<section class="section">
-    <div class="section-head">
-        <div>
-            <h1 data-i18n="map.title">Map</h1>
-            <p class="lede" data-i18n="map.desc">Volunteers, requests and their locations at a glance.</p>
+<section class="section section-xl">
+    {% include "partials/_page_header.html" with title="Operations Map" title_i18n="map.ops_title" lede="Live requests, routes and volunteers on one map." lede_i18n="map.desc" %}
+
+    <div class="ops-map__filters">
+        <div class="field-group">
+            <label for="opsFilterStatus" data-i18n="map.filter_status">Status</label>
+            <select id="opsFilterStatus" class="control">
+                <option value="" data-i18n="map.filter_any">Any</option>
+                {% for value, label in status_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+                <option value="overdue" data-i18n="map.legend_overdue">Overdue</option>
+                {% if is_ops_staff %}<option value="emergency" data-i18n="map.legend_sos">SOS report</option>{% endif %}
+                <option value="pets" data-i18n="map.filter_pets">Lost &amp; found pets</option>
+            </select>
         </div>
+        <div class="field-group">
+            <label for="opsFilterPriority" data-i18n="map.filter_priority">Priority</label>
+            <select id="opsFilterPriority" class="control">
+                <option value="" data-i18n="map.filter_any">Any</option>
+                {% for value, label in priority_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+            </select>
+        </div>
+        <div class="field-group">
+            <label for="opsFilterRegion" data-i18n="map.filter_region">Region</label>
+            <select id="opsFilterRegion" class="control">
+                <option value="" data-i18n="map.filter_any">Any</option>
+                {% for value, label in region_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+            </select>
+        </div>
+        <div class="field-group">
+            <label for="opsFilterType" data-i18n="map.filter_type">Request type</label>
+            <select id="opsFilterType" class="control">
+                <option value="" data-i18n="map.filter_any">Any</option>
+                {% for value, label in help_type_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+            </select>
+        </div>
+        <button type="button" class="button ghost" id="opsLocateBtn" data-i18n="map.locate_me">Locate me</button>
     </div>
+    <p class="ops-locate-status" id="opsLocateStatus" hidden></p>
+
     <div class="map-legend">
-        {% if user.is_superuser or user.is_curator %}
-            <span class="map-legend-item"><span class="map-legend-dot" style="background:var(--accent)"></span><span data-i18n="map.legend_task_pending">Free request</span></span>
-            <span class="map-legend-item"><span class="map-legend-dot" style="background:var(--primary)"></span><span data-i18n="map.legend_task_active">In progress</span></span>
-            <span class="map-legend-item"><span class="map-legend-dot" style="background:var(--danger)"></span><span data-i18n="map.legend_task_urgent">Urgent</span></span>
-            <span class="map-legend-item"><span class="map-legend-dot" style="background:var(--ok)"></span><span data-i18n="map.legend_volunteer_available">Volunteer available</span></span>
-            <span class="map-legend-item"><span class="map-legend-dot" style="background:var(--accent)"></span><span data-i18n="map.legend_volunteer_busy">Volunteer busy</span></span>
-            <span class="map-legend-item"><span class="map-legend-dot" style="background:var(--muted)"></span><span data-i18n="map.legend_volunteer_offline">Volunteer offline</span></span>
+        {% if is_ops_staff %}
+            <span class="map-legend-item"><span class="map-legend-dot map-legend-dot--urgent"></span><span data-i18n="map.legend_sos">SOS report</span></span>
+            <span class="map-legend-item"><span class="map-legend-dot map-legend-dot--pending"></span><span data-i18n="map.legend_task_pending">Free request</span></span>
+            <span class="map-legend-item"><span class="map-legend-dot map-legend-dot--active"></span><span data-i18n="map.legend_task_active">In progress</span></span>
+            <span class="map-legend-item"><span class="map-legend-dot map-legend-dot--urgent"></span><span data-i18n="map.legend_emergency">Emergency</span></span>
+            <span class="map-legend-item"><span class="map-legend-dot map-legend-dot--urgent"></span><span data-i18n="map.legend_overdue">Overdue</span></span>
+            <span class="map-legend-item"><span class="map-legend-dot map-legend-dot--available"></span><span data-i18n="map.legend_volunteer_available">Volunteer available</span></span>
+            <span class="map-legend-item"><span class="map-legend-dot map-legend-dot--offline"></span><span data-i18n="map.legend_volunteer_offline">Volunteer offline</span></span>
         {% else %}
-            <span class="map-legend-item"><span class="map-legend-dot" style="background:var(--accent)"></span><span data-i18n="map.legend_task_pending">Free request</span></span>
-            <span class="map-legend-item"><span class="map-legend-dot" style="background:var(--danger)"></span><span data-i18n="map.legend_task_urgent">Urgent</span></span>
+            <span class="map-legend-item"><span class="map-legend-dot map-legend-dot--pending"></span><span data-i18n="map.legend_task_pending">Free request</span></span>
+            <span class="map-legend-item"><span class="map-legend-dot map-legend-dot--active"></span><span data-i18n="map.legend_task_active">In progress</span></span>
+            <span class="map-legend-item"><span class="map-legend-dot map-legend-dot--urgent"></span><span data-i18n="map.legend_emergency">Emergency</span></span>
         {% endif %}
-        <span class="map-legend-item"><span class="map-legend-dot" style="background:var(--primary-2)"></span><span data-i18n="map.legend_me">You</span></span>
+        <span class="map-legend-item"><span class="map-legend-dot map-legend-dot--pending"></span><span data-i18n="map.legend_pet_lost">Lost pet</span></span>
+        <span class="map-legend-item"><span class="map-legend-dot map-legend-dot--available"></span><span data-i18n="map.legend_pet_found">Found pet</span></span>
+        <span class="map-legend-item"><span class="map-legend-dot map-legend-dot--me"></span><span data-i18n="map.legend_me">You</span></span>
     </div>
-    <div id="mainMap" class="map-page-container"></div>
+
+    <div class="ops-map">
+        <div id="opsMap" class="ops-map__canvas"></div>
+        <aside class="ops-map__panel" id="opsPanel">
+            <div class="ops-panel__empty">
+                <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+                <p data-i18n="map.panel_prompt">Select a marker to see details.</p>
+            </div>
+        </aside>
+    </div>
 </section>
 {% endblock %}
 {% block extra_js %}
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <script src="{% static 'js/map.js' %}"></script>
+{% csrf_token %}
 <script>
-GCMap.initMarkersMap('mainMap', "{% url 'map_data' %}");
+(function () {
+    const MY_ACTIVE_TASK_ID = {{ my_active_task_id|default:"null" }};
+    const IS_STAFF = {% if is_ops_staff %}true{% else %}false{% endif %};
+    const panel = document.getElementById('opsPanel');
+    const locateStatus = document.getElementById('opsLocateStatus');
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]');
+    const I = (key, fallback) => {
+        const el = document.querySelector(`[data-i18n="${key}"]`);
+        return (el && el.textContent.trim()) || fallback;
+    };
+
+    const statusLabel = {};
+    document.querySelectorAll('#opsFilterStatus option').forEach((o) => { if (o.value) statusLabel[o.value] = o.textContent; });
+    const priorityLabel = {};
+    document.querySelectorAll('#opsFilterPriority option').forEach((o) => { if (o.value) priorityLabel[o.value] = o.textContent; });
+
+    function meLatLng() {
+        const me = controller.points.find((p) => p.kind === 'me');
+        return me ? [me.lat, me.lng] : null;
+    }
+
+    const emgStatusLabel = {
+        open: I('emg.status_open', 'Open'), acknowledged: I('emg.status_acknowledged', 'Acknowledged'),
+        resolved: I('emg.status_resolved', 'Resolved'), cancelled: I('emg.status_cancelled', 'Cancelled'),
+    };
+
+    function renderPanel(point) {
+        function maybeScroll() {
+            if (window.matchMedia('(max-width: 860px)').matches) {
+                panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }
+        if (point.kind === 'emergency') {
+            panel.hidden = false;
+            panel.innerHTML = `
+                <h3 class="ops-panel__title">${point.title}</h3>
+                <div class="ops-panel__badges"><span class="tag urgent">${emgStatusLabel[point.status] || point.status}</span></div>
+                <p class="ops-panel__sub">${point.subtitle || ''}</p>
+                <div class="ops-panel__actions"><a class="button danger" href="${point.url}">${I('emg.notice_view', 'View SOS report')}</a></div>`;
+            maybeScroll();
+            return;
+        }
+        if (point.kind === 'pet') {
+            panel.hidden = false;
+            panel.innerHTML = `
+                <h3 class="ops-panel__title">${point.title}</h3>
+                <p class="ops-panel__sub">${point.subtitle || ''}</p>
+                <div class="ops-panel__actions"><a class="button ghost" href="${point.url}">${I('pet.view_report', 'View report')}</a></div>`;
+            maybeScroll();
+            return;
+        }
+        if (point.kind !== 'task') {
+            panel.hidden = false;
+            panel.innerHTML = `<h3 class="ops-panel__title">${point.title}</h3><p class="ops-panel__sub">${point.subtitle || ''}</p>`;
+            maybeScroll();
+            return;
+        }
+        const me = meLatLng();
+        const dist = me ? GCMap.haversineKm(me, [point.lat, point.lng]).toFixed(1) + ' km' : '—';
+        const statusTag = point.status === 'active' ? 'info' : (point.status === 'completed' ? 'success' : (point.status === 'cancelled' ? 'urgent' : ''));
+        const badges = [
+            `<span class="tag ${statusTag}">${statusLabel[point.status] || point.status}</span>`,
+            point.priority && point.priority !== 'normal' ? `<span class="tag ${point.priority === 'emergency' ? 'urgent' : 'accent'}">${priorityLabel[point.priority] || point.priority}</span>` : '',
+            point.is_overdue ? `<span class="tag urgent">${I('map.legend_overdue', 'Overdue')}</span>` : '',
+        ].join('');
+        const canRoute = MY_ACTIVE_TASK_ID !== null && point.id === MY_ACTIVE_TASK_ID;
+        const routeHref = `https://www.google.com/maps/dir/?api=1&destination=${point.lat},${point.lng}&travelmode=driving`;
+        panel.hidden = false;
+        panel.innerHTML = `
+            <h3 class="ops-panel__title">${point.title}</h3>
+            <div class="ops-panel__badges">${badges}</div>
+            <div class="ops-panel__meta">
+                <div><span class="meta-label">${I('map.filter_region', 'Region')}</span><p>${point.subtitle || '—'}</p></div>
+                <div><span class="meta-label">${I('map.panel_distance', 'Distance from you')}</span><p>${dist}</p></div>
+            </div>
+            <div class="ops-panel__actions">
+                <a class="button ghost" href="${point.url}">${I('map.view_task', 'View Task')}</a>
+                ${canRoute ? `<a class="button primary" target="_blank" rel="noopener" href="${routeHref}">${I('map.start_route', 'Start Route')}</a>` : ''}
+            </div>`;
+        maybeScroll();
+    }
+
+    const controller = GCMap.createOpsMap('opsMap', {
+        onSelect: renderPanel,
+        updateUrl: "{% url 'update_location' %}",
+        csrfToken: csrfToken ? csrfToken.value : '',
+        onLocate: (state) => {
+            const messages = {
+                loading: I('map.locate_loading', 'Determining your location…'),
+                denied: I('map.locate_denied', 'Location access is blocked. Enable it in your browser settings to use this.'),
+                unavailable: I('map.locate_unavailable', 'Location is unavailable right now.'),
+            };
+            if (state === 'success') { locateStatus.hidden = true; return; }
+            locateStatus.hidden = false;
+            locateStatus.textContent = messages[state] || '';
+            locateStatus.classList.toggle('is-error', state === 'denied' || state === 'unavailable');
+        },
+    });
+
+    if (!controller) return;
+
+    function currentFilter() {
+        const status = document.getElementById('opsFilterStatus').value;
+        const priority = document.getElementById('opsFilterPriority').value;
+        const region = document.getElementById('opsFilterRegion').value;
+        const type = document.getElementById('opsFilterType').value;
+        return (p) => {
+            if (status === 'pets') return p.kind === 'pet';
+            if (status === 'emergency') return p.kind === 'emergency';
+            if (p.kind !== 'task') return true;
+            if (status === 'overdue' && !p.is_overdue) return false;
+            if (status && status !== 'overdue' && p.status !== status) return false;
+            if (priority && p.priority !== priority) return false;
+            if (region && p.region !== region) return false;
+            if (type && p.help_type !== type) return false;
+            return true;
+        };
+    }
+    ['opsFilterStatus', 'opsFilterPriority', 'opsFilterRegion', 'opsFilterType'].forEach((id) => {
+        document.getElementById(id).addEventListener('change', () => controller.applyFilter(currentFilter()));
+    });
+    document.getElementById('opsLocateBtn').addEventListener('click', () => controller.locate());
+
+    fetch("{% url 'map_data' %}", { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then((r) => r.json())
+        .then((data) => controller.render(data.points || []))
+        .catch(() => {});
+})();
 </script>
 {% endblock %}

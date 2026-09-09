@@ -2,13 +2,37 @@
 {% block title %}Archive - Generation Connect{% endblock %}
 {% block content %}
 <section class="section">
-    <div class="section-head"><h1 data-i18n="archive.title">Archive</h1></div>
-    {% if tasks %}
-        <div class="table-list">
-            {% for task in tasks %}
-                <div class="request-row reveal"><div><span class="tag success">{{ task.get_status_display }}</span><h3>{{ task.get_help_type_display }}</h3><p>{{ task.client }} → {{ task.volunteer }} · {{ task.completed_at|date:"d.m.Y H:i" }}</p></div><a class="button ghost" href="{% url 'task_detail' task.id %}" data-i18n="btn.open">Open</a></div>
-            {% endfor %}
+    {% include "partials/_page_header.html" with title="Archive" title_i18n="archive.title" lede="Completed help requests, kept for accountability." %}
+    {% if page_obj.object_list %}
+        <div class="table-scroll">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th data-i18n="tbl.status">Status</th>
+                        <th data-i18n="tbl.type">Type</th>
+                        <th data-i18n="tbl.client">Client</th>
+                        <th data-i18n="tbl.volunteer">Volunteer</th>
+                        <th data-i18n="tbl.completed">Completed</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for task in page_obj %}
+                    <tr>
+                        <td data-label="Status">{% include "myapp/_task_status_tag.html" with status=task.status status_display=task.get_status_display %}</td>
+                        <td data-label="Type"><span class="cell-title">{{ task.get_help_type_display }}</span></td>
+                        <td data-label="Client">{{ task.client.username }}</td>
+                        <td data-label="Volunteer">{% if task.volunteer %}{{ task.volunteer.username }}{% else %}—{% endif %}</td>
+                        <td data-label="Completed" class="col-num">{{ task.completed_at|date:"d.m.Y H:i" }}</td>
+                        <td data-label="" class="col-actions">
+                            <a class="button ghost" href="{% url 'task_detail' task.id %}" data-i18n="btn.open">Open</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
+        {% include "myapp/_pagination.html" with page_obj=page_obj querystring="" %}
     {% else %}
         <div class="empty-state">
             <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16l3 8v8H1v-8Z"></path><path d="M1 12h6l2 3h6l2-3h6"></path></svg>

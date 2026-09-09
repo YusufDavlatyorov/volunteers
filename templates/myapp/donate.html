@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Offer goods - Generation Connect{% endblock %}
+{% block content %}
+<section class="section">
+    {% url 'my_donations' as my_donations_url %}
+    {% include "partials/_page_header.html" with title="Offer goods" title_i18n="don.page_title" lede="Donate what you have, not necessarily money — food, clothes, hygiene kits, blankets, school supplies." lede_i18n="don.page_lede" action_url=my_donations_url action_label="My offers" action_i18n="don.my_title" action_class="ghost" %}
+
+    <div class="two-col">
+        <div class="stack">
+            <div class="card">
+                <div class="section-head"><h2 data-i18n="don.form_title">Offer material assistance</h2></div>
+                <p class="field-hint" data-i18n="don.no_gateway">This is not a payment — no money and no card details. A coordinator reviews your offer and arranges pickup or delivery of the goods.</p>
+                <form method="post">
+                    {% csrf_token %}
+                    {% include "partials/_form.html" with form=form %}
+                    <div class="form-actions">
+                        <button class="button primary" type="submit" data-i18n="don.submit">Send offer</button>
+                    </div>
+                </form>
+            </div>
+
+            {% if recent_donations %}
+            <div class="card reveal">
+                <div class="section-head">
+                    <h3 data-i18n="don.my_recent">Your recent offers</h3>
+                    <a class="button ghost" href="{% url 'my_donations' %}" data-i18n="don.view_all">All my offers</a>
+                </div>
+                <div class="mini-list">
+                    {% for d in recent_donations %}
+                        <a class="mini-list-item mini-list-item--link" href="{% url 'donation_detail' d.id %}">
+                            <h4>{% include "myapp/_donation_status_tag.html" with status=d.status status_display=d.get_status_display %} {{ d.item_label }} × {{ d.quantity }}{% if d.unit %} {{ d.unit }}{% endif %}</h4>
+                            <p>{{ d.get_category_display }} · {{ d.created_at|date:"d M Y" }}</p>
+                        </a>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="stack">
+            <div class="card">
+                <div class="section-head"><h3 data-i18n="don.catalogue">Items we need now</h3></div>
+                {% if products %}
+                <div class="mini-list">
+                    {% for product in products %}
+                        <div class="mini-list-item">
+                            <h4>{{ product.name }}{% if product.unit %} <span class="tag muted">{{ product.unit }}</span>{% endif %}</h4>
+                            {% if product.description %}<p class="clamp-text">{{ product.description }}</p>{% endif %}
+                            <p><span class="tag" data-i18n="don.category_{{ product.category }}">{{ product.get_category_display }}</span></p>
+                        </div>
+                    {% endfor %}
+                </div>
+                <p class="field-hint" data-i18n="don.catalogue_hint">Pick an item in the form and set a quantity, or describe your own.</p>
+                {% else %}
+                <p class="opportunity-desc" data-i18n="don.catalogue_empty">No specific requests right now — any useful goods still help.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}

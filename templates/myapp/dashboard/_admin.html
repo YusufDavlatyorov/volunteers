@@ -1,0 +1,31 @@
+{% comment %}Admin dashboard — everything the curator sees plus platform-wide numbers. Context from services.dashboard._admin.{% endcomment %}
+{% include "myapp/dashboard/_curator.html" %}
+
+<div class="card reveal">
+    <div class="section-head"><h3 data-i18n="dash.platform">Platform</h3></div>
+    <div class="kpi-row">
+        <a class="card stat-card" href="{% url 'people_list' 'volunteer' %}">
+            <span class="metric">{{ users_by_role.volunteers }}</span><p data-i18n="admin.stat_volunteers">Volunteers</p>
+        </a>
+        <a class="card stat-card" href="{% url 'people_list' 'client' %}">
+            <span class="metric">{{ users_by_role.clients }}</span><p data-i18n="admin.stat_clients">Clients</p>
+        </a>
+        <a class="card stat-card" href="{% url 'people_list' 'curator' %}">
+            <span class="metric">{{ users_by_role.curators }}</span><p data-i18n="dash.curators">Curators</p>
+        </a>
+        <div class="card stat-card"><span class="metric">{{ platform_totals.requests_total }}</span><p data-i18n="dash.requests_total">Requests total</p></div>
+        <div class="card stat-card"><span class="metric">{{ platform_totals.requests_completed }}</span><p data-i18n="dash.completed_total">Completed</p></div>
+        <a class="card stat-card" href="{% url 'event_list' %}"><span class="metric">{{ total_events }}</span><p data-i18n="events.title">Events</p></a>
+    </div>
+</div>
+
+<div class="card reveal">
+    <div class="section-head"><h3 data-i18n="don.admin_title">Donation offers</h3><a class="button ghost" href="{% url 'donations_admin' %}" data-i18n="common.view_all">View all</a></div>
+    <div class="kpi-row">
+        <a class="card stat-card {% if offer_summary.pending %}stat-card--alert{% endif %}" href="{% url 'donations_admin' %}?status=pending"><span class="metric">{{ offer_summary.pending }}</span><p data-i18n="don.kpi_pending">To review</p></a>
+        <div class="card stat-card"><span class="metric">{{ offer_summary.active_offers }}</span><p data-i18n="don.kpi_active_offers">Active offers</p></div>
+        <div class="card stat-card"><span class="metric">{{ offer_summary.items_received }}</span><p data-i18n="don.kpi_items_received">Items received</p></div>
+        <div class="card stat-card"><span class="metric">{{ offer_summary.items_distributed }}</span><p data-i18n="don.kpi_items_distributed">Items distributed</p></div>
+        <div class="card stat-card"><span class="metric">{{ offer_summary.businesses }}</span><p data-i18n="don.kpi_businesses">Businesses helping</p></div>
+    </div>
+</div>

@@ -2,10 +2,9 @@
 {% block title %}Rating - Generation Connect{% endblock %}
 {% block content %}
 <section class="section">
-    <div class="section-head"><h1 data-i18n="rating.title">Rating</h1></div>
-    <p class="lede" data-i18n="rating.desc">Rating grows when a volunteer completes a request. Urgent help gives more points.</p>
+    {% include "partials/_page_header.html" with title="Rating" title_i18n="rating.title" lede="Rating grows when a volunteer completes a request. Urgent help gives more points." lede_i18n="rating.desc" %}
     {% if volunteers %}
-        <div class="table-list" style="margin-top:1.4rem;">
+        <div class="table-list">
             {% for profile in volunteers %}
                 <div class="request-row reveal {% if forloop.counter == 1 %}request-row--first{% endif %}">
                     <div class="row-rank">

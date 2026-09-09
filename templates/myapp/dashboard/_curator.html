@@ -1,0 +1,185 @@
+{% comment %}Curator dashboard — "what needs my attention?". Context from services.dashboard._curator. Also included by _admin.html.{% endcomment %}
+{% if open_emergency_count %}
+<a class="emergency-banner emergency-banner--link" href="{% url 'emergency_list' %}?status=open">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"></path><path d="M12 9v4M12 17h.01"></path></svg>
+    <div>
+        <strong>{{ open_emergency_count }} <span data-i18n="emg.dash_open">open SOS report(s)</span></strong>
+        <p data-i18n="emg.dash_cta">A volunteer needs help — open the emergency queue.</p>
+    </div>
+</a>
+{% endif %}
+
+<div class="kpi-row reveal">
+    <a class="card stat-card {% if stats.emergencies_open %}stat-card--alert{% endif %}" href="{% url 'emergency_list' %}?status=open">
+        <span class="metric">{{ stats.emergencies_open }}</span><p data-i18n="emg.kpi_open">Open SOS</p>
+    </a>
+    <a class="card stat-card {% if stats.tasks_overdue %}stat-card--alert{% endif %}" href="{% url 'crm_tasks' %}?overdue=1">
+        <span class="metric">{{ stats.tasks_overdue }}</span><p data-i18n="crm.kpi_overdue">Overdue</p>
+    </a>
+    <a class="card stat-card {% if stats.tasks_stale %}stat-card--alert{% endif %}" href="{% url 'crm_tasks' %}?stale=1">
+        <span class="metric">{{ stats.tasks_stale }}</span><p data-i18n="crm.kpi_stale">Stalled</p>
+    </a>
+    <a class="card stat-card" href="{% url 'crm_tasks' %}?status=pending">
+        <span class="metric">{{ stats.tasks_pending }}</span><p data-i18n="dash.unassigned">Unassigned</p>
+    </a>
+    <a class="card stat-card" href="{% url 'volunteer_applications' %}">
+        <span class="metric">{{ stats.pending_applications }}</span><p data-i18n="va.pending_count">Pending Applications</p>
+    </a>
+    <a class="card stat-card" href="{% url 'people_list' 'volunteer' %}?availability=available">
+        <span class="metric">{{ stats.volunteers_available }}</span><p data-i18n="crm.kpi_available">Available</p>
+    </a>
+    <a class="card stat-card" href="{% url 'pet_list' %}">
+        <span class="metric">{{ pets_open_count }}</span><p data-i18n="pet.kpi_open">Lost &amp; Found</p>
+    </a>
+</div>
+
+<div class="card reveal {% if open_emergencies %}card--alert{% endif %}">
+    <div class="section-head"><h3 data-i18n="emg.feed_title">Active emergencies</h3><a class="button ghost" href="{% url 'emergency_list' %}" data-i18n="common.view_all">View all</a></div>
+    {% if open_emergencies %}
+        <div class="mini-list">
+            {% for report in open_emergencies %}
+                <a class="mini-list-item mini-list-item--link" href="{% url 'emergency_detail' report.id %}">
+                    <h4>{% include "myapp/_emergency_status_tag.html" with status=report.status status_display=report.get_status_display %} {{ report.volunteer.username }}</h4>
+                    <p>#{{ report.help_request_id }} · {{ report.get_region_display|default:"—" }} · {{ report.created_at|timesince }} <span data-i18n="va.ago_suffix">ago</span></p>
+                </a>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="opportunity-desc" data-i18n="emg.feed_empty">No active emergencies.</p>
+    {% endif %}
+</div>
+
+<div class="card reveal">
+    <div class="section-head"><h3 data-i18n="dash.overdue_title">Overdue tasks</h3><a class="button ghost" href="{% url 'crm_tasks' %}?overdue=1" data-i18n="common.view_all">View all</a></div>
+    {% if overdue_tasks %}
+        <div class="mini-list">
+            {% for task in overdue_tasks %}
+                <a class="mini-list-item mini-list-item--link" href="{% url 'task_detail' task.id %}">
+                    <h4><span class="tag urgent" data-i18n="crm.overdue_badge">Overdue</span> #{{ task.id }} · {{ task.get_help_type_display }}</h4>
+                    <p>{{ task.volunteer.username|default:"—" }} · {{ task.get_region_display|default:"—" }} · {{ task.accepted_at|timesince }} <span data-i18n="va.ago_suffix">ago</span></p>
+                </a>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="opportunity-desc" data-i18n="dash.no_overdue">No overdue tasks.</p>
+    {% endif %}
+</div>
+
+<div class="card reveal">
+    <div class="section-head"><h3 data-i18n="dash.stale_title">Waiting too long</h3><a class="button ghost" href="{% url 'crm_tasks' %}?stale=1" data-i18n="common.view_all">View all</a></div>
+    {% if stale_pending_tasks %}
+        <div class="mini-list">
+            {% for task in stale_pending_tasks %}
+                <a class="mini-list-item mini-list-item--link" href="{% url 'task_detail' task.id %}">
+                    <h4><span class="tag urgent" data-i18n="crm.stale_badge">Stalled</span> #{{ task.id }} · {{ task.get_help_type_display }}</h4>
+                    <p>{{ task.get_region_display|default:"—" }} · {{ task.created_at|timesince }} <span data-i18n="va.ago_suffix">ago</span></p>
+                    {% if task.assignment_suggestion %}
+                        <p class="opportunity-desc"><span data-i18n="dash.suggested">Suggested</span>: {{ task.assignment_suggestion.name }} · {{ task.assignment_suggestion.distance_km }} km{% if task.assignment_suggestion.skill_match %} · <span data-i18n="rec.skill_match">Skills match</span>{% endif %}</p>
+                    {% endif %}
+                </a>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="opportunity-desc" data-i18n="dash.no_stale">No requests stuck waiting.</p>
+    {% endif %}
+</div>
+
+<div class="card reveal">
+    <div class="section-head"><h3 data-i18n="dash.unassigned_title">Waiting for a volunteer</h3><a class="button ghost" href="{% url 'crm_tasks' %}?status=pending" data-i18n="common.view_all">View all</a></div>
+    {% if unassigned_tasks %}
+        <div class="mini-list">
+            {% for task in unassigned_tasks %}
+                <a class="mini-list-item mini-list-item--link" href="{% url 'task_detail' task.id %}">
+                    <h4>{% if task.is_urgent %}<span class="tag urgent" data-i18n="task.urgent_badge">Urgent</span> {% endif %}#{{ task.id }} · {{ task.get_help_type_display }}</h4>
+                    <p>{{ task.get_region_display|default:"—" }} · {{ task.created_at|timesince }} <span data-i18n="va.ago_suffix">ago</span></p>
+                    {% if task.assignment_suggestion %}
+                        <p class="opportunity-desc"><span data-i18n="dash.suggested">Suggested</span>: {{ task.assignment_suggestion.name }} · {{ task.assignment_suggestion.distance_km }} km{% if task.assignment_suggestion.skill_match %} · <span data-i18n="rec.skill_match">Skills match</span>{% endif %}</p>
+                    {% endif %}
+                </a>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="opportunity-desc" data-i18n="dash.no_unassigned">Every request has a volunteer.</p>
+    {% endif %}
+</div>
+
+<div class="card reveal">
+    <div class="section-head"><h3 data-i18n="va.list_title">Volunteer Applications</h3><a class="button ghost" href="{% url 'volunteer_applications' %}" data-i18n="common.view_all">View all</a></div>
+    {% if pending_applications %}
+        <div class="mini-list">
+            {% for app in pending_applications %}
+                <a class="mini-list-item mini-list-item--link" href="{% url 'volunteer_application_detail' app.id %}">
+                    <h4>{{ app.user.username }}</h4>
+                    <p>{{ app.get_region_display|default:"—" }} · {{ app.created_at|timesince }} <span data-i18n="va.ago_suffix">ago</span></p>
+                </a>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="opportunity-desc" data-i18n="va.no_pending">No pending applications</p>
+    {% endif %}
+</div>
+
+<div class="card reveal">
+    <div class="section-head"><h3 data-i18n="dash.offers_to_review">Donation offers to review</h3><a class="button ghost" href="{% url 'donations_admin' %}?status=pending" data-i18n="common.view_all">View all</a></div>
+    {% if donation_offers_pending %}
+        <div class="mini-list">
+            {% for offer in donation_offers_pending %}
+                <a class="mini-list-item mini-list-item--link" href="{% url 'donation_detail' offer.id %}">
+                    <h4>{% include "myapp/_donation_status_tag.html" with status=offer.status status_display=offer.get_status_display %} {{ offer.item_label }} × {{ offer.quantity }}{% if offer.unit %} {{ offer.unit }}{% endif %}</h4>
+                    <p>{{ offer.donor_label }} · {{ offer.get_category_display }} · {{ offer.get_region_display|default:"—" }} · {{ offer.created_at|timesince }} <span data-i18n="va.ago_suffix">ago</span></p>
+                </a>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="opportunity-desc" data-i18n="dash.no_offers_review">No offers waiting for review.</p>
+    {% endif %}
+</div>
+
+<div class="card reveal">
+    <div class="section-head"><h3 data-i18n="pet.dash_title">Lost &amp; Found</h3><a class="button ghost" href="{% url 'pet_list' %}" data-i18n="common.view_all">View all</a></div>
+    {% if recent_pet_reports %}
+        <div class="mini-list">
+            {% for report in recent_pet_reports %}
+                <a class="mini-list-item mini-list-item--link" href="{% url 'pet_report_detail' report.id %}">
+                    <h4>{% include "myapp/_pet_type_tag.html" with report_type=report.report_type report_type_display=report.get_report_type_display %} #{{ report.id }} · {{ report.display_name }}</h4>
+                    <p>{{ report.get_species_display }} · {{ report.get_region_display|default:"—" }} · {{ report.created_at|timesince }} <span data-i18n="va.ago_suffix">ago</span></p>
+                </a>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="opportunity-desc" data-i18n="pet.dash_empty">No open lost or found reports.</p>
+    {% endif %}
+</div>
+
+<div class="card reveal">
+    <div class="section-head"><h3 data-i18n="dash.by_region">By region</h3></div>
+    <div class="table-scroll">
+        <table class="data-table">
+            <thead><tr><th data-i18n="tbl.region">Region</th><th data-i18n="crm.kpi_pending">Pending</th><th data-i18n="crm.kpi_active">Active</th></tr></thead>
+            <tbody>
+                {% for row in region_breakdown %}
+                    <tr>
+                        <td data-label="Region">{{ row.label }}</td>
+                        <td data-label="Pending" class="col-num">{{ row.pending }}</td>
+                        <td data-label="Active" class="col-num">{{ row.active }}</td>
+                    </tr>
+                {% empty %}
+                    <tr><td colspan="3" data-i18n="dash.no_region_data">No active requests.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card reveal">
+    <div class="section-head"><h3 data-i18n="crm.activity_title">Recent Activity</h3></div>
+    {% include "myapp/_activity_feed.html" %}
+</div>
+
+<div class="card reveal">
+    <div class="button-row">
+        <a class="button primary" href="{% url 'admin_panel' %}" data-i18n="dash.full_console">Full CRM console</a>
+        <a class="button ghost" href="{% url 'map' %}" data-i18n="nav.map">Map</a>
+        <a class="button ghost" href="{% url 'emergency_list' %}" data-i18n="emg.list_title">Emergencies</a>
+    </div>
+</div>

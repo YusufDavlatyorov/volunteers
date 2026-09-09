@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Link Telegram - Generation Connect{% endblock %}
+{% block content %}
+<section class="form-shell">
+    <div class="card stack">
+        <div>
+            <h1 data-i18n="tg.title">Link Telegram</h1>
+            <p class="lede" data-i18n="tg.intro">Link a Telegram chat to your account to receive notifications there.</p>
+        </div>
+
+        <div>
+            {% if is_linked %}
+                <span class="tag success" data-i18n="tg.linked">Your Telegram account is linked.</span>
+            {% else %}
+                <span class="tag muted" data-i18n="tg.not_linked">No Telegram chat is linked yet.</span>
+            {% endif %}
+        </div>
+
+        {% if raw_code %}
+            <div class="field-group">
+                <span class="meta-label" data-i18n="tg.code_label">Your one-time code (valid for 10 minutes, single use):</span>
+                <pre class="code-block"><code>/link {{ raw_code }}</code></pre>
+                <p class="field-hint">
+                    <span data-i18n="tg.instructions">Open Telegram, start a chat with</span>
+                    {% if bot_username %}<strong>@{{ bot_username }}</strong>{% else %}<span data-i18n="tg.our_bot">our bot</span>{% endif %},
+                    <span data-i18n="tg.instructions_2">and send the line above.</span>
+                </p>
+            </div>
+        {% endif %}
+
+        <div class="form-actions">
+            <form method="post" action="{% url 'telegram_link' %}" class="inline-form">
+                {% csrf_token %}
+                <button class="button primary" type="submit">
+                    {% if code_active or raw_code %}
+                        <span data-i18n="tg.regenerate">Generate a new code</span>
+                    {% else %}
+                        <span data-i18n="tg.generate">Generate linking code</span>
+                    {% endif %}
+                </button>
+            </form>
+            {% if is_linked %}
+            <form method="post" action="{% url 'telegram_unlink' %}" class="inline-form">
+                {% csrf_token %}
+                <button class="button ghost" type="submit" data-i18n="tg.unlink">Unlink Telegram</button>
+            </form>
+            {% endif %}
+        </div>
+
+        <p class="field-hint"><a href="{% url 'profile' %}" data-i18n="tg.back">Back to profile</a></p>
+    </div>
+</section>
+{% endblock %}

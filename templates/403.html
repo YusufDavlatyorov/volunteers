@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Access denied - Generation Connect{% endblock %}
+{% block content %}
+<section class="status-screen">
+    <div class="status-card">
+        <div class="status-icon is-rejected">
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>
+        </div>
+        <p class="status-code">403</p>
+        <h1 data-i18n="error403.title">Access denied</h1>
+        <p data-i18n="error403.desc">You don't have permission to view this page with your current role.</p>
+        <div class="button-row">
+            {% if user.is_authenticated %}
+                <a class="button primary" href="{% url 'profile' %}" data-i18n="error.back_dashboard">Dashboard</a>
+            {% else %}
+                <a class="button primary" href="{% url 'login' %}" data-i18n="nav.login">Login</a>
+            {% endif %}
+            <a class="button ghost" href="{% url 'about' %}" data-i18n="error.back_home">Go to home</a>
+        </div>
+    </div>
+</section>
+{% endblock %}

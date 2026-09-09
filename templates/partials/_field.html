@@ -1,0 +1,21 @@
+{% comment %}
+One bound form field rendered on the shared design system:
+  .field-group > <label> + widget + optional .field-hint + optional .field-error
+Checkboxes get the inline .checkbox-row layout instead of a stacked label.
+Usage: {% include "partials/_field.html" with field=field %}
+{% endcomment %}
+{% if field.is_hidden %}{{ field }}{% else %}
+<div class="field-group{% if field.errors %} has-error{% endif %}{% if field.widget_type == 'checkboxselectmultiple' or field.widget_type == 'radioselect' %} checkbox-group{% endif %}">
+    {% if field.widget_type == "checkbox" %}
+        <label class="checkbox-row" for="{{ field.id_for_label }}">
+            {{ field }}
+            <span>{{ field.label }}</span>
+        </label>
+    {% else %}
+        <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+        {{ field }}
+    {% endif %}
+    {% if field.help_text %}<span class="field-hint">{{ field.help_text }}</span>{% endif %}
+    {% if field.errors %}<span class="field-error" role="alert">{{ field.errors.0 }}</span>{% endif %}
+</div>
+{% endif %}

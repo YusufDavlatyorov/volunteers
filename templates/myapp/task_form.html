@@ -4,15 +4,16 @@
 {% block extra_css %}
 {% if form.latitude %}
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<link rel="stylesheet" href="{% static 'css/map.css' %}">
 {% endif %}
 {% endblock %}
 {% block content %}
 <section class="form-shell">
     <div class="card">
-        <h3>{{ title }}</h3>
+        <h1>{{ title }}</h1>
         <form method="post" enctype="multipart/form-data">
             {% csrf_token %}
-            {{ form.as_p }}
+            {% include "partials/_form.html" with form=form %}
             {% if form.latitude %}
             <div class="field-group">
                 <div class="field-label-row">
@@ -23,7 +24,9 @@
                 <p class="field-hint" data-i18n="map.pick_hint">Click the map or drag the marker to set the exact location.</p>
             </div>
             {% endif %}
-            <button class="primary" type="submit" data-i18n="btn.save">Save</button>
+            <div class="form-actions">
+                <button class="primary" type="submit" data-i18n="btn.save">Save</button>
+            </div>
         </form>
     </div>
 </section>

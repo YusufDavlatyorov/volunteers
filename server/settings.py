@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 import os
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -30,14 +31,55 @@ def env_bool(name, default=False):
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv(
-    'DJANGO_SECRET_KEY',
-    'django-insecure-_@((a*iz^(-(yra70l$fyatq$xpatl6vkh@48kc6e_3=2qfja@',
-)
+# No insecure fallback: a real key is required in every environment (local dev
+# gets one from .env — see .env.example — so this only fires on a genuinely
+# unconfigured checkout, instead of silently signing sessions/CSRF with a
+# well-known committed-to-history default).
+SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', '').strip()
+if not SECRET_KEY:
+    raise ImproperlyConfigured(
+        "DJANGO_SECRET_KEY is not set. Copy .env.example to .env and set a real "
+        "secret key (see README.md), e.g.: "
+        "python -c \"from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())\""
+    )
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = env_bool('DJANGO_DEBUG', True)
-ALLOWED_HOSTS = [h.strip() for h in os.getenv('DJANGO_ALLOWED_HOSTS', '*').split(',') if h.strip()]
+# Defaults to False (safe) when unset; local dev opts into True explicitly via .env.
+DEBUG = env_bool('DJANGO_DEBUG', False)
+ALLOWED_HOSTS = [h.strip() for h in os.getenv('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',') if h.strip()]
+
+if not DEBUG and (not ALLOWED_HOSTS or '*' in ALLOWED_HOSTS):
+    raise ImproperlyConfigured(
+        "DJANGO_ALLOWED_HOSTS must list specific hosts when DJANGO_DEBUG=False "
+        "(a wildcard '*' defeats Django's Host-header validation in production)."
+    )
+
+# Production-only hardening: these would break the plain-HTTP local dev server
+# (forced HTTPS redirect, cookies marked Secure) so they only switch on once
+# DEBUG=False, i.e. once a real deployment sets DJANGO_DEBUG accordingly.
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+SECURE_SSL_REDIRECT = not DEBUG
+SECURE_HSTS_SECONDS = 31536000 if not DEBUG else 0
+SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG
+SECURE_HSTS_PRELOAD = not DEBUG
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SESSION_COOKIE_HTTPONLY = True
+X_FRAME_OPTIONS = 'DENY'
+
+# Behind a TLS-terminating reverse proxy (nginx/Caddy), Django only sees plain
+# HTTP on the loopback hop, so request.is_secure() is False and SECURE_SSL_REDIRECT
+# would loop forever. Opt in ONLY when the proxy is trusted to set (and to strip
+# any client-supplied) X-Forwarded-Proto — see the nginx snippet in README.
+if env_bool('DJANGO_BEHIND_TLS_PROXY', False):
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+# Full origins (scheme://host[:port]) that may send unsafe (POST/PUT/…) requests.
+# Django 4+ requires the production HTTPS origin(s) here for CSRF to pass; the
+# CSRF cookie/Host check alone is not enough once served cross-scheme.
+CSRF_TRUSTED_ORIGINS = [
+    o.strip() for o in os.getenv('DJANGO_CSRF_TRUSTED_ORIGINS', '').split(',') if o.strip()
+]
 
 
 # Application definition
@@ -85,6 +127,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'myapp.context_processors.maps_config',
             ],
         },
     },
@@ -102,6 +145,47 @@ DATABASES = {
         'NAME': BASE_DIR / 'Gen_connect.sqlite3',
     }
 }
+
+# PostgreSQL for production — set DJANGO_DB_* and the engine switches over with
+# no code change (psycopg must be installed). SQLite stays the default so a
+# fresh checkout and the test suite need no database server.
+if os.getenv('DJANGO_DB_NAME'):
+    DATABASES['default'] = {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.getenv('DJANGO_DB_NAME'),
+        'USER': os.getenv('DJANGO_DB_USER', ''),
+        'PASSWORD': os.getenv('DJANGO_DB_PASSWORD', ''),
+        'HOST': os.getenv('DJANGO_DB_HOST', 'localhost'),
+        'PORT': os.getenv('DJANGO_DB_PORT', '5432'),
+        # Persistent connections (CONN_MAX_AGE) + a liveness check on reuse, so a
+        # connection dropped by PgBouncer / a DB restart is transparently
+        # reopened instead of erroring the first request that gets it.
+        'CONN_MAX_AGE': int(os.getenv('DJANGO_DB_CONN_MAX_AGE', '60')),
+        'CONN_HEALTH_CHECKS': True,
+        # Bound the connect attempt so a request (and /health/ready/) fails fast
+        # instead of hanging on the OS TCP timeout when the DB is unreachable.
+        'OPTIONS': {'connect_timeout': int(os.getenv('DJANGO_DB_CONNECT_TIMEOUT', '5'))},
+    }
+
+
+# Cache — also the backing store for the login / password-reset / AI-assistant /
+# Telegram-link rate limiters. The default LocMemCache is per-process, so those
+# throttles only bite within a single worker: a multi-process (gunicorn) web
+# deployment MUST set DJANGO_DB_CACHE=True (a shared, dependency-free DB cache —
+# run `python manage.py createcachetable` once) or point CACHES at Redis/Memcached.
+if env_bool('DJANGO_DB_CACHE', False):
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
+            'LOCATION': os.getenv('DJANGO_DB_CACHE_TABLE', 'gc_cache'),
+        }
+    }
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        }
+    }
 
 
 LOGIN_URL = 'login'
@@ -153,6 +237,10 @@ EMAIL_HOST_USER = SMTP_USER
 EMAIL_HOST_PASSWORD = SMTP_PASSWORD
 EMAIL_USE_TLS = True
 DEFAULT_FROM_EMAIL = SMTP_USER or 'no-reply@generation-connect.local'
+# Django's SMTP backend has NO default timeout — a hung mail server would block
+# the Gunicorn worker (and the user's request) indefinitely, since notify_users()
+# sends mail synchronously inside request handlers. Bound it.
+EMAIL_TIMEOUT = int(os.getenv('EMAIL_TIMEOUT', '10'))
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
@@ -181,10 +269,44 @@ GROQ_MODEL = os.getenv('GROQ_MODEL', 'llama-3.1-8b-instant')
 
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', '')
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
+# Public @-handle of the bot, shown in the account-linking instructions so the
+# user knows which chat to open. Not a secret; optional (the UI degrades to a
+# generic "our bot" when unset).
+TELEGRAM_BOT_USERNAME = os.getenv('TELEGRAM_BOT_USERNAME', '')
 
-# Maps / routing (Leaflet + OpenStreetMap tiles, no key needed for the map itself).
+# Maps — a provider-agnostic layer lives in myapp/services/maps.py.
+#   osm    (default) : free Leaflet tiles + OSRM routing + Nominatim geocoding, no key
+#   mapbox / google  : drop-in, requires MAPS_API_KEY
+MAPS_PROVIDER = os.getenv('MAPS_PROVIDER', 'osm').strip().lower()
+MAPS_API_KEY = os.getenv('MAPS_API_KEY', '')
+GEOCODING_TIMEOUT_SECONDS = 5
 OSRM_BASE_URL = os.getenv('OSRM_BASE_URL', 'https://router.project-osrm.org').rstrip('/')
 NOMINATIM_USER_AGENT = os.getenv('NOMINATIM_USER_AGENT', 'generation-connect-dev')
+
+# Logging — without this the app's own logger.warning/error calls (the
+# zero-recipient safety net in the overdue/stale/emergency sweeps, OSRM/Nominatim
+# failures, Telegram send failures) propagate to the root logger, which has no
+# handler under DEBUG=False and silently drops them. Route them to stderr so the
+# process manager (systemd/journald, Docker) captures them.
+LOG_LEVEL = os.getenv('DJANGO_LOG_LEVEL', 'INFO').upper()
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'standard': {'format': '[{asctime}] {levelname} {name}: {message}', 'style': '{'},
+    },
+    'handlers': {
+        'console': {'class': 'logging.StreamHandler', 'formatter': 'standard'},
+    },
+    'root': {'handlers': ['console'], 'level': 'WARNING'},
+    'loggers': {
+        # Server errors (500s) to stderr; 4xx (Not Found / Method Not Allowed,
+        # logged at WARNING) stay quiet so they don't drown the signal.
+        'django.request': {'handlers': ['console'], 'level': 'ERROR', 'propagate': False},
+        'myapp': {'handlers': ['console'], 'level': LOG_LEVEL, 'propagate': False},
+        'accounts': {'handlers': ['console'], 'level': LOG_LEVEL, 'propagate': False},
+    },
+}
 
 LOGIN_REDIRECT_URL = 'profile'
 

@@ -1,0 +1,114 @@
+{% comment %}Volunteer dashboard — "what do I need to do right now?". Context from services.dashboard._volunteer.{% endcomment %}
+<div class="kpi-row reveal">
+    <div class="card stat-card"><span class="metric">{{ vol_completed }}</span><p data-i18n="dash.tasks_completed">Tasks completed</p></div>
+    <div class="card stat-card"><span class="metric">{{ vol_completed_month }}</span><p data-i18n="dash.this_month">This month</p></div>
+    <div class="card stat-card"><span class="metric">{{ vol_points }}</span><p data-i18n="profile.rating_pts">rating points</p></div>
+</div>
+
+{% if active_task %}
+    <div class="card reveal">
+        <div class="section-head"><h3 data-i18n="dash.active_task">Active task</h3></div>
+        <p>{% include "myapp/_task_status_tag.html" with status=active_task.status status_display=active_task.get_status_display overdue=active_task.is_overdue work_stage_display=active_task.get_work_stage_display %}</p>
+        <p class="opportunity-location">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+            {{ active_task.get_help_type_display }} · {{ active_task.get_region_display|default:"—" }} · {{ active_task.client.username }}
+        </p>
+        <div class="button-row">
+            <a class="button primary" href="{% url 'task_detail' active_task.id %}" data-i18n="dash.view_task">View Task</a>
+        </div>
+        {% if active_task_emergency %}
+            <div class="emergency-notice">
+                <div>
+                    {% include "myapp/_emergency_status_tag.html" with status=active_task_emergency.status status_display=active_task_emergency.get_status_display %}
+                    <p data-i18n="emg.notice_active">An SOS report is open for this task.</p>
+                </div>
+                <a class="button ghost" href="{% url 'emergency_detail' active_task_emergency.id %}" data-i18n="emg.notice_view">View SOS report</a>
+            </div>
+        {% else %}
+            {% include "myapp/_emergency_button.html" with task=active_task %}
+        {% endif %}
+    </div>
+{% else %}
+    <div class="card reveal">
+        <div class="section-head">
+            <h3 data-i18n="dash.recommended">Recommended for you</h3>
+            <a class="button ghost" href="{% url 'task_list' %}" data-i18n="common.view_all">View all</a>
+        </div>
+        {% if recommended_tasks %}
+            <div class="mini-list">
+                {% for rec in recommended_tasks %}
+                    <div class="mini-list-item">
+                        <h4>
+                            #{{ rec.task.id }} · {{ rec.task.get_help_type_display }}
+                            {% if rec.skill_match == "match" %}<span class="tag success" data-i18n="rec.skill_match">Skills match</span>{% endif %}
+                        </h4>
+                        <p>{{ rec.task.get_region_display|default:"—" }} · {{ rec.distance_km }} km · ~{{ rec.estimated_minutes|floatformat:0 }} min</p>
+                        {% if rec.reasons %}<p>{{ rec.reasons|join:" · " }}</p>{% endif %}
+                        <div class="button-row">
+                            <a class="button ghost" href="{% url 'task_detail' rec.task.id %}" data-i18n="task.details">Details</a>
+                            <form method="post" action="{% url 'accept_task' rec.task.id %}" class="inline-form">
+                                {% csrf_token %}
+                                <button type="submit" class="button primary" data-i18n="task.accept">Accept</button>
+                            </form>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="empty-state">
+                <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+                <p data-i18n="dash.no_recommendations">No nearby tasks right now. Check the full list or the map.</p>
+            </div>
+        {% endif %}
+    </div>
+{% endif %}
+
+<div class="card reveal">
+    <div class="section-head">
+        <h3 data-i18n="dash.recent_completed">Recently completed</h3>
+        <a class="button ghost" href="{% url 'task_list' %}" data-i18n="nav.requests">Find Tasks</a>
+    </div>
+    {% if recent_completed %}
+        <div class="mini-list">
+            {% for task in recent_completed %}
+                <a class="mini-list-item mini-list-item--link" href="{% url 'task_detail' task.id %}">
+                    <h4>{% include "myapp/_task_status_tag.html" with status=task.status status_display=task.get_status_display %} {{ task.get_help_type_display }}</h4>
+                    <p>{{ task.get_region_display|default:"—" }} · {{ task.completed_at|date:"d M Y" }}</p>
+                </a>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="empty-state">
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16l3 8v8H1v-8Z"></path><path d="M1 12h6l2 3h6l2-3h6"></path></svg>
+            <p data-i18n="profile.no_records">No records yet.</p>
+        </div>
+    {% endif %}
+</div>
+
+{% if assigned_donations %}
+<div class="card reveal">
+    <div class="section-head">
+        <h3 data-i18n="dash.assigned_deliveries">Assigned deliveries</h3>
+        <a class="button ghost" href="{% url 'assigned_donations' %}" data-i18n="common.view_all">View all</a>
+    </div>
+    <div class="mini-list">
+        {% for d in assigned_donations %}
+            <a class="mini-list-item mini-list-item--link" href="{% url 'donation_detail' d.id %}">
+                <h4>{% include "myapp/_donation_status_tag.html" with status=d.status status_display=d.get_status_display %} {{ d.item_label }} × {{ d.quantity }}{% if d.unit %} {{ d.unit }}{% endif %}</h4>
+                <p>{{ d.get_fulfilment_display }} · {{ d.get_region_display|default:"—" }}{% if d.location %} · {{ d.location }}{% endif %}</p>
+            </a>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{% if upcoming_events %}
+<div class="card reveal">
+    <div class="section-head"><h3 data-i18n="events.upcoming">Upcoming Events</h3></div>
+    <div class="mini-list">
+        {% for event in upcoming_events %}
+            <div class="mini-list-item"><h4>{{ event.title }}</h4><p>{{ event.date|date:"d M, H:i" }} · {{ event.get_region_display }}</p></div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}

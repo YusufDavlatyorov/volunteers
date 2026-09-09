@@ -1,8 +1,12 @@
+import logging
+
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.core.mail import send_mail
 from django.conf import settings
 from .models import Users, Profile
+
+logger = logging.getLogger(__name__)
 
 
 @receiver(post_save, sender=Users)
@@ -37,4 +41,4 @@ def send_welcome_email(sender, instance, created, **kwargs):
                 fail_silently=True,
             )
         except Exception as e:
-            print(f"Email error: {e}")
+            logger.warning("Welcome email failed for %s: %s", instance.email, e)

@@ -1,0 +1,9 @@
+{% comment %}
+Pet-report status pill. Colour semantics match .tag.* in style.css:
+  open → neutral · matched → info (blue) · resolved → success · closed → muted
+Usage: {% include "myapp/_pet_status_tag.html" with status=report.status status_display=report.get_status_display %}
+{% endcomment %}
+{% if status == "matched" %}<span class="tag info" data-i18n="pet.status_matched">{{ status_display }}</span>
+{% elif status == "resolved" %}<span class="tag success" data-i18n="pet.status_resolved">{{ status_display }}</span>
+{% elif status == "closed" %}<span class="tag muted" data-i18n="pet.status_closed">{{ status_display }}</span>
+{% else %}<span class="tag" data-i18n="pet.status_open">{{ status_display }}</span>{% endif %}

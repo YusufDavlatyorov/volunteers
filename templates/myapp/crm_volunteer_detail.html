@@ -3,15 +3,16 @@
 {% block content %}
 <section class="section">
     <div class="card detail-card reveal">
-        <div class="section-head">
+        <div class="profile-head">
             {% if profile.image %}
                 <img class="avatar" src="{{ profile.image.url }}" alt="">
             {% else %}
                 <div class="avatar avatar-fallback">{{ profile.full_name|default:volunteer.username|first|upper }}</div>
             {% endif %}
             <div>
+                <span class="tag {% if profile.availability_status == 'available' %}success{% else %}muted{% endif %}">{{ profile.get_availability_status_display }}</span>
                 <h1>{{ profile.full_name|default:volunteer.username }}</h1>
-                <p class="opportunity-desc">@{{ volunteer.username }} · {{ volunteer.get_region_display|default:"—" }}</p>
+                <p>@{{ volunteer.username }} · {{ volunteer.get_region_display|default:"—" }}</p>
             </div>
         </div>
 
@@ -22,7 +23,6 @@
         </div>
 
         <div class="detail-meta">
-            <div><span class="meta-label" data-i18n="crm.availability">Availability</span><p>{{ profile.get_availability_status_display }}</p></div>
             <div>
                 <span class="meta-label" data-i18n="crm.location_freshness">Location</span>
                 <p>
@@ -47,19 +47,31 @@
 
     <div class="section-head"><h2 data-i18n="crm.recent_tasks">Recent tasks</h2></div>
     {% if recent_tasks %}
-        <div class="table-list">
-            {% for task in recent_tasks %}
-                <div class="card reveal applicant-row">
-                    <div class="applicant-body">
-                        {% include "myapp/_task_status_tag.html" with status=task.status status_display=task.get_status_display %}
-                        <h3>{{ task.get_help_type_display }}</h3>
-                        <p class="opportunity-location">{{ task.client.username }} · {{ task.created_at|date:"d M" }}</p>
-                    </div>
-                    <div class="button-row">
-                        <a class="button ghost" href="{% url 'task_detail' task.id %}" data-i18n="task.details">Details</a>
-                    </div>
-                </div>
-            {% endfor %}
+        <div class="table-scroll">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th data-i18n="tbl.type">Type</th>
+                        <th data-i18n="tbl.status">Status</th>
+                        <th data-i18n="tbl.client">Client</th>
+                        <th data-i18n="tbl.created">Created</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for task in recent_tasks %}
+                    <tr>
+                        <td data-label="Type"><span class="cell-title">{{ task.get_help_type_display }}</span></td>
+                        <td data-label="Status">{% include "myapp/_task_status_tag.html" with status=task.status status_display=task.get_status_display work_stage_display=task.get_work_stage_display %}</td>
+                        <td data-label="Client">{{ task.client.username }}</td>
+                        <td data-label="Created" class="col-num">{{ task.created_at|date:"d M" }}</td>
+                        <td data-label="" class="col-actions">
+                            <a class="button ghost" href="{% url 'task_detail' task.id %}" data-i18n="task.details">Details</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
     {% else %}
         <div class="empty-state">

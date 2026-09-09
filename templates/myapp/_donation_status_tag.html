@@ -1,0 +1,12 @@
+{% comment %}
+In-kind offer status pill. Colour semantics match .tag.* in style.css:
+  pending → neutral · approved → info · ready → accent · received → info
+  distributed → success · cancelled → muted
+Usage: {% include "myapp/_donation_status_tag.html" with status=offer.status status_display=offer.get_status_display %}
+{% endcomment %}
+{% if status == "approved" %}<span class="tag info" data-i18n="don.status_approved">{{ status_display }}</span>
+{% elif status == "ready" %}<span class="tag accent" data-i18n="don.status_ready">{{ status_display }}</span>
+{% elif status == "received" %}<span class="tag info" data-i18n="don.status_received">{{ status_display }}</span>
+{% elif status == "distributed" %}<span class="tag success" data-i18n="don.status_distributed">{{ status_display }}</span>
+{% elif status == "cancelled" %}<span class="tag muted" data-i18n="don.status_cancelled">{{ status_display }}</span>
+{% else %}<span class="tag" data-i18n="don.status_pending">{{ status_display }}</span>{% endif %}

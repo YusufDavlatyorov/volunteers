@@ -1,0 +1,25 @@
+{% comment %}
+Volunteer SOS control for an active task. Requires: task (HelpRequest).
+
+Works with no JavaScript: a <details> disclosure whose <summary> is the danger
+button, revealing a confirm panel with an explicit second button — so it takes
+two deliberate taps and never fires on an accidental press. task_detail.html
+adds progressive JS that fills the hidden lat/lng from the browser location.
+{% endcomment %}
+<details class="emergency-sos" id="emergencySos">
+    <summary class="button danger emergency-sos__summary">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"></path><path d="M12 9v4M12 17h.01"></path></svg>
+        <span data-i18n="emg.sos_button">Danger / SOS</span>
+    </summary>
+    <form method="post" action="{% url 'emergency_report' task.id %}" class="emergency-confirm" id="emergencySosForm">
+        {% csrf_token %}
+        <p data-i18n="emg.sos_lead">Tell a coordinator that something is wrong or unsafe. Curators and admins are alerted immediately.</p>
+        <label class="field-group emergency-confirm__field">
+            <span data-i18n="emg.reason_label">What is happening? (optional)</span>
+            <textarea name="reason" rows="2" class="control" maxlength="2000" data-i18n-placeholder="emg.reason_ph" placeholder="Short description"></textarea>
+        </label>
+        <input type="hidden" name="latitude" id="emgLat" value="{{ task.latitude|default_if_none:'' }}">
+        <input type="hidden" name="longitude" id="emgLng" value="{{ task.longitude|default_if_none:'' }}">
+        <button type="submit" class="button danger" data-i18n="emg.sos_send">Alert a coordinator now</button>
+    </form>
+</details>

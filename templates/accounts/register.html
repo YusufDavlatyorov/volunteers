@@ -1,5 +1,7 @@
 {% extends "base.html" %}
+{% load static %}
 {% block title %}Join Generation Connect{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% static 'css/auth.css' %}">{% endblock %}
 {% block content %}
 <section class="auth-shell">
     <div class="auth-card auth-card--wide reveal">
@@ -49,17 +51,10 @@
                 <span class="field-error">{{ form.email.errors.0 }}</span>
             </div>
 
-            <div class="field-row">
-                <div class="field-group">
-                    <label for="{{ form.region.id_for_label }}" data-i18n="field.region">Region</label>
-                    {{ form.region }}
-                    <span class="field-error">{{ form.region.errors.0 }}</span>
-                </div>
-                <div class="field-group">
-                    <label for="{{ form.telegram_id.id_for_label }}" data-i18n="field.telegram">Telegram ID (optional)</label>
-                    {{ form.telegram_id }}
-                    <span class="field-error">{{ form.telegram_id.errors.0 }}</span>
-                </div>
+            <div class="field-group">
+                <label for="{{ form.region.id_for_label }}" data-i18n="field.region">Region</label>
+                {{ form.region }}
+                <span class="field-error">{{ form.region.errors.0 }}</span>
             </div>
 
             <div class="field-group" data-motivation-group>

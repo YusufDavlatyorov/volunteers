@@ -1,7 +1,34 @@
 from django.contrib import admin, messages
 
-from .models import Broadcast, Event, HelpRequest, PhotoReport, VolunteerApplication
+from .models import (
+    Broadcast,
+    Donation,
+    EmergencyReport,
+    Event,
+    HelpRequest,
+    PetReport,
+    PhotoReport,
+    Product,
+    VolunteerApplication,
+)
 from .notifications import notify_users
+
+
+@admin.register(EmergencyReport)
+class EmergencyReportAdmin(admin.ModelAdmin):
+    list_display = ("id", "status", "volunteer", "help_request", "region", "created_at")
+    list_filter = ("status", "region", "created_at")
+    search_fields = ("volunteer__username", "help_request__client__username", "reason")
+    readonly_fields = (
+        "help_request", "volunteer", "reason", "region", "latitude", "longitude",
+        "created_at", "updated_at", "notified_at",
+        "acknowledged_at", "acknowledged_by", "resolved_at", "resolved_by",
+        "cancelled_at", "cancelled_by",
+    )
+
+    def has_add_permission(self, request):
+        # Reports are only ever created by a volunteer through the SOS action.
+        return False
 
 
 @admin.register(HelpRequest)
@@ -24,6 +51,51 @@ class BroadcastAdmin(admin.ModelAdmin):
     list_display = ("subject", "sender", "region", "sent_count", "created_at")
     list_filter = ("region", "created_at")
     search_fields = ("subject", "message")
+
+
+@admin.register(Product)
+class ProductAdmin(admin.ModelAdmin):
+    list_display = ("name", "category", "unit", "is_active", "updated_at")
+    list_filter = ("is_active", "category")
+    search_fields = ("name", "description")
+    readonly_fields = ("created_at", "updated_at")
+
+
+@admin.register(Donation)
+class DonationAdmin(admin.ModelAdmin):
+    list_display = (
+        "id", "donor", "donor_type", "category", "quantity", "status",
+        "assigned_volunteer", "created_at",
+    )
+    list_filter = ("status", "category", "donor_type", "region", "created_at")
+    search_fields = ("donor__username", "donor__email", "organization_name", "item_name", "message")
+    # A coordination record: the Django admin is read-only. Status changes go
+    # through the app (services.donations, which enforces the transition rules);
+    # offers are only ever created by the donate flow.
+    readonly_fields = tuple(f.name for f in Donation._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(PetReport)
+class PetReportAdmin(admin.ModelAdmin):
+    list_display = ("id", "report_type", "species", "pet_name", "status", "region", "reporter", "created_at")
+    list_filter = ("report_type", "species", "status", "region", "created_at")
+    search_fields = ("pet_name", "breed", "description", "reporter__username")
+    # Status changes go through the app (services.pets / model methods enforce
+    # the transition rules); a raw admin edit would bypass them. Reports are only
+    # ever created through the board.
+    readonly_fields = (
+        "reporter", "status", "reviewed_by",
+        "created_at", "updated_at", "matched_at", "resolved_at", "closed_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
 
 
 @admin.register(PhotoReport)

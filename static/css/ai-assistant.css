@@ -1,0 +1,107 @@
+/* ===== ai-assistant.css — AI chat page (myapp/ai_assistant.html, ai_advisor.html) =====
+   Loaded after style.css via {% block extra_css %}.
+   The persistent .ai-fab floating button stays in style.css — it is rendered by
+   base.html on every authenticated page, not only this one. */
+
+/* ===== AI CHAT PAGE =====
+   A two-pane layout on desktop (chat app + a slim tips panel that fills the
+   otherwise-empty space on wide screens), collapsing to a single column —
+   same breakpoint as .two-col elsewhere. The chat app is a self-contained
+   "product" card: header, scrollable body, input bar pinned to its bottom. */
+.ai-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 300px); gap: var(--space-6); align-items: start; }
+
+.ai-chat-app {
+    display: flex;
+    flex-direction: column;
+    height: min(70vh, 640px);
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 16px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+}
+.ai-chat-header { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--line); flex-shrink: 0; }
+.ai-chat-header h2 { margin: 0; font-size: 1.05rem; line-height: 1.3; }
+.ai-chat-status { display: flex; align-items: center; gap: 0.4rem; margin: 0.2rem 0 0; font-size: 0.8rem; color: var(--muted); font-weight: 600; }
+.ai-status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex-shrink: 0; }
+
+.ai-avatar, .ai-msg-avatar, .ai-empty-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: var(--primary-glow);
+    color: var(--primary);
+    flex-shrink: 0;
+}
+.ai-avatar { width: 42px; height: 42px; }
+.ai-avatar svg { width: 22px; height: 22px; }
+.ai-empty-icon { width: 52px; height: 52px; margin: 0 auto var(--space-4); }
+.ai-empty-icon svg { width: 26px; height: 26px; }
+.ai-msg-avatar { width: 28px; height: 28px; }
+.ai-msg-avatar svg { width: 15px; height: 15px; }
+
+/* justify-content: flex-end keeps a short conversation anchored to the
+   bottom (next to the input) instead of floating under the header with a
+   big empty gap above it — the empty state overrides this for itself via
+   margin: auto, which still wins over the container's justify-content. */
+.ai-chat-body { flex: 1; overflow-y: auto; padding: var(--space-5); display: flex; flex-direction: column; justify-content: flex-end; }
+.ai-messages { display: flex; flex-direction: column; }
+
+.ai-empty-state { margin: auto; text-align: center; max-width: 360px; padding: var(--space-4) 0; }
+.ai-empty-state h3 { margin: 0 0 0.4rem; font-size: 1.1rem; }
+.ai-empty-state p { margin: 0 0 var(--space-4); color: var(--muted); font-size: 0.88rem; line-height: 1.55; }
+.ai-suggestions { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--space-2); }
+.ai-suggestion-chip {
+    min-height: unset;
+    padding: 0.5rem 0.9rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: var(--text-2);
+    font-size: 0.82rem;
+    font-weight: 600;
+    line-height: 1.3;
+}
+.ai-suggestion-chip:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-glow); }
+
+.ai-msg { display: flex; align-items: flex-end; gap: 0.5rem; max-width: 82%; margin-bottom: var(--space-4); }
+.ai-msg--ai { margin-right: auto; }
+.ai-msg--user { margin-left: auto; flex-direction: row-reverse; }
+.ai-msg-bubble {
+    padding: 0.7rem 1rem;
+    border-radius: 14px 14px 14px 4px;
+    background: var(--bubble-bg);
+    color: var(--text);
+    font-size: 0.92rem;
+    line-height: 1.55;
+    overflow-wrap: break-word;
+    white-space: pre-wrap;
+    animation: aiMsgIn 0.2s ease;
+}
+.ai-msg--user .ai-msg-bubble { border-radius: 14px 14px 4px 14px; background: var(--primary); color: #fff; }
+@keyframes aiMsgIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+.ai-typing { display: flex; align-items: flex-end; gap: 0.5rem; margin-bottom: var(--space-4); }
+.ai-typing-dots { display: flex; align-items: center; gap: 4px; padding: 0.85rem 1.05rem; border-radius: 14px 14px 14px 4px; background: var(--bubble-bg); }
+.ai-typing-dots span { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); animation: aiTypingBounce 1.2s ease-in-out infinite; }
+.ai-typing-dots span:nth-child(2) { animation-delay: 0.15s; }
+.ai-typing-dots span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes aiTypingBounce { 0%, 60%, 100% { transform: translateY(0); opacity: 0.5; } 30% { transform: translateY(-4px); opacity: 1; } }
+
+.ai-chat-input { display: flex; align-items: flex-end; gap: 0.6rem; padding: var(--space-4) var(--space-5); border-top: 1px solid var(--line); flex-shrink: 0; }
+.ai-chat-input textarea { flex: 1; min-height: 2.75rem; max-height: 7.5rem; padding-top: 0.72rem; resize: none; overflow-y: auto; }
+.ai-send-btn { flex-shrink: 0; width: 2.75rem; height: 2.75rem; min-height: unset; padding: 0; border-radius: 50%; color: white; background: var(--primary); }
+.ai-send-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 18px var(--primary-glow); }
+.ai-send-btn svg { width: 18px; height: 18px; }
+
+.ai-side-panel .card span.tag { margin-bottom: 0.6rem; }
+
+@media (max-width: 768px) {
+    .ai-layout { grid-template-columns: 1fr; }
+    .ai-chat-app { height: min(68vh, 560px); }
+}
+@media (max-width: 480px) {
+    .ai-chat-header, .ai-chat-body, .ai-chat-input { padding-left: var(--space-4); padding-right: var(--space-4); }
+    .ai-msg { max-width: 92%; }
+}

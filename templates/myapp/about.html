@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% load static %}
 {% block title %}Generation Connect{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% static 'css/home.css' %}">{% endblock %}
 {% block content %}
 <section class="hero">
     <img class="hero-photo" src="{% static 'images/tajikistan/hero.jpg' %}" alt="" loading="eager">
@@ -43,9 +44,9 @@
             <span class="eyebrow" data-i18n="section.volunteers_eyebrow">Meet Our Volunteers</span>
             <h2 data-i18n="section.volunteers_title">These are our people</h2>
             <p data-i18n="section.volunteers_desc">Young people across Tajikistan are giving their time, energy and kindness to help others — visiting elders, carrying groceries, delivering aid, standing by families who need a hand.</p>
-            <div class="metric-row">
-                <div class="card stat-card"><span class="metric">{{ stats.volunteers }}</span><p data-i18n="stat.volunteers">Volunteers</p></div>
-                <div class="card stat-card"><span class="metric">{{ stats.regions }}</span><p data-i18n="stat.regions">Regions</p></div>
+            <div class="button-row">
+                <a class="button primary" href="{% url 'register' %}" data-i18n="hero.join">Become a Volunteer</a>
+                <a class="button ghost" href="{% url 'rating' %}" data-i18n="nav.rating">Rating</a>
             </div>
         </div>
     </div>
@@ -65,13 +66,13 @@
             <img class="regions-photo" src="{% static 'images/tajikistan/mountains.jpg' %}" alt="Wakhan valley, Tajikistan">
             {% include "_peaks_mark.html" %}
             <h3 data-i18n="section.regions">Five regions, one platform</h3>
-            <ul class="region-list">
-                <li><span class="peak-dot" style="background:var(--peak-1)"></span><span data-i18n="region.dushanbe">Dushanbe</span></li>
-                <li><span class="peak-dot" style="background:var(--peak-2)"></span><span data-i18n="region.sogd">Sogd</span></li>
-                <li><span class="peak-dot" style="background:var(--peak-3)"></span><span data-i18n="region.khatlon">Khatlon</span></li>
-                <li><span class="peak-dot" style="background:var(--peak-4)"></span><span data-i18n="region.gbao">GBAO</span></li>
-                <li><span class="peak-dot" style="background:var(--peak-5)"></span><span data-i18n="region.rrp">RRP</span></li>
-            </ul>
+            <div class="region-grid">
+                <div class="region-card"><span class="peak-dot" style="background:var(--peak-1)"></span><span data-i18n="region.dushanbe">Dushanbe</span></div>
+                <div class="region-card"><span class="peak-dot" style="background:var(--peak-2)"></span><span data-i18n="region.sogd">Sogd</span></div>
+                <div class="region-card"><span class="peak-dot" style="background:var(--peak-3)"></span><span data-i18n="region.khatlon">Khatlon</span></div>
+                <div class="region-card"><span class="peak-dot" style="background:var(--peak-4)"></span><span data-i18n="region.gbao">GBAO</span></div>
+                <div class="region-card"><span class="peak-dot" style="background:var(--peak-5)"></span><span data-i18n="region.rrp">RRP</span></div>
+            </div>
         </div>
     </div>
 </section>
@@ -79,12 +80,18 @@
     <div class="section-head">
         <h2 data-i18n="section.photos">Photo Reports</h2>
     </div>
+    {% if reports %}
     <div class="grid">
         {% for report in reports %}
-            <div class="card reveal"><img class="report-img" src="{{ report.image.url }}" alt="{{ report.title }}"><h3>{{ report.title }}</h3><p>{{ report.description|truncatechars:120 }}</p></div>
-        {% empty %}
-            <div class="card reveal"><h3 data-i18n="photo.empty">Reports coming soon</h3><p data-i18n="photo.empty_desc">After events and help, volunteers can add photos and description.</p></div>
+            <div class="card reveal"><img class="report-img" src="{{ report.image.url }}" alt="{{ report.title }}"><h3>{{ report.title }}</h3><p class="clamp-text">{{ report.description }}</p></div>
         {% endfor %}
     </div>
+    {% else %}
+    <div class="empty-state">
+        <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"></rect><circle cx="9" cy="9" r="2"></circle><path d="m21 15-5-5L5 21"></path></svg>
+        <strong data-i18n="photo.empty">Reports coming soon</strong>
+        <p data-i18n="photo.empty_desc">After events and help, volunteers can add photos and description.</p>
+    </div>
+    {% endif %}
 </section>
 {% endblock %}

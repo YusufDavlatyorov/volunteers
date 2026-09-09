@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}My offers - Generation Connect{% endblock %}
+{% block content %}
+<section class="section section-xl">
+    {% url 'donate' as donate_url %}
+    {% include "partials/_page_header.html" with title="My offers of help" title_i18n="don.my_title" lede="Every offer of goods you have made and where it is in the process." lede_i18n="don.my_lede" action_url=donate_url action_label="Offer goods" action_i18n="dash.offer_cta" %}
+
+    {% if donations %}
+        <div class="table-scroll">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th data-i18n="don.col_id">#</th>
+                        <th data-i18n="don.col_item">Item</th>
+                        <th data-i18n="don.col_quantity">Quantity</th>
+                        <th data-i18n="don.col_category">Category</th>
+                        <th data-i18n="tbl.status">Status</th>
+                        <th data-i18n="tbl.created">Created</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for d in donations %}
+                    <tr>
+                        <td data-label="#"><span class="cell-title">#{{ d.id }}</span></td>
+                        <td data-label="Item">{{ d.item_label }}</td>
+                        <td data-label="Quantity" class="col-num">{{ d.quantity }}{% if d.unit %} {{ d.unit }}{% endif %}</td>
+                        <td data-label="Category" data-i18n="don.category_{{ d.category }}">{{ d.get_category_display }}</td>
+                        <td data-label="Status">{% include "myapp/_donation_status_tag.html" with status=d.status status_display=d.get_status_display %}</td>
+                        <td data-label="Created" class="col-num">{{ d.created_at|date:"d M Y" }}</td>
+                        <td data-label="" class="col-actions">
+                            <a class="button ghost" href="{% url 'donation_detail' d.id %}" data-i18n="task.details">Details</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <div class="empty-state">
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 0 0 0-7.78Z"></path></svg>
+            <strong data-i18n="don.none_title">Nothing here yet</strong>
+            <p data-i18n="don.none_yet">You haven't offered any goods yet.</p>
+            <a class="button primary" href="{% url 'donate' %}" data-i18n="dash.offer_cta">Offer goods</a>
+        </div>
+    {% endif %}
+</section>
+{% endblock %}

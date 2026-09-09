@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Assigned deliveries - Generation Connect{% endblock %}
+{% block content %}
+<section class="section section-xl">
+    {% include "partials/_page_header.html" with title="Assigned deliveries" title_i18n="don.assigned_title" lede="Donation offers a coordinator has asked you to collect or deliver." lede_i18n="don.assigned_lede" %}
+
+    {% if donations %}
+        <div class="table-scroll">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th data-i18n="don.col_id">#</th>
+                        <th data-i18n="don.col_item">Item</th>
+                        <th data-i18n="don.col_quantity">Quantity</th>
+                        <th data-i18n="don.col_fulfilment">Handover</th>
+                        <th data-i18n="tbl.region">Region</th>
+                        <th data-i18n="tbl.status">Status</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for d in donations %}
+                    <tr>
+                        <td data-label="#"><span class="cell-title">#{{ d.id }}</span></td>
+                        <td data-label="Item">{{ d.item_label }}{% if d.location %}<span class="cell-sub">{{ d.location }}</span>{% endif %}</td>
+                        <td data-label="Quantity" class="col-num">{{ d.quantity }}{% if d.unit %} {{ d.unit }}{% endif %}</td>
+                        <td data-label="Handover" data-i18n="don.fulfilment_{{ d.fulfilment }}">{{ d.get_fulfilment_display }}</td>
+                        <td data-label="Region">{{ d.get_region_display|default:"—" }}</td>
+                        <td data-label="Status">{% include "myapp/_donation_status_tag.html" with status=d.status status_display=d.get_status_display %}</td>
+                        <td data-label="" class="col-actions">
+                            <a class="button ghost" href="{% url 'donation_detail' d.id %}" data-i18n="task.details">Details</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <div class="empty-state">
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 18V7a2 2 0 0 1 2-2h9l4 4v9M5 18a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2M5 18H3"></path><circle cx="9" cy="20" r="1"></circle></svg>
+            <strong data-i18n="don.assigned_empty_title">Nothing assigned</strong>
+            <p data-i18n="don.assigned_empty">No donation offers are assigned to you right now.</p>
+        </div>
+    {% endif %}
+</section>
+{% endblock %}

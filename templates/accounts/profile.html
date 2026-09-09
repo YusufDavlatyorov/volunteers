@@ -1,5 +1,7 @@
 {% extends "base.html" %}
+{% load static %}
 {% block title %}Dashboard - Generation Connect{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% static 'css/dashboard.css' %}">{% endblock %}
 {% block content %}
 <section class="section">
     <div class="dash-greeting reveal">
@@ -10,11 +12,11 @@
         {% else %}
             <h1><span data-i18n="dash.evening">Good evening</span>, {{ profile.full_name|default:user.username }}</h1>
         {% endif %}
-        {% if user.is_volunteer %}
+        {% if dash_role == "volunteer" %}
             <p data-i18n="dash.volunteer_sub">Ready to make a difference?</p>
-        {% elif user.is_client %}
+        {% elif dash_role == "client" %}
             <p data-i18n="dash.client_sub">Need a little help today?</p>
-        {% elif user.is_superuser or user.is_curator %}
+        {% elif dash_role == "curator" or dash_role == "admin" %}
             <p data-i18n="dash.admin_sub">Here's what's happening across the platform.</p>
         {% else %}
             <p data-i18n="dash.guest_sub">Welcome back to Generation Connect.</p>
@@ -23,31 +25,33 @@
 
     <div class="two-col">
         <div class="stack">
-            {% if user.is_volunteer %}
-                <div class="metric-row reveal">
-                    <div class="card stat-card"><span class="metric">{{ completed_count }}</span><p data-i18n="dash.tasks_completed">Tasks completed</p></div>
-                    <div class="card stat-card"><span class="metric">{{ profile.rating }}</span><p data-i18n="profile.rating_pts">rating points</p></div>
-                </div>
-                {% if active_task %}
-                    <div class="card reveal">
-                        <h3 data-i18n="dash.active_task">Active task</h3>
-                        <p>{{ active_task.get_help_type_display }} · {{ active_task.get_region_display|default:"—" }}</p>
-                        <div class="button-row">
-                            <a class="button primary" href="{% url 'task_detail' active_task.id %}" data-i18n="dash.view_task">View Task</a>
-                        </div>
-                    </div>
-                {% endif %}
+            {% if dash_role == "volunteer" %}
+                {% include "myapp/dashboard/_volunteer.html" %}
+            {% elif dash_role == "client" %}
+                {% include "myapp/dashboard/_client.html" %}
+            {% elif dash_role == "admin" %}
+                {% include "myapp/dashboard/_admin.html" %}
+            {% elif dash_role == "curator" %}
+                {% include "myapp/dashboard/_curator.html" %}
             {% endif %}
 
-            {% if user.is_client %}
+            {% if volunteer_application and volunteer_application.status != "approved" %}
                 <div class="card reveal">
-                    <h3 data-i18n="dash.need_help">Need a little help?</h3>
+                    <h3 data-i18n="va.title">Volunteer Application</h3>
+                    <span class="tag {% if volunteer_application.status == 'rejected' %}urgent{% else %}accent{% endif %}" data-i18n="va.status_{{ volunteer_application.status }}">{{ volunteer_application.get_status_display }}</span>
+                    {% if volunteer_application.status == "pending" %}
+                        <p class="status-message" data-i18n="va.msg_pending">Your application is currently being reviewed by an administrator.</p>
+                    {% elif volunteer_application.status == "rejected" %}
+                        <p class="status-message" data-i18n="va.msg_rejected">Your volunteer application was rejected.</p>
+                    {% endif %}
                     <div class="button-row">
-                        <a class="button primary" href="{% url 'create_request' %}" data-i18n="profile.create_req">Create Request</a>
+                        <a class="button ghost" href="{% url 'volunteer_application' %}" data-i18n="va.view_status">View Application Status</a>
                     </div>
                 </div>
             {% endif %}
+        </div>
 
+        <div class="stack dash-rail">
             <div class="card reveal">
                 <div class="profile-head">
                     {% if profile.image %}
@@ -56,76 +60,80 @@
                         <div class="avatar avatar-fallback">{{ profile.full_name|default:user.username|first|upper }}</div>
                     {% endif %}
                     <div>
-                        <span class="tag">{{ user.role_display }}</span>
-                        <h2>{{ profile.full_name|default:user.username }}</h2>
+                        <span class="tag muted">{{ user.role_display }}</span>
+                        <h3>{{ profile.full_name|default:user.username }}</h3>
                         <p>{{ user.email }} · {{ user.get_region_display|default:"—" }}</p>
                     </div>
                 </div>
-                <p>{{ profile.bio|default:"—" }}</p>
+                {% if profile.bio %}<p>{{ profile.bio }}</p>{% endif %}
                 <div class="button-row">
                     <a class="button ghost" href="{% url 'edit_profile' %}" data-i18n="profile.edit">Edit Profile</a>
+                    <a class="button ghost" href="{% url 'telegram_link' %}" data-i18n="tg.title">Link Telegram</a>
                 </div>
             </div>
-        </div>
-        <div class="card reveal">
-            <h3 data-i18n="profile.quick">Quick Actions</h3>
-            <div class="grid grid-narrow">
-                {% if user.is_superuser or user.is_curator %}
-                    <a class="button primary" href="{% url 'admin_panel' %}" data-i18n="profile.admin">Admin Panel</a>
-                    <a class="button secondary" href="{% url 'broadcast' %}" data-i18n="profile.send_msg">Send Message</a>
-                    <a class="button ghost" href="{% url 'create_event' %}" data-i18n="profile.create_event">Create Event</a>
-                {% endif %}
-                {% if user.is_volunteer %}
-                    <a class="button primary" href="{% url 'task_list' %}" data-i18n="profile.open_req">Open Requests</a>
-                    <a class="button ghost" href="{% url 'photo_reports' %}" data-i18n="profile.photo_rep">Photo Reports</a>
-                {% endif %}
-                {% if user.is_client %}
-                    <a class="button primary" href="{% url 'create_request' %}" data-i18n="profile.create_req">Create Request</a>
-                {% endif %}
-                <a class="button ghost" href="{% url 'ai_assistant' %}" data-i18n="profile.ai">AI Assistant</a>
-                <a class="button ghost" href="{% url 'rating' %}" data-i18n="profile.rating">Rating</a>
+
+            <div class="card reveal">
+                <div class="section-head"><h3 data-i18n="profile.quick">Quick Actions</h3></div>
+                <nav class="quick-actions">
+                    {% if user.is_superuser or user.is_curator %}
+                        <a class="quick-action" href="{% url 'admin_panel' %}">
+                            <span class="quick-action__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="9"></rect><rect x="3" y="16" width="7" height="5"></rect></svg></span>
+                            <span class="quick-action__label" data-i18n="profile.admin">Admin Panel</span>
+                            <svg class="quick-action__chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg>
+                        </a>
+                        <a class="quick-action" href="{% url 'emergency_list' %}">
+                            <span class="quick-action__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"></path><path d="M12 9v4M12 17h.01"></path></svg></span>
+                            <span class="quick-action__label" data-i18n="emg.list_title">Emergencies</span>
+                            <svg class="quick-action__chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg>
+                        </a>
+                        <a class="quick-action" href="{% url 'broadcast' %}">
+                            <span class="quick-action__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"></path><path d="M22 2 15 22l-4-9-9-4 20-7Z"></path></svg></span>
+                            <span class="quick-action__label" data-i18n="profile.send_msg">Send Message</span>
+                            <svg class="quick-action__chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg>
+                        </a>
+                        <a class="quick-action" href="{% url 'create_event' %}">
+                            <span class="quick-action__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"></rect><path d="M16 2v4M8 2v4M3 10h18"></path></svg></span>
+                            <span class="quick-action__label" data-i18n="profile.create_event">Create Event</span>
+                            <svg class="quick-action__chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg>
+                        </a>
+                    {% endif %}
+                    {% if user.is_volunteer %}
+                        <a class="quick-action" href="{% url 'task_list' %}">
+                            <span class="quick-action__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16l3 8v8H1v-8Z"></path><path d="M1 12h6l2 3h6l2-3h6"></path></svg></span>
+                            <span class="quick-action__label" data-i18n="profile.open_req">Open Requests</span>
+                            <svg class="quick-action__chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg>
+                        </a>
+                        <a class="quick-action" href="{% url 'map' %}">
+                            <span class="quick-action__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 20 3 17V4l6 3 6-3 6 3v13l-6-3-6 3Z"></path><path d="M9 7v13M15 4v13"></path></svg></span>
+                            <span class="quick-action__label" data-i18n="nav.map">Map</span>
+                            <svg class="quick-action__chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg>
+                        </a>
+                        <a class="quick-action" href="{% url 'photo_reports' %}">
+                            <span class="quick-action__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"></rect><circle cx="9" cy="9" r="2"></circle><path d="m21 15-5-5L5 21"></path></svg></span>
+                            <span class="quick-action__label" data-i18n="profile.photo_rep">Photo Reports</span>
+                            <svg class="quick-action__chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg>
+                        </a>
+                    {% endif %}
+                    {% if user.is_client %}
+                        <a class="quick-action" href="{% url 'create_request' %}">
+                            <span class="quick-action__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"></path></svg></span>
+                            <span class="quick-action__label" data-i18n="profile.create_req">Create Request</span>
+                            <svg class="quick-action__chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg>
+                        </a>
+                    {% endif %}
+                    <a class="quick-action" href="{% url 'ai_assistant' %}">
+                        <span class="quick-action__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-8.9 8.4L3 21l1.1-4.5A8.4 8.4 0 1 1 21 11.5Z"></path><path d="M8 11.5h.01M12 11.5h.01M16 11.5h.01"></path></svg></span>
+                        <span class="quick-action__label" data-i18n="profile.ai">AI Assistant</span>
+                        <svg class="quick-action__chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg>
+                    </a>
+                    <a class="quick-action" href="{% url 'rating' %}">
+                        <span class="quick-action__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="5"></circle><path d="M8.5 13 6 22l6-3 6 3-2.5-9"></path></svg></span>
+                        <span class="quick-action__label" data-i18n="profile.rating">Rating</span>
+                        <svg class="quick-action__chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg>
+                    </a>
+                </nav>
             </div>
         </div>
     </div>
-</section>
-
-{% if volunteer_application %}
-<section class="section alt">
-    <div class="card reveal detail-card">
-        <h3 data-i18n="va.title">Volunteer Application</h3>
-        <span class="tag {% if volunteer_application.status == 'rejected' %}urgent{% elif volunteer_application.status == 'approved' %}success{% else %}accent{% endif %}" data-i18n="va.status_{{ volunteer_application.status }}">{{ volunteer_application.get_status_display }}</span>
-        {% if volunteer_application.status == "pending" %}
-            <p class="status-message" data-i18n="va.msg_pending">Your application is currently being reviewed by an administrator.</p>
-        {% elif volunteer_application.status == "approved" %}
-            <p class="status-message" data-i18n="va.msg_approved">Congratulations! You are now a volunteer.</p>
-        {% elif volunteer_application.status == "rejected" %}
-            <p class="status-message" data-i18n="va.msg_rejected">Your volunteer application was rejected.</p>
-        {% endif %}
-        <p class="status-meta"><span data-i18n="va.submitted">Submitted:</span> {{ volunteer_application.created_at|date:"d.m.Y H:i" }}</p>
-        <div class="button-row">
-            <a class="button ghost" href="{% url 'volunteer_application' %}" data-i18n="va.view_status">View Application Status</a>
-        </div>
-    </div>
-</section>
-{% endif %}
-
-<section class="section alt">
-    <div class="section-head"><h2 data-i18n="profile.my_records">My Records</h2></div>
-    {% if my_tasks or my_requests %}
-        <div class="grid">
-            {% for task in my_tasks %}
-                <div class="card">{% include "myapp/_task_status_tag.html" with status=task.status status_display=task.get_status_display %}<h3>{{ task.get_help_type_display }}</h3><p>{{ task.description|truncatechars:120 }}</p></div>
-            {% empty %}
-                {% for req in my_requests %}
-                    <div class="card">{% include "myapp/_task_status_tag.html" with status=req.status status_display=req.get_status_display %}<h3>{{ req.get_help_type_display }}</h3><p>{{ req.description|truncatechars:120 }}</p></div>
-                {% endfor %}
-            {% endfor %}
-        </div>
-    {% else %}
-        <div class="empty-state">
-            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16l3 8v8H1v-8Z"></path><path d="M1 12h6l2 3h6l2-3h6"></path></svg>
-            <p data-i18n="profile.no_records">No records yet.</p>
-        </div>
-    {% endif %}
 </section>
 {% endblock %}

@@ -1,10 +1,12 @@
 import json
-import os
+import logging
 
 import requests
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.cache import cache
+from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db.models import Count, Max, Q
 from django.http import Http404, JsonResponse
@@ -16,17 +18,46 @@ from django.views.decorators.http import require_GET, require_POST
 from accounts.models import Profile, REGION_CHOICES, Users
 from .forms import (
     BroadcastForm,
+    DonationForm,
     EventForm,
     HelpRequestFilterForm,
     HelpRequestForm,
+    PetReportForm,
     PhotoReportForm,
     TaskManagementFilterForm,
 )
-from .models import Broadcast, Event, HelpRequest, OVERDUE_THRESHOLD, PhotoReport, VolunteerApplication
-from .notifications import notify_users, volunteer_queryset_for_region
-from .services import analytics
+from .models import (
+    Broadcast,
+    Donation,
+    DONATION_STATUS_CHOICES,
+    EmergencyReport,
+    Event,
+    HELP_TYPE_CHOICES,
+    HelpRequest,
+    PET_REPORT_TYPE_CHOICES,
+    PET_SPECIES_CHOICES,
+    PetReport,
+    PhotoReport,
+    PRIORITY_CHOICES,
+    STATUS_CHOICES,
+    VolunteerApplication,
+    WORK_STAGE_CHOICES,
+)
+from .models.emergency import STATUS_CHOICES as EMERGENCY_STATUS_CHOICES
+from .notifications import notify_users, staff_recipients, volunteer_queryset_for_region
+from .services import analytics, donations, emergency, maps, overdue, pets, stale
 from .services.geo import get_route, is_valid_coordinate
 from .services.matching import location_freshness_label, recommend_volunteers
+
+logger = logging.getLogger(__name__)
+
+# Page sizes for the list views that grow without bound at production scale
+# (10k+ users, 100k+ historical requests). Named so the regression tests can
+# shrink them instead of creating hundreds of rows.
+ARCHIVE_PAGE_SIZE = 30
+PEOPLE_PAGE_SIZE = 30
+APPLICATIONS_PAGE_SIZE = 25
+PHOTO_REPORTS_PAGE_SIZE = 24
 
 
 def role_required(*roles):
@@ -59,14 +90,12 @@ def about_view(request):
 
 @login_required
 def dashboard_view(request):
-    user = request.user
-    if user.is_client:
-        return redirect("create_request")
-    if user.is_volunteer:
-        return redirect("task_list")
-    if VolunteerApplication.objects.filter(user=user).exists():
-        return redirect("volunteer_application")
-    return redirect("admin_panel")
+    # There is one canonical dashboard now (the role-aware profile view, Stage 5).
+    # This route is kept for backwards compatibility with any bookmarked link.
+    return redirect("profile")
+
+
+ADMIN_PANEL_TASK_LIMIT = 100
 
 
 @role_required("admin", "curator")
@@ -78,14 +107,18 @@ def admin_panel_view(request):
             requests_qs = requests_qs.filter(help_type=filter_form.cleaned_data["help_type"])
         if filter_form.cleaned_data.get("region"):
             requests_qs = requests_qs.filter(region=filter_form.cleaned_data["region"])
+        if filter_form.cleaned_data.get("priority"):
+            requests_qs = requests_qs.filter(priority=filter_form.cleaned_data["priority"])
         if filter_form.cleaned_data.get("is_urgent"):
             requests_qs = requests_qs.filter(is_urgent=True)
 
     now = timezone.now()
+    # Bound the two grids — the full, paginated list is one click away at
+    # crm/tasks/. Without a cap this page renders every pending+active row.
     context = {
         "filter_form": filter_form,
-        "free_requests": requests_qs.filter(status="pending"),
-        "busy_requests": requests_qs.filter(status="active"),
+        "free_requests": requests_qs.filter(status="pending")[:ADMIN_PANEL_TASK_LIMIT],
+        "busy_requests": requests_qs.filter(status="active")[:ADMIN_PANEL_TASK_LIMIT],
         "archive_count": HelpRequest.objects.filter(status="completed").count(),
         "upcoming_events": Event.objects.select_related("curator").filter(date__gte=now).order_by("date")[:5],
         "recent_broadcasts": Broadcast.objects.select_related("sender")[:5],
@@ -98,6 +131,7 @@ def admin_panel_view(request):
         # both computed in myapp.services.analytics so this view stays thin.
         "stats": analytics.dashboard_stats(),
         "recent_activity": analytics.recent_activity(limit=8),
+        "open_emergencies": emergency.open_reports()[:5],
     }
     if request.user.is_superuser:
         context["recent_applications"] = VolunteerApplication.objects.select_related("user").order_by("-created_at")[:5]
@@ -143,8 +177,17 @@ def people_list_view(request, role):
             completed_request_count=Count("client_requests", filter=Q(client_requests__status="completed"), distinct=True),
         )
 
+    # The directory grows with the platform (10k+ volunteers at scale) — paginate.
+    page_obj = Paginator(people, PEOPLE_PAGE_SIZE).get_page(request.GET.get("page"))
+    querystring = request.GET.copy()
+    querystring.pop("page", None)
+
     context = {
-        "people": people,
+        # `people` stays the iteration variable in the template; it is the current
+        # page (iterable), `page_obj` drives the pager.
+        "people": page_obj,
+        "page_obj": page_obj,
+        "querystring": querystring.urlencode(),
         "role": role,
         "region_filter": region_filter,
         "search_query": search_query,
@@ -173,6 +216,8 @@ def crm_tasks_view(request):
             tasks = tasks.filter(help_type=cleaned["help_type"])
         if cleaned.get("region"):
             tasks = tasks.filter(region=cleaned["region"])
+        if cleaned.get("priority"):
+            tasks = tasks.filter(priority=cleaned["priority"])
         if cleaned.get("is_urgent"):
             tasks = tasks.filter(is_urgent=True)
         if cleaned.get("volunteer"):
@@ -190,9 +235,16 @@ def crm_tasks_view(request):
                 | Q(client__username__icontains=query)
             )
 
+    # The "overdue"/"stale" predicates live in one place each (services.overdue /
+    # services.stale) so this CRM filter can't drift from the sweep, the
+    # dashboard queue or the analytics count.
     overdue_only = request.GET.get("overdue") == "1"
     if overdue_only:
-        tasks = tasks.filter(status="active", accepted_at__lt=timezone.now() - OVERDUE_THRESHOLD)
+        tasks = tasks.filter(overdue.currently_overdue_q())
+
+    stale_only = request.GET.get("stale") == "1"
+    if stale_only:
+        tasks = tasks.filter(stale.currently_stale_pending_q())
 
     paginator = Paginator(tasks, 20)
     page_obj = paginator.get_page(request.GET.get("page"))
@@ -204,6 +256,7 @@ def crm_tasks_view(request):
         "filter_form": filter_form,
         "page_obj": page_obj,
         "overdue_only": overdue_only,
+        "stale_only": stale_only,
         "querystring": querystring.urlencode(),
         "stats": analytics.dashboard_stats(),
     }
@@ -240,20 +293,25 @@ def crm_volunteer_detail_view(request, pk):
     return render(request, "myapp/crm_volunteer_detail.html", context)
 
 
+EVENT_LIST_PAST_LIMIT = 50
+BROADCAST_LIST_LIMIT = 50
+
+
 @role_required("admin", "curator")
 def event_list_view(request):
     now = timezone.now()
     events = Event.objects.select_related("curator")
     context = {
         "upcoming_events": events.filter(date__gte=now).order_by("date"),
-        "past_events": events.filter(date__lt=now).order_by("-date"),
+        # Past events accumulate forever — the recent ones are all that's useful.
+        "past_events": events.filter(date__lt=now).order_by("-date")[:EVENT_LIST_PAST_LIMIT],
     }
     return render(request, "myapp/event_list.html", context)
 
 
 @role_required("admin", "curator")
 def broadcast_list_view(request):
-    broadcasts = Broadcast.objects.select_related("sender")
+    broadcasts = Broadcast.objects.select_related("sender")[:BROADCAST_LIST_LIMIT]
     return render(request, "myapp/broadcast_list.html", {"broadcasts": broadcasts})
 
 
@@ -270,6 +328,8 @@ def task_list_view(request):
             tasks = tasks.filter(help_type=filter_form.cleaned_data["help_type"])
         if filter_form.cleaned_data.get("region"):
             tasks = tasks.filter(region=filter_form.cleaned_data["region"])
+        if filter_form.cleaned_data.get("priority"):
+            tasks = tasks.filter(priority=filter_form.cleaned_data["priority"])
         if filter_form.cleaned_data.get("is_urgent"):
             tasks = tasks.filter(is_urgent=True)
 
@@ -283,13 +343,37 @@ def _route_permission(user, task):
     return user.is_superuser or user.is_curator or task.client_id == user.id or task.volunteer_id == user.id
 
 
+def _can_view_task(user, task):
+    """Who may open a task's detail page.
+
+    Staff (admin/curator) always can. A client only ever sees their own
+    requests. A volunteer sees a task they are already assigned to, or a
+    still-pending task that would actually appear in their task_list (same
+    region, or no region filter set) — never an arbitrary other client's
+    pending request just because its status happens to be "pending", and
+    never another volunteer's already-accepted task.
+    """
+    if user.is_superuser or user.is_curator:
+        return True
+    if user.is_client:
+        return task.client_id == user.id
+    if user.is_volunteer:
+        if task.volunteer_id == user.id:
+            return True
+        if task.status == "pending":
+            if not user.region:
+                return True
+            return not task.region or task.region == user.region
+        return False
+    return False
+
+
 @login_required
 def task_detail_view(request, pk):
     task = get_object_or_404(HelpRequest.objects.select_related("client", "volunteer"), pk=pk)
     user = request.user
-    allowed = user.is_superuser or user.is_curator or task.client == user or task.volunteer == user or task.status == "pending"
-    if not allowed:
-        messages.error(request, "Этот запрос уже закреплен за другим волонтером")
+    if not _can_view_task(user, task):
+        messages.error(request, "У вас нет доступа к этой странице")
         return redirect("profile")
     show_route = task.status == "active" and bool(task.volunteer_id) and _route_permission(user, task)
     is_crm_staff = user.is_superuser or user.is_curator
@@ -299,6 +383,29 @@ def task_detail_view(request, pk):
     # pin is still useful context and needs no extra endpoint (lat/lng are
     # already on the task).
     show_location_map = task.has_location and not show_route
+
+    work_stage_steps = next_stage = None
+    if task.status == "active":
+        labels = dict(WORK_STAGE_CHOICES)
+        order = HelpRequest.WORK_STAGE_ORDER
+        current_idx = order.index(task.work_stage)
+        work_stage_steps = [
+            {
+                "key": key,
+                "label": labels[key],
+                "state": "done" if i < current_idx else "current" if i == current_idx else "upcoming",
+            }
+            for i, key in enumerate(order)
+        ]
+        if current_idx + 1 < len(order):
+            next_stage = {"key": order[current_idx + 1], "label": labels[order[current_idx + 1]]}
+
+    active_emergency = (
+        task.emergency_reports.filter(status__in=EmergencyReport.OPEN_STATUSES)
+        .order_by("-created_at")
+        .first()
+    )
+
     return render(
         request,
         "myapp/task_detail.html",
@@ -308,20 +415,64 @@ def task_detail_view(request, pk):
             "show_recommendations": show_recommendations,
             "show_location_map": show_location_map,
             "show_history": is_crm_staff,
+            "work_stage_steps": work_stage_steps,
+            "next_stage": next_stage,
+            "can_advance_stage": task.status == "active" and (user == task.volunteer or is_crm_staff),
+            "can_report_emergency": user == task.volunteer and task.status == "active",
+            "active_emergency": active_emergency,
         },
     )
+
+
+# accept_task_view's per-volunteer critical section. A HelpRequest-level DB
+# constraint was deliberately ruled out here: CRM/admin flows and the
+# matching algorithm's workload scoring (myapp.services.matching) legitimately
+# model a volunteer holding more than one "active" row at once (see e.g.
+# MatchingAlgorithmTests, CrmTasksViewTests) — the "one active task" rule is a
+# self-service-accept-flow rule, not a fact about the data model as a whole,
+# so it must not be baked into schema-level uniqueness.
+ACCEPT_TASK_LOCK_TIMEOUT_SECONDS = 10
 
 
 @role_required("volunteer")
 @require_POST
 def accept_task_view(request, pk):
-    task = get_object_or_404(HelpRequest, pk=pk, status="pending")
-    active_exists = HelpRequest.objects.filter(volunteer=request.user, status="active").exists()
-    if active_exists:
+    task = get_object_or_404(HelpRequest.objects.select_related("client"), pk=pk)
+
+    # cache.add() only succeeds if the key is absent, which is atomic in
+    # Django's cache backends — so of two concurrent accept_task_view calls
+    # for the *same* volunteer (two different tasks, or the same one), only
+    # one gets past this line at a time; the other is turned away immediately
+    # instead of racing the "do I already have an active task" check below.
+    lock_key = f"accept_task_lock:{request.user.pk}"
+    if not cache.add(lock_key, "1", ACCEPT_TASK_LOCK_TIMEOUT_SECONDS):
         messages.warning(request, "Сначала завершите текущий запрос. Один волонтер работает с одним запросом.")
         return redirect("task_list")
 
-    task.accept(request.user)
+    try:
+        if HelpRequest.objects.filter(volunteer=request.user, status="active").exists():
+            messages.warning(request, "Сначала завершите текущий запрос. Один волонтер работает с одним запросом.")
+            return redirect("task_list")
+
+        # Conditional UPDATE, not fetch-then-save: the WHERE clause is
+        # evaluated by the database as part of one atomic statement, so if
+        # two *different* volunteers click "accept" on this same task at the
+        # same time, only the first UPDATE can still see status="pending" —
+        # the second affects zero rows instead of silently overwriting the
+        # first volunteer's acceptance.
+        updated = HelpRequest.objects.filter(pk=task.pk, status="pending").update(
+            volunteer=request.user, status="active", accepted_at=timezone.now(),
+            work_stage=HelpRequest.WORK_STAGE_ASSIGNED,
+        )
+    finally:
+        cache.delete(lock_key)
+
+    if not updated:
+        messages.warning(request, "Этот запрос уже принят другим волонтером.")
+        return redirect("task_list")
+
+    task.refresh_from_db()
+    logger.info("task #%s self-accepted by volunteer #%s", task.id, request.user.pk)
     subject = "Запрос принят волонтером"
     message = (
         f"Запрос #{task.id} принят.\n"
@@ -338,12 +489,57 @@ def accept_task_view(request, pk):
 @require_POST
 def complete_task_view(request, pk):
     task = get_object_or_404(HelpRequest, pk=pk, volunteer=request.user, status="active")
-    task.complete()
+    # Conditional UPDATE, not task.complete() (fetch-then-save): a double-click or
+    # a retried POST would otherwise complete the task twice and award the rating
+    # points twice. Only the request that still sees status="active" wins; the
+    # loser gets 0 rows and bails out before add_points / the client notice.
+    completed = HelpRequest.objects.filter(pk=task.pk, volunteer=request.user, status="active").update(
+        status="completed", completed_at=timezone.now(), updated_at=timezone.now()
+    )
+    if not completed:
+        messages.info(request, "Этот запрос уже завершён.")
+        return redirect("task_list")
+
+    task.refresh_from_db()
+    logger.info("task #%s completed by volunteer #%s", task.id, request.user.pk)
     profile, _ = Profile.objects.get_or_create(user=request.user)
     profile.add_points(5 if task.is_urgent else 3)
     notify_users([task.client], "Запрос выполнен", f"Ваш запрос #{task.id} отмечен как выполненный. Спасибо!")
     messages.success(request, "Запрос завершен, рейтинг обновлен.")
     return redirect("task_list")
+
+
+_STAGE_CLIENT_NOTIFY = {
+    HelpRequest.WORK_STAGE_EN_ROUTE: "Волонтёр выехал к вам",
+    HelpRequest.WORK_STAGE_ARRIVED: "Волонтёр на месте",
+}
+
+
+@login_required
+@require_POST
+def task_advance_stage_view(request, pk):
+    """Move an active task's work_stage forward. The assigned volunteer drives
+    their own progress; curator/admin can correct it."""
+    task = get_object_or_404(HelpRequest.objects.select_related("client", "volunteer"), pk=pk)
+    user = request.user
+    if not (user == task.volunteer or user.is_superuser or user.is_curator):
+        messages.error(request, "У вас нет доступа к этой странице")
+        return redirect("profile")
+
+    try:
+        task.advance_work_stage(request.POST.get("stage", ""))
+    except ValueError:
+        messages.warning(request, "Не удалось изменить этап задачи.")
+        return redirect("task_detail", pk=pk)
+
+    if task.work_stage in _STAGE_CLIENT_NOTIFY:
+        notify_users(
+            [task.client],
+            _STAGE_CLIENT_NOTIFY[task.work_stage],
+            f"Запрос #{task.id}: {task.get_work_stage_display().lower()}.",
+        )
+    messages.success(request, f"Этап обновлён: {task.get_work_stage_display()}.")
+    return redirect("task_detail", pk=pk)
 
 
 @role_required("client")
@@ -354,6 +550,13 @@ def create_request_view(request):
             help_request = form.save(commit=False)
             help_request.client = request.user
             help_request.region = request.user.region
+            # If the client didn't drop a pin, try to resolve the typed address
+            # to a point so the request still shows on the operations map.
+            # Best-effort: an un-geocodable address just means no coordinates.
+            if not help_request.has_location and help_request.address:
+                coords = maps.geocode(help_request.address, region=help_request.region)
+                if coords:
+                    help_request.latitude, help_request.longitude = coords
             help_request.save()
             volunteers = volunteer_queryset_for_region(request.user.region)
             notify_users(volunteers, "Новый запрос помощи", f"Новый запрос в регионе {request.user.get_region_display()}: {help_request.description[:180]}")
@@ -367,7 +570,10 @@ def create_request_view(request):
 @role_required("admin", "curator")
 def completed_tasks_view(request):
     tasks = HelpRequest.objects.filter(status="completed").select_related("client", "volunteer")
-    return render(request, "myapp/completed_tasks.html", {"tasks": tasks})
+    # The archive grows without bound (100k+ historical rows at scale) — paginate
+    # rather than render the whole table.
+    page_obj = Paginator(tasks, ARCHIVE_PAGE_SIZE).get_page(request.GET.get("page"))
+    return render(request, "myapp/completed_tasks.html", {"page_obj": page_obj})
 
 
 def rating_view(request):
@@ -381,6 +587,14 @@ def ai_assistant_view(request):
     return render(request, "myapp/ai_assistant.html")
 
 
+# Per-user ceiling on calls to the (billed, network-bound) Groq endpoint, so one
+# logged-in account can't run up cost or saturate the upstream. Process-local
+# LocMemCache like the login/reset throttles — a soft guard, not a hard quota.
+AI_CHAT_RATE_LIMIT = 30
+AI_CHAT_RATE_WINDOW_SECONDS = 5 * 60
+AI_CHAT_MAX_MESSAGE_CHARS = 2000
+
+
 @login_required
 def ai_chat_view(request):
     if request.method != "POST":
@@ -391,9 +605,17 @@ def ai_chat_view(request):
     except json.JSONDecodeError:
         return JsonResponse({"error": "Invalid JSON"}, status=400)
 
-    user_message = data.get("message", "").strip()
+    user_message = data.get("message", "").strip()[:AI_CHAT_MAX_MESSAGE_CHARS]
     if not user_message:
         return JsonResponse({"error": "Напишите вопрос"}, status=400)
+
+    rate_key = f"ai_chat_rate:{request.user.pk}"
+    if cache.get(rate_key, 0) >= AI_CHAT_RATE_LIMIT:
+        return JsonResponse(
+            {"error": "Слишком много запросов к ассистенту. Попробуйте через несколько минут."},
+            status=429,
+        )
+    cache.set(rate_key, cache.get(rate_key, 0) + 1, AI_CHAT_RATE_WINDOW_SECONDS)
 
     if request.user.is_client:
         system_prompt = "Ты спокойный помощник для пожилого клиента. Отвечай просто, заботливо, не назначай лекарства, при опасных симптомах советуй врача или 103."
@@ -404,10 +626,9 @@ def ai_chat_view(request):
 
     system_prompt += " Answer only in Tajik, Russian, or English. Use the same language as the user's message. If the message mixes languages, choose the clearest of these three languages."
 
-    from dotenv import load_dotenv
-    load_dotenv()
-
-    api_key = getattr(settings, "GROQ_API_KEY", "") or os.getenv("GROQ_API_KEY", "") or os.getenv("GEMINI_API_KEY", "")
+    # settings.GROQ_API_KEY is already resolved from GROQ_API_KEY|GEMINI_API_KEY
+    # at startup (server/settings.py) — no need to re-read the .env per request.
+    api_key = getattr(settings, "GROQ_API_KEY", "")
 
     if not api_key:
         return JsonResponse({"reply": fallback})
@@ -428,14 +649,16 @@ def ai_chat_view(request):
                 "temperature": 0.4,
                 "max_completion_tokens": 500,
             },
-            timeout=25,
+            # (connect, read) — bound how long a single request can pin a worker
+            # waiting on Groq. llama-3.1-8b typically answers in <3s.
+            timeout=(5, 15),
         )
         response.raise_for_status()
         result = response.json()
         reply = result["choices"][0]["message"]["content"].strip()
         return JsonResponse({"reply": reply or fallback})
     except Exception as e:
-        print(f"Groq error: {e}")
+        logger.warning("Groq chat request failed: %s", e)
         return JsonResponse({"reply": fallback})
 
 
@@ -476,9 +699,13 @@ def broadcast_view(request):
 
 @login_required
 def photo_reports_view(request):
-    reports = PhotoReport.objects.select_related("author", "event", "help_request")
+    reports_qs = PhotoReport.objects.select_related("author", "event", "help_request")
+    can_create = request.user.is_superuser or request.user.is_curator or request.user.is_volunteer
     if request.method == "POST":
-        form = PhotoReportForm(request.POST, request.FILES)
+        if not can_create:
+            messages.error(request, "Фотоотчеты может публиковать только волонтер, куратор или админ.")
+            return redirect("photo_reports")
+        form = PhotoReportForm(request.POST, request.FILES, user=request.user)
         if form.is_valid():
             report = form.save(commit=False)
             report.author = request.user
@@ -488,8 +715,12 @@ def photo_reports_view(request):
             messages.success(request, "Фотоотчет добавлен.")
             return redirect("photo_reports")
     else:
-        form = PhotoReportForm()
-    return render(request, "myapp/photo_reports.html", {"reports": reports, "form": form})
+        form = PhotoReportForm(user=request.user)
+    # Visible to every authenticated user and grows without bound — paginate.
+    page_obj = Paginator(reports_qs, PHOTO_REPORTS_PAGE_SIZE).get_page(request.GET.get("page"))
+    return render(request, "myapp/photo_reports.html", {
+        "reports": page_obj, "page_obj": page_obj, "form": form, "can_create": can_create,
+    })
 
 
 @login_required
@@ -524,9 +755,16 @@ def volunteer_applications_view(request):
     if search_query:
         applications = applications.filter(Q(user__username__icontains=search_query) | Q(user__email__icontains=search_query))
 
+    # `approved` / `all` grow with every volunteer ever onboarded — paginate.
+    page_obj = Paginator(applications, APPLICATIONS_PAGE_SIZE).get_page(request.GET.get("page"))
+    querystring = request.GET.copy()
+    querystring.pop("page", None)
+
     all_applications = VolunteerApplication.objects.all()
     context = {
-        "applications": applications,
+        "applications": page_obj,
+        "page_obj": page_obj,
+        "querystring": querystring.urlencode(),
         "status_filter": status_filter,
         "region_filter": region_filter,
         "search_query": search_query,
@@ -552,6 +790,10 @@ def volunteer_application_approve_view(request, pk):
         messages.info(request, "Заявка уже одобрена.")
         return redirect("volunteer_applications")
     application.approve(request.user)
+    logger.info(
+        "volunteer application #%s approved by user #%s (applicant #%s)",
+        application.pk, request.user.pk, application.user_id,
+    )
     notify_users(
         [application.user],
         "Заявка на волонтерство одобрена",
@@ -569,6 +811,10 @@ def volunteer_application_reject_view(request, pk):
         messages.info(request, "Заявка уже отклонена.")
         return redirect("volunteer_applications")
     application.reject(request.user)
+    logger.info(
+        "volunteer application #%s rejected by user #%s (applicant #%s)",
+        application.pk, request.user.pk, application.user_id,
+    )
     notify_users(
         [application.user],
         "Заявка на волонтерство отклонена",
@@ -579,38 +825,66 @@ def volunteer_application_reject_view(request, pk):
 
 
 @role_required("admin", "curator")
+@require_POST
 def check_overdue_view(request):
-    overdue = list(
-        HelpRequest.objects.filter(status="active", alarm_sent=False, accepted_at__lt=timezone.now() - OVERDUE_THRESHOLD)
-    )
-    curators = Users.objects.filter(Q(is_curator=True) | Q(is_superuser=True), is_active=True)
-    for task in overdue:
-        notify_users(curators, "Просроченный запрос", f"Запрос #{task.id} в работе больше 3 часов. Волонтер: {task.volunteer}")
-        task.alarm_sent = True
-        task.save(update_fields=["alarm_sent"])
-    messages.info(request, f"Проверено. Просроченных запросов: {len(overdue)}.")
+    """Manual trigger for the overdue sweep (the same one the check_overdue_tasks
+    cron command runs). Idempotent — alerts each overdue task once."""
+    alerted = overdue.sweep_overdue_tasks()
+    messages.info(request, f"Проверено. Просроченных запросов: {len(alerted)}.")
     return redirect("admin_panel")
 
 
 @login_required
 def map_view(request):
-    return render(request, "myapp/map.html")
+    is_staff = request.user.is_superuser or request.user.is_curator
+    my_active_task_id = None
+    if request.user.is_volunteer:
+        active = HelpRequest.objects.filter(volunteer=request.user, status="active").values_list("id", flat=True).first()
+        my_active_task_id = active
+    return render(request, "myapp/map.html", {
+        "is_ops_staff": is_staff,
+        "my_active_task_id": my_active_task_id,
+        "help_type_choices": HELP_TYPE_CHOICES,
+        "region_choices": REGION_CHOICES,
+        "priority_choices": PRIORITY_CHOICES,
+        "status_choices": STATUS_CHOICES,
+    })
 
 
 def _task_point(task, subtitle_extra=""):
+    # `color`/`glyph` are a legacy fallback; the ops map derives its own marker
+    # style from kind + priority + is_overdue + status.
     color = "--danger" if task.is_urgent else ("--accent" if task.status == "pending" else "--primary")
     subtitle = task.get_region_display() or ""
     if subtitle_extra:
         subtitle = f"{subtitle} · {subtitle_extra}" if subtitle else subtitle_extra
     return {
+        "id": task.pk,
+        "kind": "task",
         "lat": float(task.latitude),
         "lng": float(task.longitude),
         "title": task.get_help_type_display(),
         "subtitle": subtitle,
+        "status": task.status,
+        "priority": task.priority,
+        "help_type": task.help_type,
+        "region": task.region,
+        "is_overdue": task.is_overdue,
         "color": color,
         "glyph": "!" if task.is_urgent else "",
         "url": reverse("task_detail", args=[task.pk]),
     }
+
+
+# Per-category ceilings for the operations map JSON. The querysets are already
+# scoped (by status / ownership / region), so these are not a security boundary —
+# they stop one request from loading and serialising an unbounded result set on a
+# large deployment (a memory/CPU DoS that would hit every legitimate viewer too).
+# Each category is ordered so the cap keeps the most operationally relevant rows;
+# generous enough that a normal region never reaches them.
+MAP_TASK_LIMIT = 500
+MAP_VOLUNTEER_LIMIT = 500
+MAP_EMERGENCY_LIMIT = 200
 
 
 @login_required
@@ -623,13 +897,18 @@ def map_data_view(request):
             HelpRequest.objects.filter(status__in=["pending", "active"])
             .exclude(latitude__isnull=True)
             .select_related("client", "volunteer")
+            .order_by("-is_urgent", "-created_at")[:MAP_TASK_LIMIT]
         )
         for task in tasks:
             points.append(_task_point(task, task.volunteer.username if task.volunteer else ""))
 
-        volunteers = Users.objects.filter(
-            is_volunteer=True, is_active=True, profile__latitude__isnull=False
-        ).select_related("profile")
+        volunteers = (
+            Users.objects.filter(
+                is_volunteer=True, is_active=True, profile__latitude__isnull=False
+            )
+            .select_related("profile")
+            .order_by("-profile__location_updated_at")[:MAP_VOLUNTEER_LIMIT]
+        )
         availability_colors = {
             "available": "--ok",
             "busy": "--accent",
@@ -638,31 +917,66 @@ def map_data_view(request):
         for volunteer in volunteers:
             profile = volunteer.profile
             points.append({
+                "id": volunteer.pk,
+                "kind": "volunteer",
                 "lat": float(profile.latitude),
                 "lng": float(profile.longitude),
                 "title": volunteer.username,
                 "subtitle": f"{volunteer.get_region_display() or '—'} · {profile.get_availability_status_display()}",
+                "status": profile.availability_status,
+                "region": volunteer.region,
                 "color": availability_colors.get(profile.availability_status, "--muted"),
                 "glyph": "V",
+            })
+
+        emergencies = (
+            EmergencyReport.objects.filter(
+                status__in=EmergencyReport.OPEN_STATUSES, latitude__isnull=False
+            )
+            .select_related("help_request", "volunteer")
+            .order_by("-created_at")[:MAP_EMERGENCY_LIMIT]
+        )
+        for report in emergencies:
+            points.append({
+                "id": report.pk,
+                "kind": "emergency",
+                "lat": float(report.latitude),
+                "lng": float(report.longitude),
+                "title": "Сигнал опасности",
+                "subtitle": f"{report.volunteer.username} · запрос #{report.help_request_id}",
+                "status": report.status,
+                "region": report.region,
+                "color": "--danger",
+                "glyph": "!",
+                "url": reverse("emergency_detail", args=[report.pk]),
             })
     elif user.is_volunteer:
         tasks = HelpRequest.objects.filter(status="pending").exclude(latitude__isnull=True).select_related("client")
         if user.region:
             tasks = tasks.filter(Q(region=user.region) | Q(region=""))
-        for task in tasks:
+        for task in tasks.order_by("-is_urgent", "-created_at")[:MAP_TASK_LIMIT]:
             points.append(_task_point(task))
 
         my_active = HelpRequest.objects.filter(volunteer=user, status="active").exclude(latitude__isnull=True)
         for task in my_active:
             points.append(_task_point(task, "Моя задача"))
     elif user.is_client:
-        tasks = HelpRequest.objects.filter(client=user).exclude(latitude__isnull=True)
+        tasks = (
+            HelpRequest.objects.filter(client=user)
+            .exclude(latitude__isnull=True)
+            .order_by("-created_at")[:MAP_TASK_LIMIT]
+        )
         for task in tasks:
             points.append(_task_point(task))
+
+    # Lost & Found pet markers — public-safe (no reporter identity or contact
+    # detail; see services.pets.public_point), shown to every authenticated role.
+    points.extend(pets.open_board_points())
 
     profile = getattr(user, "profile", None)
     if profile and profile.has_location:
         points.append({
+            "kind": "me",
             "lat": float(profile.latitude),
             "lng": float(profile.longitude),
             "title": "Я",
@@ -762,6 +1076,7 @@ def task_recommendations_view(request, pk):
             "availability_display": profile.get_availability_status_display(),
             "active_task_count": item["active_task_count"],
             "same_region": item["same_region"],
+            "skill_match": item["skill_match"],
             "location_freshness": item["location_freshness"],
             "reasons": item["reasons"],
         }
@@ -791,3 +1106,588 @@ def task_notify_volunteer_view(request, pk, volunteer_id):
     )
     notify_users([volunteer], subject, message)
     return JsonResponse({"success": True})
+
+
+@role_required("admin", "curator")
+@require_POST
+def task_assign_volunteer_view(request, pk, volunteer_id):
+    """Curator/admin assigns a pending task directly to a volunteer (the
+    accept-recommendation action). Uses the same conditional UPDATE guard as
+    accept_task_view so a curator assign and a volunteer self-accept can't both
+    win."""
+    task = get_object_or_404(HelpRequest.objects.select_related("client"), pk=pk)
+    volunteer = get_object_or_404(Users, pk=volunteer_id, is_volunteer=True, is_active=True)
+
+    updated = HelpRequest.objects.filter(pk=pk, status="pending").update(
+        volunteer=volunteer, status="active", accepted_at=timezone.now(),
+        work_stage=HelpRequest.WORK_STAGE_ASSIGNED,
+    )
+    if not updated:
+        return JsonResponse({"success": False, "reason": "task_not_pending"})
+
+    logger.info(
+        "task #%s assigned to volunteer #%s by user #%s (direct dispatch)",
+        task.id, volunteer.pk, request.user.pk,
+    )
+    message = (
+        f"Куратор назначил вам запрос #{task.id} ({task.get_help_type_display()}).\n"
+        f"Клиент: {task.client.username}, телефон: {task.phone}\nАдрес: {task.address}"
+    )
+    notify_users([volunteer, task.client], "Вам назначен запрос помощи", message)
+    return JsonResponse({"success": True})
+
+
+# ============================================================================
+# Emergency / SOS
+# ============================================================================
+
+EMERGENCY_REPORT_LOCK_SECONDS = 30
+
+
+def _can_view_emergency(user, report):
+    """Staff see every report; a volunteer sees only their own."""
+    return user.is_superuser or user.is_curator or report.volunteer_id == user.id
+
+
+@role_required("volunteer")
+@require_POST
+def emergency_report_view(request, task_pk):
+    """A volunteer raises an SOS on the active task assigned to them."""
+    task = get_object_or_404(
+        HelpRequest.objects.select_related("client"),
+        pk=task_pk, volunteer=request.user, status="active",
+    )
+
+    # Short per-(volunteer, task) cooldown: a rapid second submit is bounced to
+    # the existing report instead of hitting the create path again. It expires on
+    # its own — the service-level dedup is the real duplicate guard.
+    lock_key = f"emergency_report_lock:{request.user.pk}:{task.pk}"
+    if not cache.add(lock_key, "1", EMERGENCY_REPORT_LOCK_SECONDS):
+        existing = (
+            EmergencyReport.objects.filter(
+                help_request=task, volunteer=request.user, status__in=EmergencyReport.OPEN_STATUSES
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        if existing:
+            messages.info(request, "У вас уже есть открытый сигнал по этому запросу.")
+            return redirect("emergency_detail", pk=existing.pk)
+        messages.info(request, "Сигнал уже обрабатывается…")
+        return redirect("task_detail", pk=task.pk)
+
+    report, created = emergency.report_emergency(
+        volunteer=request.user,
+        help_request=task,
+        reason=request.POST.get("reason", ""),
+        latitude=request.POST.get("latitude") or None,
+        longitude=request.POST.get("longitude") or None,
+    )
+    if created:
+        messages.success(request, "Сигнал отправлен. Куратор и администратор уведомлены.")
+    else:
+        messages.info(request, "У вас уже есть открытый сигнал по этому запросу.")
+    return redirect("emergency_detail", pk=report.pk)
+
+
+@role_required("admin", "curator")
+def emergency_list_view(request):
+    """CRM: every SOS report — filterable by status tab, region and free text."""
+    status_filter = request.GET.get("status", "")
+    region_filter = request.GET.get("region", "")
+    search_query = request.GET.get("q", "").strip()
+
+    reports = EmergencyReport.objects.select_related(
+        "help_request", "help_request__client", "volunteer"
+    )
+    valid_statuses = {value for value, _ in EMERGENCY_STATUS_CHOICES}
+    if status_filter in valid_statuses:
+        reports = reports.filter(status=status_filter)
+    if region_filter:
+        reports = reports.filter(region=region_filter)
+    if search_query:
+        reports = reports.filter(
+            Q(volunteer__username__icontains=search_query)
+            | Q(help_request__client__username__icontains=search_query)
+            | Q(reason__icontains=search_query)
+        )
+
+    paginator = Paginator(reports, 20)
+    page_obj = paginator.get_page(request.GET.get("page"))
+    querystring = request.GET.copy()
+    querystring.pop("page", None)
+
+    counts = EmergencyReport.objects.aggregate(
+        total=Count("id"),
+        open=Count("id", filter=Q(status=EmergencyReport.STATUS_OPEN)),
+        acknowledged=Count("id", filter=Q(status=EmergencyReport.STATUS_ACKNOWLEDGED)),
+        resolved=Count("id", filter=Q(status=EmergencyReport.STATUS_RESOLVED)),
+        cancelled=Count("id", filter=Q(status=EmergencyReport.STATUS_CANCELLED)),
+    )
+
+    return render(request, "myapp/emergency_list.html", {
+        "page_obj": page_obj,
+        "status_filter": status_filter,
+        "region_filter": region_filter,
+        "search_query": search_query,
+        "querystring": querystring.urlencode(),
+        "counts": counts,
+        "region_choices": REGION_CHOICES,
+        "status_choices": EMERGENCY_STATUS_CHOICES,
+    })
+
+
+@login_required
+def emergency_detail_view(request, pk):
+    report = get_object_or_404(
+        EmergencyReport.objects.select_related(
+            "help_request", "help_request__client", "help_request__volunteer",
+            "volunteer", "acknowledged_by", "resolved_by", "cancelled_by",
+        ),
+        pk=pk,
+    )
+    if not _can_view_emergency(request.user, report):
+        messages.error(request, "У вас нет доступа к этой странице")
+        return redirect("profile")
+
+    is_staff = request.user.is_superuser or request.user.is_curator
+    return render(request, "myapp/emergency_detail.html", {
+        "report": report,
+        "is_staff": is_staff,
+        "can_act": is_staff and report.is_open,
+        "show_location_map": report.has_location,
+    })
+
+
+_EMERGENCY_ACTIONS = {
+    "acknowledge": lambda report, actor, note: emergency.acknowledge(report, actor=actor),
+    "resolve": lambda report, actor, note: emergency.resolve(report, actor=actor, note=note),
+    "cancel": lambda report, actor, note: emergency.cancel(report, actor=actor, note=note),
+}
+
+
+@role_required("admin", "curator")
+@require_POST
+def emergency_update_view(request, pk):
+    """Curator/admin acts on a report: acknowledge / resolve / cancel, or
+    re-alert staff when the first notification did not get through."""
+    report = get_object_or_404(
+        EmergencyReport.objects.select_related("volunteer", "help_request"), pk=pk
+    )
+    action = request.POST.get("action", "")
+
+    if action == "realert":
+        if not report.is_open:
+            messages.warning(request, "Сигнал уже закрыт.")
+        else:
+            emergency.realert_staff(report)
+            messages.success(request, "Уведомление отправлено повторно.")
+        return redirect("emergency_detail", pk=pk)
+
+    handler = _EMERGENCY_ACTIONS.get(action)
+    if handler is None:
+        messages.warning(request, "Неизвестное действие.")
+        return redirect("emergency_detail", pk=pk)
+    try:
+        handler(report, request.user, request.POST.get("note", "").strip()[:2000])
+    except ValueError:
+        messages.warning(request, "Это действие недоступно для текущего статуса сигнала.")
+        return redirect("emergency_detail", pk=pk)
+    messages.success(request, "Статус сигнала обновлён.")
+    return redirect("emergency_detail", pk=pk)
+
+
+# ============================================================================
+# In-kind donations — material assistance (Stage 6 increment C, reworked Stage 9)
+# ============================================================================
+# A Product catalogue of *needed items* + a Donation *offer* of physical goods.
+# NO payment provider, no money. An offer is created `pending`; curators/admins
+# review it (approve / cancel), a volunteer is optionally assigned to collect or
+# deliver, and the goods move ready -> received -> distributed. All logic lives
+# in services.donations; views stay thin.
+
+
+def _is_donation_staff(user):
+    return user.is_superuser or user.is_curator
+
+
+def _can_view_donation(offer, user):
+    """Donor, the assigned volunteer, and staff (curator + admin) can view an
+    offer. It carries no financial data — curators coordinate distribution."""
+    return (
+        _is_donation_staff(user)
+        or offer.donor_id == user.id
+        or offer.assigned_volunteer_id == user.id
+    )
+
+
+@login_required
+def donate_view(request):
+    """Offer physical goods — pick a needed catalogue item or describe your own."""
+    if request.method == "POST":
+        form = DonationForm(request.POST)
+        if form.is_valid():
+            cd = form.cleaned_data
+            try:
+                offer = donations.create_offer(
+                    donor=request.user,
+                    donor_type=cd.get("donor_type") or "individual",
+                    organization_name=cd.get("organization_name", ""),
+                    product=cd.get("product"),
+                    item_name=cd.get("item_name", ""),
+                    category=cd.get("category") or "other",
+                    quantity=cd.get("quantity") or 1,
+                    unit=cd.get("unit", ""),
+                    description=cd.get("description", ""),
+                    fulfilment=cd.get("fulfilment") or "pickup",
+                    location=cd.get("location", ""),
+                    region=cd.get("region", ""),
+                    message=cd.get("message", ""),
+                )
+            except ValidationError as exc:
+                form.add_error(None, exc)
+            else:
+                notify_users(
+                    list(staff_recipients()),
+                    "Новое предложение помощи",
+                    f"Предложение #{offer.id}: {offer.item_label} ×{offer.quantity} "
+                    f"от {offer.donor_label}. Ожидает проверки координатора.",
+                )
+                messages.success(
+                    request,
+                    "Спасибо! Предложение записано и ожидает проверки координатором.",
+                )
+                return redirect("donation_detail", pk=offer.id)
+    else:
+        form = DonationForm()
+
+    return render(request, "myapp/donate.html", {
+        "form": form,
+        "products": donations.active_products(),
+        "recent_donations": donations.donations_for(request.user)[:5],
+    })
+
+
+@login_required
+def my_donations_view(request):
+    return render(request, "myapp/my_donations.html", {
+        "donations": donations.donations_for(request.user),
+    })
+
+
+@login_required
+def my_assigned_donations_view(request):
+    """A volunteer's list of offers they have been asked to collect or deliver."""
+    return render(request, "myapp/my_assigned_donations.html", {
+        "donations": donations.assigned_to(request.user),
+    })
+
+
+@login_required
+def donation_detail_view(request, pk):
+    offer = get_object_or_404(
+        Donation.objects.select_related("donor", "product", "reviewed_by", "assigned_volunteer"),
+        pk=pk,
+    )
+    if not _can_view_donation(offer, request.user):
+        messages.error(request, "У вас нет доступа к этой странице")
+        return redirect("profile")
+    is_staff = _is_donation_staff(request.user)
+    # A curator is a national coordinator — the assign list is every active
+    # volunteer, not the offer's region (region is shown in the option label so
+    # the dispatcher can still pick a local one).
+    assignable = None
+    if is_staff and offer.status in ("approved", "ready"):
+        assignable = Users.objects.filter(is_volunteer=True, is_active=True).order_by(
+            "region", "username"
+        )
+    return render(request, "myapp/donation_detail.html", {
+        "donation": offer,
+        "is_staff": is_staff,
+        "is_assigned_volunteer": offer.assigned_volunteer_id == request.user.id,
+        "assignable_volunteers": assignable,
+    })
+
+
+@role_required("admin", "curator")
+def donations_admin_view(request):
+    """Staff (curator + admin) offer ledger — list, status tabs, operational
+    summary. Carries no money."""
+    status_filter = request.GET.get("status", "")
+    qs = donations.all_offers()
+    valid = {value for value, _ in DONATION_STATUS_CHOICES}
+    if status_filter in valid:
+        qs = qs.filter(status=status_filter)
+
+    paginator = Paginator(qs, 25)
+    page_obj = paginator.get_page(request.GET.get("page"))
+    querystring = request.GET.copy()
+    querystring.pop("page", None)
+
+    return render(request, "myapp/donations_admin.html", {
+        "page_obj": page_obj,
+        "status_filter": status_filter,
+        "status_choices": DONATION_STATUS_CHOICES,
+        "querystring": querystring.urlencode(),
+        "summary": donations.offer_summary(),
+    })
+
+
+_DONATION_ACTIONS = {
+    "approve": donations.approve_offer,
+    "ready": donations.mark_offer_ready,
+    "received": donations.mark_offer_received,
+    "distributed": donations.mark_offer_distributed,
+    "cancel": donations.cancel_offer,
+}
+# The assigned volunteer may only advance the physical-handover steps.
+_VOLUNTEER_ACTIONS = {"received", "distributed"}
+
+
+@login_required
+@require_POST
+def donation_update_view(request, pk):
+    """Advance an offer: approve / ready / received / distributed / cancel, or
+    assign a volunteer. Staff (curator + admin) may do everything; the assigned
+    volunteer may only mark goods received / distributed. Transitions are model
+    methods; illegal moves raise ValueError."""
+    offer = get_object_or_404(
+        Donation.objects.select_related("donor", "assigned_volunteer"), pk=pk
+    )
+    action = request.POST.get("action", "")
+    is_staff = _is_donation_staff(request.user)
+    is_assigned = offer.assigned_volunteer_id == request.user.id
+
+    if not is_staff and not (is_assigned and action in _VOLUNTEER_ACTIONS):
+        messages.error(request, "У вас нет доступа к этому действию.")
+        return redirect("donation_detail", pk=pk)
+
+    if action == "assign":
+        if not is_staff:
+            messages.error(request, "У вас нет доступа к этому действию.")
+            return redirect("donation_detail", pk=pk)
+        volunteer = None
+        vol_id = request.POST.get("volunteer_id", "")
+        if vol_id:
+            volunteer = Users.objects.filter(pk=vol_id, is_volunteer=True, is_active=True).first()
+            if volunteer is None:
+                messages.warning(request, "Волонтёр не найден.")
+                return redirect("donation_detail", pk=pk)
+        try:
+            donations.assign_offer_volunteer(offer, volunteer=volunteer, actor=request.user)
+        except ValueError:
+            messages.warning(request, "Сейчас нельзя назначить волонтёра для этого предложения.")
+            return redirect("donation_detail", pk=pk)
+        if volunteer:
+            notify_users(
+                [volunteer],
+                "Вам назначено предложение помощи",
+                f"Предложение #{offer.id}: {offer.item_label} ×{offer.quantity}. "
+                f"Откройте детали, чтобы согласовать передачу.",
+            )
+        messages.success(request, "Волонтёр обновлён.")
+        return redirect("donation_detail", pk=pk)
+
+    handler = _DONATION_ACTIONS.get(action)
+    if handler is None:
+        messages.warning(request, "Неизвестное действие.")
+        return redirect("donation_detail", pk=pk)
+    try:
+        handler(offer, actor=request.user)
+    except ValueError:
+        messages.warning(request, "Это действие недоступно для текущего статуса предложения.")
+        return redirect("donation_detail", pk=pk)
+
+    if offer.donor_id:
+        notify_users(
+            [offer.donor],
+            "Статус предложения обновлён",
+            f"Ваше предложение #{offer.id} теперь: {offer.get_status_display()}.",
+        )
+    messages.success(request, "Статус предложения обновлён.")
+    return redirect("donation_detail", pk=pk)
+
+
+# ============================================================================
+# Lost & Found pets (Stage 6, increment D)
+# ============================================================================
+# A small community board for reuniting lost animals with their people. The
+# board and the map show only safe fields (species, area, an approximate pin);
+# the reporter's identity and contact phone are visible to the reporter and to
+# staff only. No money, no task/emergency coupling. Business logic (creation,
+# notifications, safe serialisation, deterministic match hints) lives in
+# services.pets; views stay thin.
+
+
+def _is_pet_staff(user):
+    return user.is_superuser or user.is_curator
+
+
+def _can_manage_pet(user, report):
+    """The reporter or staff — may see contact details, possible matches and the
+    status controls. Everyone else sees the safe public view only."""
+    return _is_pet_staff(user) or report.reporter_id == user.id
+
+
+@login_required
+def pet_list_view(request):
+    """The Lost & Found board: every open/matched report, newest first,
+    filterable by type / species / region. Safe fields only — no reporter
+    identity or contact detail is rendered here."""
+    report_type = request.GET.get("type", "")
+    species = request.GET.get("species", "")
+    region = request.GET.get("region", "")
+    if report_type not in dict(PET_REPORT_TYPE_CHOICES):
+        report_type = ""
+    if species not in dict(PET_SPECIES_CHOICES):
+        species = ""
+    if region not in dict(REGION_CHOICES):
+        region = ""
+
+    reports = pets.board_reports(report_type=report_type, species=species, region=region)
+    paginator = Paginator(reports, 24)
+    page_obj = paginator.get_page(request.GET.get("page"))
+    querystring = request.GET.copy()
+    querystring.pop("page", None)
+
+    counts = PetReport.objects.filter(status__in=PetReport.OPEN_STATUSES).aggregate(
+        total=Count("id"),
+        lost=Count("id", filter=Q(report_type=PetReport.REPORT_LOST)),
+        found=Count("id", filter=Q(report_type=PetReport.REPORT_FOUND)),
+    )
+
+    return render(request, "myapp/pet_list.html", {
+        "page_obj": page_obj,
+        "cards": [pets.public_card(r) for r in page_obj],
+        "counts": counts,
+        "type_filter": report_type,
+        "species_filter": species,
+        "region_filter": region,
+        "type_choices": PET_REPORT_TYPE_CHOICES,
+        "species_choices": PET_SPECIES_CHOICES,
+        "region_choices": REGION_CHOICES,
+        "querystring": querystring.urlencode(),
+    })
+
+
+@login_required
+def pet_report_create_view(request):
+    if request.method == "POST":
+        form = PetReportForm(request.POST, request.FILES)
+        if form.is_valid():
+            cd = form.cleaned_data
+            report = pets.create_pet_report(
+                reporter=request.user,
+                report_type=cd["report_type"],
+                description=cd["description"],
+                species=cd["species"],
+                pet_name=cd.get("pet_name", ""),
+                breed=cd.get("breed", ""),
+                region=cd.get("region", ""),
+                latitude=cd.get("latitude"),
+                longitude=cd.get("longitude"),
+                contact_phone=cd.get("contact_phone", ""),
+                image=cd.get("image"),
+            )
+            messages.success(request, "Объявление опубликовано. Координаторы уведомлены.")
+            return redirect("pet_report_detail", pk=report.pk)
+    else:
+        form = PetReportForm()
+    return render(request, "myapp/pet_form.html", {"form": form, "title": "Новое объявление о животном"})
+
+
+@login_required
+def my_pet_reports_view(request):
+    return render(request, "myapp/my_pet_reports.html", {
+        "reports": pets.reports_for(request.user),
+    })
+
+
+@login_required
+def pet_report_detail_view(request, pk):
+    report = get_object_or_404(
+        PetReport.objects.select_related("reporter", "reviewed_by"), pk=pk
+    )
+    can_manage = _can_manage_pet(request.user, report)
+    # A resolved/closed report is off the public board — only its reporter and
+    # staff can still open it directly.
+    if not report.is_open and not can_manage:
+        raise Http404
+
+    is_staff = _is_pet_staff(request.user)
+    is_owner = report.reporter_id == request.user.id
+    return render(request, "myapp/pet_detail.html", {
+        "report": report,
+        "can_manage": can_manage,
+        "is_staff": is_staff,
+        "is_owner": is_owner,
+        "can_edit": is_owner and report.is_open,
+        "possible_matches": pets.possible_matches(report) if can_manage else [],
+        "show_location_map": report.has_location,
+    })
+
+
+@login_required
+def pet_report_edit_view(request, pk):
+    report = get_object_or_404(PetReport, pk=pk)
+    if report.reporter_id != request.user.id:
+        messages.error(request, "У вас нет доступа к этой странице")
+        return redirect("profile")
+    if not report.is_open:
+        messages.warning(request, "Закрытое объявление изменить нельзя.")
+        return redirect("pet_report_detail", pk=pk)
+
+    if request.method == "POST":
+        form = PetReportForm(request.POST, request.FILES, instance=report)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Объявление обновлено.")
+            return redirect("pet_report_detail", pk=pk)
+    else:
+        form = PetReportForm(instance=report)
+    return render(request, "myapp/pet_form.html", {
+        "form": form, "title": "Изменить объявление", "editing": True, "report": report,
+    })
+
+
+@login_required
+@require_POST
+def pet_report_delete_view(request, pk):
+    report = get_object_or_404(PetReport, pk=pk)
+    # The reporter, or an admin (superuser) cleaning up abuse. Curators moderate
+    # via status changes, not deletion.
+    if report.reporter_id != request.user.id and not request.user.is_superuser:
+        messages.error(request, "У вас нет доступа к этой странице")
+        return redirect("profile")
+    report.delete()
+    messages.success(request, "Объявление удалено.")
+    return redirect("my_pet_reports")
+
+
+@login_required
+@require_POST
+def pet_report_status_view(request, pk):
+    """Advance a report's status. The reporter may resolve/close their own
+    report; staff may also mark it matched or reopen it. Illegal moves are a
+    no-op with a warning (the model raises ValueError)."""
+    report = get_object_or_404(PetReport.objects.select_related("reporter"), pk=pk)
+    is_staff = _is_pet_staff(request.user)
+    if not (is_staff or report.reporter_id == request.user.id):
+        messages.error(request, "У вас нет доступа к этой странице")
+        return redirect("profile")
+
+    action = request.POST.get("action", "")
+    if action not in pets.ACTIONS:
+        messages.warning(request, "Неизвестное действие.")
+        return redirect("pet_report_detail", pk=pk)
+    if action in pets.STAFF_ONLY_ACTIONS and not is_staff:
+        messages.error(request, "Это действие доступно только координаторам.")
+        return redirect("pet_report_detail", pk=pk)
+
+    try:
+        pets.apply_action(report, action, actor=request.user)
+    except ValueError:
+        messages.warning(request, "Это действие недоступно для текущего статуса объявления.")
+        return redirect("pet_report_detail", pk=pk)
+    messages.success(request, "Статус объявления обновлён.")
+    return redirect("pet_report_detail", pk=pk)

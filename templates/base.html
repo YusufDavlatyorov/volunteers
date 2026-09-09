@@ -15,6 +15,7 @@
     })();
     </script>
     <title>{% block title %}Generation Connect{% endblock %}</title>
+    {{ maps_tile_config|json_script:"gc-maps-tile" }}
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&display=swap" rel="stylesheet">
@@ -28,34 +29,42 @@
         <span class="brand-mark">GC</span>
         <span>Generation Connect</span>
     </a>
-    <button class="menu-button" type="button" data-menu-toggle>☰</button>
+    <button class="menu-button" type="button" data-menu-toggle aria-label="Menu" aria-expanded="false">☰</button>
     <div class="nav-links" data-menu>
-        <a href="{% url 'about' %}" data-i18n="nav.about">About Us</a>
+        {% with active=request.resolver_match.url_name %}
+        <a href="{% url 'about' %}" data-i18n="nav.about" {% if active == 'about' %}aria-current="page"{% endif %}>About Us</a>
         {% if user.is_authenticated %}
-            <a href="{% url 'profile' %}" data-i18n="nav.dashboard">Dashboard</a>
-            <a href="{% url 'map' %}" data-i18n="nav.map">Map</a>
+            <a href="{% url 'profile' %}" data-i18n="nav.dashboard" {% if active == 'profile' %}aria-current="page"{% endif %}>Dashboard</a>
+            <a href="{% url 'map' %}" data-i18n="nav.map" {% if active == 'map' %}aria-current="page"{% endif %}>Map</a>
             {% if user.is_superuser or user.is_curator %}
-                <a href="{% url 'admin_panel' %}" data-i18n="nav.admin">Admin Panel</a>
+                <a href="{% url 'admin_panel' %}" data-i18n="nav.admin" {% if active == 'admin_panel' %}aria-current="page"{% endif %}>Admin Panel</a>
             {% endif %}
             {% if user.is_superuser %}
-                <a href="{% url 'volunteer_applications' %}" data-i18n="nav.volunteer_apps">Volunteer Requests</a>
+                <a href="{% url 'volunteer_applications' %}" data-i18n="nav.volunteer_apps" {% if active == 'volunteer_applications' or active == 'volunteer_application_detail' %}aria-current="page"{% endif %}>Volunteer Requests</a>
             {% endif %}
             {% if user.is_volunteer %}
-                <a href="{% url 'task_list' %}" data-i18n="nav.requests">Find Tasks</a>
+                <a href="{% url 'task_list' %}" data-i18n="nav.requests" {% if active == 'task_list' %}aria-current="page"{% endif %}>Find Tasks</a>
+                <a href="{% url 'assigned_donations' %}" data-i18n="nav.deliveries" {% if active == 'assigned_donations' %}aria-current="page"{% endif %}>Deliveries</a>
             {% endif %}
             {% if user.is_client %}
-                <a href="{% url 'create_request' %}" data-i18n="nav.new_request">Request Help</a>
+                <a href="{% url 'create_request' %}" data-i18n="nav.new_request" {% if active == 'create_request' %}aria-current="page"{% endif %}>Request Help</a>
             {% endif %}
             {% if not user.is_volunteer and not user.is_client and not user.is_superuser and not user.is_curator %}
-                <a href="{% url 'volunteer_application' %}" data-i18n="nav.my_application">My Application</a>
+                <a href="{% url 'volunteer_application' %}" data-i18n="nav.my_application" {% if active == 'volunteer_application' %}aria-current="page"{% endif %}>My Application</a>
             {% endif %}
-            <a href="{% url 'rating' %}" data-i18n="nav.rating">Rating</a>
-            <a class="button ghost" href="{% url 'logout' %}" data-i18n="nav.logout">Logout</a>
+            <a href="{% url 'pet_list' %}" data-i18n="nav.pets" {% if active == 'pet_list' or active == 'pet_report_create' or active == 'pet_report_detail' or active == 'pet_report_edit' or active == 'my_pet_reports' %}aria-current="page"{% endif %}>Lost &amp; Found</a>
+            <a href="{% url 'donate' %}" data-i18n="nav.donate" {% if active == 'donate' or active == 'my_donations' or active == 'donation_detail' or active == 'donations_admin' or active == 'assigned_donations' %}aria-current="page"{% endif %}>Donate goods</a>
+            <a href="{% url 'rating' %}" data-i18n="nav.rating" {% if active == 'rating' %}aria-current="page"{% endif %}>Rating</a>
+            <form method="post" action="{% url 'logout' %}" class="nav-logout-form">
+                {% csrf_token %}
+                <button type="submit" class="button ghost nav-logout" data-i18n="nav.logout">Logout</button>
+            </form>
         {% else %}
-            <a href="{% url 'rating' %}" data-i18n="nav.rating">Rating</a>
-            <a href="{% url 'login' %}" data-i18n="nav.login">Login</a>
-            <a class="nav-cta" href="{% url 'register' %}" data-i18n="nav.register">Become a Volunteer</a>
+            <a href="{% url 'rating' %}" data-i18n="nav.rating" {% if active == 'rating' %}aria-current="page"{% endif %}>Rating</a>
+            <a href="{% url 'login' %}" data-i18n="nav.login" {% if active == 'login' %}aria-current="page"{% endif %}>Login</a>
+            <a class="nav-cta" href="{% url 'register' %}" data-i18n="nav.register" {% if active == 'register' %}aria-current="page"{% endif %}>Become a Volunteer</a>
         {% endif %}
+        {% endwith %}
     </div>
     <div class="toolbar">
         <div class="lang-group">
@@ -112,9 +121,40 @@
 })();
 
 /* ===== MOBILE MENU ===== */
-document.querySelector('[data-menu-toggle]')?.addEventListener('click', () => {
-    document.querySelector('[data-menu]')?.classList.toggle('open');
+document.querySelector('[data-menu-toggle]')?.addEventListener('click', (e) => {
+    const menu = document.querySelector('[data-menu]');
+    const open = menu?.classList.toggle('open');
+    e.currentTarget.setAttribute('aria-expanded', String(!!open));
 });
+
+/* ===== NAV LINKS: horizontal-scroll affordances =====
+   The link row scrolls sideways when it can't fit (see .nav-links in the CSS).
+   This keeps the edge-fade in sync with the scroll position and lets a plain
+   vertical wheel scroll the row where the browser wouldn't do it natively. */
+(function () {
+    const nav = document.querySelector('.nav-links');
+    if (!nav) return;
+    const sync = () => {
+        const max = nav.scrollWidth - nav.clientWidth;
+        nav.classList.toggle('is-overflowing', max > 1);
+        nav.classList.toggle('at-start', nav.scrollLeft <= 1);
+        nav.classList.toggle('at-end', nav.scrollLeft >= max - 1);
+    };
+    nav.addEventListener('scroll', sync, { passive: true });
+    window.addEventListener('resize', sync);
+    nav.addEventListener('wheel', (e) => {
+        if (!nav.classList.contains('is-overflowing') || e.deltaY === 0) return;
+        e.preventDefault();
+        nav.scrollLeft += e.deltaY;
+    }, { passive: false });
+    // Bring the current page's link into view (instant, no scroll animation).
+    const current = nav.querySelector('[aria-current="page"]');
+    if (current) {
+        const n = nav.getBoundingClientRect(), c = current.getBoundingClientRect();
+        nav.scrollLeft += (c.left - n.left) - (n.width - c.width) / 2;
+    }
+    sync();
+})();
 
 /* ===== SCROLL REVEAL ===== */
 const revealObserver = new IntersectionObserver((entries) => {

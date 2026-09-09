@@ -1,5 +1,7 @@
 {% extends "base.html" %}
+{% load static %}
 {% block title %}AI Assistant{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% static 'css/ai-assistant.css' %}">{% endblock %}
 {% block content %}
 <section class="section section-md">
     <div class="ai-layout">

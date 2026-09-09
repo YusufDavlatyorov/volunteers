@@ -1,0 +1,6 @@
+{% comment %}
+Pet-report type pill: lost (clay-red alert) / found (valley-teal, good news).
+Usage: {% include "myapp/_pet_type_tag.html" with report_type=report.report_type report_type_display=report.get_report_type_display %}
+{% endcomment %}
+{% if report_type == "found" %}<span class="tag success" data-i18n="pet.type_found">{{ report_type_display }}</span>
+{% else %}<span class="tag urgent" data-i18n="pet.type_lost">{{ report_type_display }}</span>{% endif %}

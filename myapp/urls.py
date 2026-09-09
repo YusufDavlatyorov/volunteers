@@ -9,6 +9,23 @@ from .views import (
     create_request_view,
     crm_tasks_view,
     crm_volunteer_detail_view,
+    donate_view,
+    donation_detail_view,
+    donation_update_view,
+    donations_admin_view,
+    my_assigned_donations_view,
+    my_donations_view,
+    my_pet_reports_view,
+    pet_list_view,
+    pet_report_create_view,
+    pet_report_delete_view,
+    pet_report_detail_view,
+    pet_report_edit_view,
+    pet_report_status_view,
+    emergency_detail_view,
+    emergency_list_view,
+    emergency_report_view,
+    emergency_update_view,
     task_detail_view,
     completed_tasks_view,
     event_list_view,
@@ -23,6 +40,8 @@ from .views import (
     create_event_view,
     dashboard_view,
     photo_reports_view,
+    task_advance_stage_view,
+    task_assign_volunteer_view,
     task_notify_volunteer_view,
     task_recommendations_view,
     task_route_view,
@@ -41,9 +60,11 @@ urlpatterns = [
     path('tasks/', task_list_view, name='task_list'),
     path('tasks/<int:pk>/accept/', accept_task_view, name='accept_task'),
     path('tasks/<int:pk>/complete/', complete_task_view, name='complete_task'),
+    path('tasks/<int:pk>/stage/', task_advance_stage_view, name='task_advance_stage'),
     path('tasks/<int:pk>/route/', task_route_view, name='task_route'),
     path('tasks/<int:pk>/recommendations/', task_recommendations_view, name='task_recommendations'),
     path('tasks/<int:pk>/recommendations/notify/<int:volunteer_id>/', task_notify_volunteer_view, name='task_notify_volunteer'),
+    path('tasks/<int:pk>/recommendations/assign/<int:volunteer_id>/', task_assign_volunteer_view, name='task_assign_volunteer'),
     path('tasks/<int:pk>/', task_detail_view, name='task_detail'),
 
     # Client
@@ -84,8 +105,31 @@ urlpatterns = [
     path('crm/tasks/', crm_tasks_view, name='crm_tasks'),
     path('crm/volunteers/<int:pk>/', crm_volunteer_detail_view, name='crm_volunteer_detail'),
 
+    # Emergency / SOS
+    path('emergency/', emergency_list_view, name='emergency_list'),
+    path('emergency/report/<int:task_pk>/', emergency_report_view, name='emergency_report'),
+    path('emergency/<int:pk>/', emergency_detail_view, name='emergency_detail'),
+    path('emergency/<int:pk>/update/', emergency_update_view, name='emergency_update'),
+
     # Map
     path('map/', map_view, name='map'),
     path('map/data/', map_data_view, name='map_data'),
     path('location/update/', update_location_view, name='update_location'),
+
+    # Lost & Found pets
+    path('pets/', pet_list_view, name='pet_list'),
+    path('pets/new/', pet_report_create_view, name='pet_report_create'),
+    path('pets/mine/', my_pet_reports_view, name='my_pet_reports'),
+    path('pets/<int:pk>/', pet_report_detail_view, name='pet_report_detail'),
+    path('pets/<int:pk>/edit/', pet_report_edit_view, name='pet_report_edit'),
+    path('pets/<int:pk>/delete/', pet_report_delete_view, name='pet_report_delete'),
+    path('pets/<int:pk>/status/', pet_report_status_view, name='pet_report_status'),
+
+    # In-kind donations — material assistance (no money)
+    path('donate/', donate_view, name='donate'),
+    path('donations/', my_donations_view, name='my_donations'),
+    path('donations/assigned/', my_assigned_donations_view, name='assigned_donations'),
+    path('donations/manage/', donations_admin_view, name='donations_admin'),
+    path('donations/<int:pk>/', donation_detail_view, name='donation_detail'),
+    path('donations/<int:pk>/update/', donation_update_view, name='donation_update'),
 ]

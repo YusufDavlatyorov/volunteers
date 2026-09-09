@@ -8,7 +8,16 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from accounts.models import Profile
-from myapp.models import Broadcast, Event, HelpRequest, PhotoReport
+from myapp.models import (
+    Broadcast,
+    Donation,
+    EmergencyReport,
+    Event,
+    HelpRequest,
+    PetReport,
+    PhotoReport,
+    Product,
+)
 
 
 User = get_user_model()
@@ -16,6 +25,34 @@ PASSWORD = "Volunteer2026!"
 
 
 REGIONS = ["dushanbe", "sogd", "khatlon", "gbao", "rrp"]
+
+# Approximate city centres so demo markers land on the right part of the map.
+REGION_CENTERS = {
+    "dushanbe": (38.5598, 68.7870),
+    "sogd": (40.2839, 69.6220),   # Khujand
+    "khatlon": (37.8300, 68.7800),  # Bokhtar
+    "gbao": (37.4900, 71.5500),   # Khorog
+    "rrp": (38.5200, 68.5500),    # Hisor
+    "all": (38.5598, 68.7870),
+}
+
+_AVAILABILITY_CYCLE = ["available", "available", "available", "busy", "offline"]
+_HELP_TYPES = ["medical", "grocery", "transport", "household", "emotional", "documents", "other"]
+
+
+def _jitter(seed_str, spread=0.035):
+    """Deterministic small lat/lng offset (± ~spread degrees ≈ a few km),
+    seeded from a string so re-running seed_demo keeps markers stable."""
+    h = sum(ord(c) * (i + 1) for i, c in enumerate(seed_str))
+    d_lat = ((h % 1000) / 1000 - 0.5) * 2 * spread
+    d_lng = (((h // 1000) % 1000) / 1000 - 0.5) * 2 * spread
+    return d_lat, d_lng
+
+
+def _coords_for(region, seed_str):
+    base_lat, base_lng = REGION_CENTERS.get(region, REGION_CENTERS["dushanbe"])
+    d_lat, d_lng = _jitter(seed_str)
+    return round(base_lat + d_lat, 6), round(base_lng + d_lng, 6)
 
 
 VOLUNTEERS = [
@@ -92,9 +129,12 @@ class Command(BaseCommand):
         requests = self._create_requests(clients, volunteers)
         self._create_broadcasts(admin, curators)
         self._create_reports(volunteers, events, requests)
+        self._create_emergencies(requests, admin)
+        self._create_donations(clients, volunteers, admin)
+        self._create_pet_reports(clients, volunteers, admin)
 
         self.stdout.write(self.style.SUCCESS("Demo data ready."))
-        self.stdout.write(f"Users: {User.objects.count()} | Events: {Event.objects.count()} | Requests: {HelpRequest.objects.count()} | Reports: {PhotoReport.objects.count()}")
+        self.stdout.write(f"Users: {User.objects.count()} | Events: {Event.objects.count()} | Requests: {HelpRequest.objects.count()} | Reports: {PhotoReport.objects.count()} | Emergencies: {EmergencyReport.objects.count()} | Donations: {Donation.objects.count()} | Pet reports: {PetReport.objects.count()}")
         self.stdout.write(f"Demo password for all demo users: {PASSWORD}")
 
     def _upsert_user(self, username, full_name, email, region, is_superuser=False, is_curator=False, is_volunteer=False, is_client=False, bio="", age=None):
@@ -126,6 +166,20 @@ class Command(BaseCommand):
         profile.bio = bio or "Участник Generation Connect. Готов помогать по своему региону и быстро отвечать на запросы."
         profile.rating = self._rating_for(username, is_volunteer)
         profile.image = ""
+        # Give volunteers and clients a location near their region centre so the
+        # operations map is populated. Curators/admin are coordinators, not
+        # field staff — no location.
+        if is_volunteer or is_client:
+            profile.latitude, profile.longitude = _coords_for(region, username)
+            profile.location_updated_at = timezone.now()
+        if is_volunteer:
+            profile.availability_status = _AVAILABILITY_CYCLE[
+                sum(ord(c) for c in username) % len(_AVAILABILITY_CYCLE)
+            ]
+            # A deterministic 2-3 skill spread so the CRM matching shows real
+            # skill fit rather than everyone being "no info".
+            h = sum(ord(c) for c in username)
+            profile.skills = sorted({_HELP_TYPES[(h + i) % len(_HELP_TYPES)] for i in range(3)})
         profile.save()
         return user
 
@@ -168,10 +222,19 @@ class Command(BaseCommand):
             ("grocery", "Купить лекарства по списку и хлеб.", "ул. Сино 15", "sogd", "pending"),
             ("other", "Помочь подготовиться к семейному мероприятию.", "ул. Вахдат 21", "khatlon", "completed"),
         ]
+        # idx 1 (active medical) -> emergency + overdue; idx 5,6 -> high.
+        priority_by_idx = {1: "emergency", 5: "high", 6: "high"}
         result = []
         for idx, (help_type, description, address, region, status) in enumerate(request_data):
             client = clients[idx % len(clients)]
             volunteer = volunteers[idx % len(volunteers)] if status in {"active", "completed"} else None
+            priority = priority_by_idx.get(idx, "normal")
+            accepted_at = None
+            if volunteer:
+                # Push the emergency active task past the 3h overdue threshold.
+                hours_ago = 5 if idx == 1 else idx + 1
+                accepted_at = timezone.now() - timedelta(hours=hours_ago)
+            lat, lng = _coords_for(region, f"{client.username}-{description}")
             item, _ = HelpRequest.objects.update_or_create(
                 client=client,
                 description=description,
@@ -182,13 +245,148 @@ class Command(BaseCommand):
                     "phone": f"+992 90 10{idx:02d} {idx:04d}",
                     "region": region,
                     "status": status,
-                    "is_urgent": idx in {1, 5, 6},
-                    "accepted_at": timezone.now() - timedelta(hours=idx + 1) if volunteer else None,
+                    "priority": priority,
+                    "is_urgent": priority != "normal",
+                    "latitude": lat,
+                    "longitude": lng,
+                    "accepted_at": accepted_at,
                     "completed_at": timezone.now() - timedelta(days=idx) if status == "completed" else None,
                 },
             )
             result.append(item)
+
+        # Make the pending set deterministic for the stale-request demo: exactly
+        # one request sits past STALE_PENDING_THRESHOLD (48h), the rest are fresh.
+        # created_at is auto_now_add, so it must be set with a raw UPDATE.
+        pending = [r for r in result if r.status == "pending"]
+        for offset, task in enumerate(pending):
+            new_created = (
+                timezone.now() - timedelta(days=3) if offset == 0
+                else timezone.now() - timedelta(hours=offset + 1)
+            )
+            HelpRequest.objects.filter(pk=task.pk).update(
+                created_at=new_created, stale_alert_sent=False
+            )
         return result
+
+    def _create_emergencies(self, requests, admin):
+        """One open + one resolved SOS on active tasks, so the CRM isn't empty."""
+        active = [r for r in requests if r.status == "active" and r.volunteer]
+        if not active:
+            return
+        open_task = active[0]
+        EmergencyReport.objects.get_or_create(
+            help_request=open_task,
+            volunteer=open_task.volunteer,
+            status=EmergencyReport.STATUS_OPEN,
+            defaults={
+                "reason": "Клиент не открывает дверь, соседи говорят о шуме внутри.",
+                "region": open_task.region,
+                "latitude": open_task.latitude,
+                "longitude": open_task.longitude,
+                "notified_at": timezone.now(),
+            },
+        )
+        if len(active) > 1:
+            done_task = active[1]
+            EmergencyReport.objects.get_or_create(
+                help_request=done_task,
+                volunteer=done_task.volunteer,
+                status=EmergencyReport.STATUS_RESOLVED,
+                defaults={
+                    "reason": "Плохое самочувствие клиента.",
+                    "region": done_task.region,
+                    "notified_at": timezone.now() - timedelta(hours=2),
+                    "acknowledged_at": timezone.now() - timedelta(hours=2),
+                    "acknowledged_by": admin,
+                    "resolved_at": timezone.now() - timedelta(hours=1),
+                    "resolved_by": admin,
+                    "resolution_note": "Вызвали 103, клиент осмотрен, всё в порядке.",
+                },
+            )
+
+    def _create_donations(self, clients, volunteers, admin):
+        """A small catalogue of needed items + a few in-kind offers across the
+        lifecycle (including one from a local business and one already assigned
+        to a volunteer), so the donor history and the staff ledger aren't empty."""
+        catalogue = [
+            ("Продуктовый набор на неделю", "Крупы, масло, консервы и хлеб для одного клиента.", "food", "наборов"),
+            ("Набор средств гигиены", "Мыло, зубная паста, шампунь, средства ухода.", "hygiene", "наборов"),
+            ("Тёплый плед", "Для пожилых клиентов в холодный сезон.", "blankets", "шт"),
+            ("Зимняя куртка", "Тёплая верхняя одежда, разные размеры.", "clothing", "шт"),
+            ("Школьный набор", "Тетради, ручки, рюкзак для детей из семей клиентов.", "school", "наборов"),
+        ]
+        products = []
+        for name, description, category, unit in catalogue:
+            product, _ = Product.objects.update_or_create(
+                name=name,
+                defaults={"description": description, "category": category, "unit": unit, "is_active": True},
+            )
+            product.refresh_from_db()
+            products.append(product)
+
+        if not clients or Donation.objects.exists():
+            return
+
+        vol = volunteers[0] if volunteers else None
+        # donor, donor_type, org, product, item_name, category, qty, unit, region, target_status, assign
+        plan = [
+            (clients[0], "individual", "", products[0], "", "food", 3, "наборов", "dushanbe", Donation.APPROVED, False),
+            (clients[0], "business", "Пекарня «Нон»", None, "Свежий хлеб", "bakery", 50, "буханок", "dushanbe", Donation.DISTRIBUTED, False),
+            (clients[1 % len(clients)], "individual", "", products[2], "", "blankets", 10, "шт", "sogd", Donation.READY, True),
+            (clients[2 % len(clients)], "individual", "", None, "Детская одежда до 5 лет", "clothing", 15, "шт", "khatlon", Donation.PENDING, False),
+            (clients[0], "business", "Магазин «Баракат»", products[1], "", "hygiene", 20, "наборов", "dushanbe", Donation.RECEIVED, True),
+        ]
+        for donor, dtype, org, product, item_name, category, qty, unit, region, target, assign in plan:
+            offer = Donation.objects.create(
+                donor=donor, donor_type=dtype, organization_name=org,
+                product=product, item_name=item_name, category=category,
+                quantity=qty, unit=unit, region=region,
+                fulfilment="dropoff" if dtype == "business" else "pickup",
+                status=Donation.PENDING, message="",
+            )
+            steps = {
+                Donation.APPROVED: ["approve"],
+                Donation.READY: ["approve", "mark_ready"],
+                Donation.RECEIVED: ["approve", "mark_ready", "mark_received"],
+                Donation.DISTRIBUTED: ["approve", "mark_ready", "mark_received", "mark_distributed"],
+            }.get(target, [])
+            for i, step in enumerate(steps):
+                getattr(offer, step)(admin)
+                if assign and vol and step == "approve":
+                    offer.assign_volunteer(vol, admin)
+
+    def _create_pet_reports(self, clients, volunteers, admin):
+        """A small Lost & Found board: a lost/found pair in the same region
+        (so the "possible matches" suggestion has something to show), plus a
+        couple more across statuses."""
+        if not clients or not volunteers or PetReport.objects.exists():
+            return
+        # reporter, type, name, species, breed, region, description, status
+        plan = [
+            (clients[0], "lost", "Барсик", "cat", "дворовая", "dushanbe",
+             "Серый кот, белые лапы, убежал во дворе на Рудаки. Отзывается на кличку.", "open"),
+            (volunteers[0], "found", "", "cat", "", "dushanbe",
+             "Серый кот с белыми лапами возле парка. Ухоженный, ласковый, ждёт хозяина.", "open"),
+            (clients[1 % len(clients)], "lost", "Рекс", "dog", "овчарка", "sogd",
+             "Молодая овчарка, тёмный окрас, синий ошейник. Потерялся у рынка в Худжанде.", "matched"),
+            (volunteers[2 % len(volunteers)], "found", "", "dog", "", "khatlon",
+             "Небольшая рыжая собака без ошейника, дружелюбная. Найдена в Бохтаре.", "open"),
+            (clients[2 % len(clients)], "lost", "Кеша", "bird", "попугай", "rrp",
+             "Волнистый попугай, зелёный. Улетел с балкона. Воссоединён с хозяином.", "resolved"),
+        ]
+        for reporter, rtype, name, species, breed, region, description, status in plan:
+            lat, lng = _coords_for(region, f"pet-{name}-{description}")
+            report = PetReport.objects.create(
+                reporter=reporter, report_type=rtype, pet_name=name, species=species,
+                breed=breed, region=region, description=description,
+                latitude=lat, longitude=lng,
+                contact_phone="+992 90 000 0000" if rtype == "lost" else "",
+            )
+            if status == "matched":
+                report.mark_matched(admin)
+            elif status == "resolved":
+                report.resolve(reporter)
 
     def _create_broadcasts(self, admin, curators):
         Broadcast.objects.update_or_create(

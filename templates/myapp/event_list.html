@@ -1,25 +1,36 @@
 {% extends "base.html" %}
 {% block title %}Events - Generation Connect{% endblock %}
 {% block content %}
-<section class="section">
-    <div class="section-head">
-        <h1 data-i18n="events.title">Events</h1>
-        <a class="button primary" href="{% url 'create_event' %}" data-i18n="admin.create_event">Create Event</a>
-    </div>
+<section class="section section-xl">
+    {% url 'create_event' as create_event_url %}
+    {% include "partials/_page_header.html" with title="Events" title_i18n="events.title" lede="Volunteer actions and community events across the regions." action_url=create_event_url action_label="Create Event" action_i18n="admin.create_event" %}
 
     <div class="section-head"><h2 data-i18n="events.upcoming">Upcoming Events</h2></div>
     {% if upcoming_events %}
-        <div class="table-list">
-            {% for event in upcoming_events %}
-                <div class="request-row reveal">
-                    <div>
-                        <span class="tag accent">{{ event.get_region_display }}</span>
-                        <h3>{{ event.title }}</h3>
-                        <p>{{ event.description|truncatechars:140 }}</p>
-                        <p class="opportunity-desc">{{ event.date|date:"d M Y, H:i" }} · {{ event.curator.username }}</p>
-                    </div>
-                </div>
-            {% endfor %}
+        <div class="table-scroll">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th data-i18n="tbl.event">Event</th>
+                        <th data-i18n="tbl.region">Region</th>
+                        <th data-i18n="tbl.date">Date</th>
+                        <th data-i18n="tbl.curator">Curator</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for event in upcoming_events %}
+                    <tr>
+                        <td data-label="Event">
+                            <span class="cell-title">{{ event.title }}</span>
+                            <span class="cell-sub">{{ event.description|truncatechars:120 }}</span>
+                        </td>
+                        <td data-label="Region"><span class="tag info">{{ event.get_region_display }}</span></td>
+                        <td data-label="Date" class="col-num">{{ event.date|date:"d M Y, H:i" }}</td>
+                        <td data-label="Curator">{{ event.curator.username }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
     {% else %}
         <div class="empty-state">
@@ -28,20 +39,33 @@
         </div>
     {% endif %}
 </section>
-<section class="section alt">
+<section class="section section-xl">
     <div class="section-head"><h2 data-i18n="events.past">Past Events</h2></div>
     {% if past_events %}
-        <div class="table-list">
-            {% for event in past_events %}
-                <div class="request-row reveal">
-                    <div>
-                        <span class="tag muted">{{ event.get_region_display }}</span>
-                        <h3>{{ event.title }}</h3>
-                        <p>{{ event.description|truncatechars:140 }}</p>
-                        <p class="opportunity-desc">{{ event.date|date:"d M Y, H:i" }} · {{ event.curator.username }}</p>
-                    </div>
-                </div>
-            {% endfor %}
+        <div class="table-scroll">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th data-i18n="tbl.event">Event</th>
+                        <th data-i18n="tbl.region">Region</th>
+                        <th data-i18n="tbl.date">Date</th>
+                        <th data-i18n="tbl.curator">Curator</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for event in past_events %}
+                    <tr>
+                        <td data-label="Event">
+                            <span class="cell-title">{{ event.title }}</span>
+                            <span class="cell-sub">{{ event.description|truncatechars:120 }}</span>
+                        </td>
+                        <td data-label="Region"><span class="tag muted">{{ event.get_region_display }}</span></td>
+                        <td data-label="Date" class="col-num">{{ event.date|date:"d M Y, H:i" }}</td>
+                        <td data-label="Curator">{{ event.curator.username }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
     {% else %}
         <div class="empty-state">
