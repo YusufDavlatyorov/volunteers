@@ -5113,14 +5113,14 @@ class AiChatExternalFailureTests(TestCase):
 
     @override_settings(GROQ_API_KEY="test-key")
     def test_groq_timeout_falls_back(self):
-        with mock.patch("myapp.views.requests.post", side_effect=requests.Timeout("slow")):
+        with mock.patch("myapp.services.ai.client.requests.post", side_effect=requests.Timeout("slow")):
             resp = self._post()
         self.assertEqual(resp.status_code, 200)
         self.assertIn("reply", resp.json())
 
     @override_settings(GROQ_API_KEY="test-key")
     def test_groq_connection_error_falls_back(self):
-        with mock.patch("myapp.views.requests.post", side_effect=requests.ConnectionError("no route")):
+        with mock.patch("myapp.services.ai.client.requests.post", side_effect=requests.ConnectionError("no route")):
             resp = self._post()
         self.assertEqual(resp.status_code, 200)
         self.assertIn("reply", resp.json())
@@ -5130,7 +5130,7 @@ class AiChatExternalFailureTests(TestCase):
         bad = mock.Mock()
         bad.raise_for_status.return_value = None
         bad.json.return_value = {"unexpected": "shape"}
-        with mock.patch("myapp.views.requests.post", return_value=bad):
+        with mock.patch("myapp.services.ai.client.requests.post", return_value=bad):
             resp = self._post()
         self.assertEqual(resp.status_code, 200)
         self.assertIn("reply", resp.json())
@@ -5143,7 +5143,7 @@ class AiChatExternalFailureTests(TestCase):
             captured["timeout"] = kwargs.get("timeout")
             raise requests.Timeout("slow")
 
-        with mock.patch("myapp.views.requests.post", side_effect=fake_post):
+        with mock.patch("myapp.services.ai.client.requests.post", side_effect=fake_post):
             self._post()
         self.assertIsNotNone(captured["timeout"])
 

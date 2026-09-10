@@ -266,6 +266,10 @@ GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
 # key was stored under GEMINI_API_KEY, so we accept either name.
 GROQ_API_KEY = os.getenv('GROQ_API_KEY') or os.getenv('GEMINI_API_KEY', '')
 GROQ_MODEL = os.getenv('GROQ_MODEL', 'llama-3.1-8b-instant')
+# The role-based assistant (myapp/services/ai) needs reliable function-calling,
+# which the small 8B model does poorly. Default to a tool-capable model; the
+# client falls back to GROQ_MODEL on error.
+GROQ_ASSISTANT_MODEL = os.getenv('GROQ_ASSISTANT_MODEL', 'llama-3.3-70b-versatile')
 
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', '')
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
