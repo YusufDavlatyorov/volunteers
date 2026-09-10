@@ -8,7 +8,7 @@
     <div class="hero-grid">
         <div class="hero-content reveal">
             <span class="eyebrow" data-i18n="hero.eyebrow">Volunteer platform for Tajikistan</span>
-            <h1 data-i18n="hero.title">Connect. Help. Change lives.</h1>
+            <h1><span data-i18n="hero.title_1">Connect. </span><span class="h-accent" data-i18n="hero.title_accent">Help.</span><span data-i18n="hero.title_2"> Change lives.</span></h1>
             <p data-i18n="hero.desc">Generation Connect matches volunteers with elderly people who need a hand — a request, an acceptance, a notification, a finished task. Clear roles, real accountability, five regions.</p>
             <div class="hero-actions">
                 <a class="button primary" href="{% url 'register' %}" data-i18n="hero.join">Become a Volunteer</a>
@@ -28,21 +28,13 @@
     </div>
 </section>
 <section class="section">
-    <div class="grid">
-        <div class="card stat-card reveal"><span class="metric">{{ stats.volunteers }}</span><h3 data-i18n="stat.volunteers">Volunteers</h3><p data-i18n="stat.vol_desc">Helpers see only free requests in their region and take one active request.</p></div>
-        <div class="card stat-card reveal"><span class="metric">{{ stats.clients }}</span><h3 data-i18n="stat.clients">Clients</h3><p data-i18n="stat.cli_desc">The client receives email and Telegram notification when a request is accepted or closed.</p></div>
-        <div class="card stat-card reveal"><span class="metric">{{ stats.completed }}</span><h3 data-i18n="stat.completed">Completed</h3><p data-i18n="stat.comp_desc">The archive saves the history of help, and the rating shows the contribution of volunteers.</p></div>
-        <div class="card stat-card reveal"><span class="metric">{{ stats.regions }}</span><h3 data-i18n="stat.regions">Regions</h3><p data-i18n="stat.reg_desc">Mailings can be sent to one region, several through repeated mailings, or all at once.</p></div>
-    </div>
-</section>
-<section class="section">
     <div class="two-col">
         <div class="volunteers-photo-wrap reveal">
             <img class="volunteers-photo" src="{% static 'images/volunteers/aid-delivery-elderly.jpg' %}" alt="A young volunteer hands a food-aid box to an elderly man in Tajikistan">
         </div>
         <div class="reveal">
             <span class="eyebrow" data-i18n="section.volunteers_eyebrow">Meet Our Volunteers</span>
-            <h2 data-i18n="section.volunteers_title">These are our people</h2>
+            <h2><span data-i18n="section.volunteers_title_1">These are </span><span class="h-accent" data-i18n="section.volunteers_title_accent">our people</span></h2>
             <p data-i18n="section.volunteers_desc">Young people across Tajikistan are giving their time, energy and kindness to help others — visiting elders, carrying groceries, delivering aid, standing by families who need a hand.</p>
             <div class="button-row">
                 <a class="button primary" href="{% url 'register' %}" data-i18n="hero.join">Become a Volunteer</a>
@@ -54,12 +46,29 @@
 <section class="section alt">
     <div class="two-col">
         <div>
+            <span class="eyebrow" data-i18n="section.why_eyebrow">Values &amp; mission</span>
             <h2 data-i18n="section.why">Why We Are Stronger Than a Regular Chat</h2>
             <div class="grid">
-                <div class="card reveal"><h3 data-i18n="card.roles">Roles Are Followed</h3><p data-i18n="card.roles_desc">Admin and curator manage, volunteer helps, client creates requests.</p></div>
-                <div class="card reveal"><h3 data-i18n="card.notif">Real Notifications</h3><p data-i18n="card.notif_desc">Email and Telegram reduce the chance of missing urgent help.</p></div>
-                <div class="card reveal"><h3 data-i18n="card.ai">AI Assistant</h3><p data-i18n="card.ai_desc">For the client it responds softly and simply, for the volunteer it gives working advice.</p></div>
-                <div class="card reveal"><h3 data-i18n="card.transp">Transparency</h3><p data-i18n="card.transp_desc">Photo reports, archive and rating show the real work of the team.</p></div>
+                <div class="card reveal">
+                    <span class="icon-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"></path></svg></span>
+                    <h3 data-i18n="card.roles">Roles Are Followed</h3>
+                    <p data-i18n="card.roles_desc">Admin and curator manage, volunteer helps, client creates requests.</p>
+                </div>
+                <div class="card reveal">
+                    <span class="icon-tile icon-tile--teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"></path><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"></path></svg></span>
+                    <h3 data-i18n="card.notif">Real Notifications</h3>
+                    <p data-i18n="card.notif_desc">Email and Telegram reduce the chance of missing urgent help.</p>
+                </div>
+                <div class="card reveal">
+                    <span class="icon-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-8.9 8.4L3 21l1.1-4.5A8.4 8.4 0 1 1 21 11.5Z"></path><path d="M8 11.5h.01M12 11.5h.01M16 11.5h.01"></path></svg></span>
+                    <h3 data-i18n="card.ai">AI Assistant</h3>
+                    <p data-i18n="card.ai_desc">For the client it responds softly and simply, for the volunteer it gives working advice.</p>
+                </div>
+                <div class="card reveal">
+                    <span class="icon-tile icon-tile--teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 12a11 11 0 1 1-22 0 11 11 0 0 1 22 0Z"></path><path d="m8 12 3 3 5-6"></path></svg></span>
+                    <h3 data-i18n="card.transp">Transparency</h3>
+                    <p data-i18n="card.transp_desc">Photo reports, archive and rating show the real work of the team.</p>
+                </div>
             </div>
         </div>
         <div class="regions-panel reveal">
@@ -78,7 +87,10 @@
 </section>
 <section class="section">
     <div class="section-head">
-        <h2 data-i18n="section.photos">Photo Reports</h2>
+        <div>
+            <span class="eyebrow" data-i18n="section.photos_eyebrow">From the field</span>
+            <h2 data-i18n="section.photos">Photo Reports</h2>
+        </div>
     </div>
     {% if reports %}
     <div class="grid">
@@ -93,5 +105,38 @@
         <p data-i18n="photo.empty_desc">After events and help, volunteers can add photos and description.</p>
     </div>
     {% endif %}
+</section>
+<section class="section">
+    <div class="stats-band reveal">
+        <span class="eyebrow" data-i18n="stats.eyebrow">By the numbers</span>
+        <h2 data-i18n="stats.title">Real work, measured</h2>
+        <div class="stats-grid">
+            <div class="stat-plate"><span class="metric">{{ stats.volunteers }}</span><span data-i18n="stat.volunteers">Volunteers</span></div>
+            <div class="stat-plate"><span class="metric">{{ stats.clients }}</span><span data-i18n="stat.clients">Clients</span></div>
+            <div class="stat-plate"><span class="metric">{{ stats.completed }}</span><span data-i18n="stat.completed">Completed</span></div>
+            <div class="stat-plate"><span class="metric">{{ stats.regions }}</span><span data-i18n="stat.regions">Regions</span></div>
+        </div>
+    </div>
+</section>
+<section class="cta-band">
+    <div class="cta-inner reveal">
+        <span class="eyebrow" data-i18n="cta.eyebrow">Get started</span>
+        <h2><span data-i18n="cta.title_1">Two ways to be </span><span class="h-accent" data-i18n="cta.title_accent">part of this</span></h2>
+        <p data-i18n="cta.subtitle">Give your time as a volunteer, or ask for a hand when you need one.</p>
+        <div class="cta-actions">
+            <div class="card card--soft">
+                <span class="icon-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"></path></svg></span>
+                <h3 data-i18n="cta.volunteer_title">Become a volunteer</h3>
+                <p data-i18n="cta.volunteer_text">Help elderly people in your region. Your application is reviewed by our team.</p>
+                <a class="button primary" href="{% url 'register' %}" data-i18n="hero.join">Become a Volunteer</a>
+            </div>
+            <div class="card card--soft">
+                <span class="icon-tile icon-tile--teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.68 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.32 1.85.55 2.81.68A2 2 0 0 1 22 16.92Z"></path></svg></span>
+                <h3 data-i18n="cta.client_title">Request help</h3>
+                <p data-i18n="cta.client_text">Ask a nearby volunteer for support with errands, visits or transport.</p>
+                <a class="button secondary" href="{% url 'create_request' %}" data-i18n="hero.request">Request Help</a>
+            </div>
+        </div>
+    </div>
 </section>
 {% endblock %}

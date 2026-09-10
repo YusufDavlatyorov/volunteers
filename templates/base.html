@@ -18,7 +18,7 @@
     {{ maps_tile_config|json_script:"gc-maps-tile" }}
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;0,700;0,800;1,600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{% static 'css/style.css' %}">
     {% block extra_css %}{% endblock %}
 </head>
@@ -73,6 +73,11 @@
             <button class="lang-btn" data-lang="tj" onclick="setLanguage('tj')">TJ</button>
         </div>
         <button class="theme-toggle" id="themeToggle" title="Toggle theme">🌙</button>
+        {% if user.is_authenticated %}
+            <a class="nav-avatar" href="{% url 'profile' %}" data-i18n-tooltip="nav.profile" data-tooltip="Profile" aria-label="Profile">
+                {% if user.profile.image %}<img src="{{ user.profile.image.url }}" alt="">{% else %}{{ user.username|first|upper }}{% endif %}
+            </a>
+        {% endif %}
     </div>
 </nav>
 
@@ -95,11 +100,54 @@
 {% endif %}
 
 <footer class="footer">
-    <div class="footer-mark">
-        {% include "_peaks_mark.html" %}
-        <span data-i18n="footer.copy">Generation Connect, 2026</span>
+    <div class="footer-grid">
+        <div class="footer-col">
+            <a class="brand" href="{% url 'about' %}">
+                <span class="brand-mark">GC</span>
+                <span>Generation Connect</span>
+            </a>
+            <p data-i18n="footer.about">A volunteer platform connecting elderly people across Tajikistan with volunteers, coordinated by regional curators.</p>
+            <a class="button secondary" href="{% url 'register' %}" data-i18n="hero.join">Become a Volunteer</a>
+        </div>
+        <div class="footer-col">
+            <h3 data-i18n="footer.regions_title">Where we work</h3>
+            <p data-i18n="footer.regions_text">Five regions, one platform — requests, matching and delivery are coordinated nationally.</p>
+            <div class="footer-badges">
+                <span class="tag" data-i18n="region.dushanbe">Dushanbe</span>
+                <span class="tag" data-i18n="region.sogd">Sogd</span>
+                <span class="tag" data-i18n="region.khatlon">Khatlon</span>
+                <span class="tag" data-i18n="region.gbao">GBAO</span>
+                <span class="tag" data-i18n="region.rrp">RRP</span>
+            </div>
+        </div>
+        <div class="footer-col">
+            <h3 data-i18n="footer.contact_title">Contact</h3>
+            <div class="footer-contacts">
+                <a href="tel:+992443000000">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.68 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.32 1.85.55 2.81.68A2 2 0 0 1 22 16.92Z"></path></svg>
+                    <span>+992 44 300 00 00</span>
+                </a>
+                <a href="mailto:hello@generationconnect.tj">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"></rect><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"></path></svg>
+                    <span>hello@generationconnect.tj</span>
+                </a>
+                <span>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+                    <span data-i18n="footer.address">Dushanbe, Tajikistan</span>
+                </span>
+            </div>
+        </div>
     </div>
-    <span data-i18n="footer.desc">Care, regions, accountability, fast notifications.</span>
+    <div class="footer-bottom">
+        <span class="footer-mark">
+            {% include "_peaks_mark.html" %}
+            <span data-i18n="footer.copy">Generation Connect, 2026</span>
+        </span>
+        <nav>
+            <a href="{% url 'about' %}" data-i18n="nav.about">About Us</a>
+            <a href="{% url 'rating' %}" data-i18n="nav.rating">Rating</a>
+        </nav>
+    </div>
 </footer>
 
 <script src="{% static 'js/i18n.js' %}"></script>

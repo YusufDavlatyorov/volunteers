@@ -51,14 +51,17 @@
     width: 100%;
 }
 .hero-content { max-width: 640px; }
-.hero .eyebrow { color: #a9d8c8; }
+.hero .eyebrow { color: #c3d3ff; }
 .hero h1 { color: white; }
+/* On the dark hero the accent word stays white; only the teal underline reads. */
+.hero h1 .h-accent { color: #fff; text-decoration-color: #6ee0d0; }
 .hero p { color: var(--hero-ink-muted); font-size: 1.08rem; max-width: 34rem; }
 .hero-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-top: var(--space-5); }
 .hero-actions .ghost { color: white; border-color: rgba(255,255,255,0.35); }
 .hero-actions .ghost:hover { border-color: white; background: rgba(255,255,255,0.08); }
-.hero-actions .primary { background: var(--accent); }
-.hero-actions .primary:hover { box-shadow: 0 8px 22px rgba(0,0,0,0.28); }
+/* Primary CTA on the dark hero: a solid white pill with blue text for contrast. */
+.hero-actions .primary { background: #fff; color: var(--primary); }
+.hero-actions .primary:hover { background: #fff; box-shadow: 0 8px 22px rgba(0,0,0,0.28); }
 .hero-strip {
     position: relative;
     z-index: 2;
@@ -132,6 +135,55 @@
     font-size: 0.92rem;
 }
 .region-card .peak-dot { width: 0.6rem; height: 0.6rem; border-radius: 2px; flex-shrink: 0; }
+
+/* ===== STATS BAND (about page) =====
+   The gradient-blue block: full container width, rounded-2xl, a white serif
+   heading over four number plates on a translucent overlay. */
+.stats-band {
+    background: var(--stats-gradient);
+    border-radius: 16px;
+    padding: clamp(1.75rem, 4vw, 3rem);
+    color: #fff;
+}
+.stats-band h2 { color: #fff; margin-bottom: var(--space-5); }
+.stats-band .eyebrow { color: rgba(255,255,255,0.72); }
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+    gap: var(--space-4);
+}
+.stat-plate {
+    background: rgba(255,255,255,0.10);
+    border: 1px solid rgba(255,255,255,0.16);
+    border-radius: 16px;
+    padding: var(--space-5);
+}
+.stat-plate .metric { display: block; color: #fff; font-size: 2.1rem; line-height: 1.1; }
+.stat-plate span:not(.metric) {
+    display: block;
+    margin-top: var(--space-2);
+    color: rgba(255,255,255,0.82);
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+/* ===== CTA BAND (about page, before footer) =====
+   A pale-blue full-bleed section: centered heading + subhead, then two soft
+   action plates (icon tile, heading, text, pill button). */
+.cta-band {
+    background: var(--cta-bg);
+    padding: clamp(2.5rem, 6vw, 4.5rem) clamp(1rem, 5vw, 3.5rem);
+}
+.cta-inner { max-width: var(--container-md); margin: 0 auto; text-align: center; }
+.cta-inner > p { margin: 0 auto var(--space-6); max-width: 36rem; }
+.cta-actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: var(--space-4);
+    text-align: left;
+}
+.cta-actions .card { display: flex; flex-direction: column; }
+.cta-actions .card .button { margin-top: auto; align-self: flex-start; }
 
 /* ===== RESPONSIVE ===== */
 @media (max-width: 1080px) {
