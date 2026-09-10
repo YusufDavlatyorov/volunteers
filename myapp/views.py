@@ -639,7 +639,7 @@ def ai_chat_view(request):
     lang = detect_lang(user_message, lang_hint)
 
     if confirm_id:
-        reply = confirm_action(ctx, confirm_id, history=history, lang=lang)
+        reply = confirm_action(ctx, confirm_id, lang=lang)
     else:
         reply = run_conversation(ctx, user_message, history=history, lang=lang)
 

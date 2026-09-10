@@ -16,10 +16,10 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from accounts.models import Users
-from .models import EmergencyReport, HelpRequest
+from .models import HelpRequest
 from .services.ai import build_user_context, confirm_action, run_conversation
 from .services.ai import client as ai_client
-from .services.ai import confirmations, policies, prompts, tools
+from .services.ai import policies, prompts, tools
 from .services.ai.client import ChatResult, ToolCall
 
 

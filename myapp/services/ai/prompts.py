@@ -17,8 +17,9 @@ from .context import UserContext
 LANGS = ("ru", "tj", "en")
 DEFAULT_LANG = "ru"
 
-# Tajik-specific Cyrillic glyphs — presence strongly implies Tajik over Russian.
-_TAJIK_GLYPHS = set("ҷғқҳӣӯҶғ")
+# Tajik-specific Cyrillic glyphs (both cases) — presence strongly implies Tajik
+# over Russian.
+_TAJIK_GLYPHS = set("ҷғқҳӣӯҶҒҚҲӢӮ")
 
 
 def detect_lang(text: str, hint: str | None = None) -> str:

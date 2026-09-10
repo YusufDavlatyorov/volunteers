@@ -17,11 +17,8 @@ from typing import Optional
 
 from accounts.models import Users
 
-ROLE_ADMIN = "admin"
-ROLE_CURATOR = "curator"
-ROLE_VOLUNTEER = "volunteer"
-ROLE_CLIENT = "client"
-ROLE_GUEST = "guest"
+# Role values match accounts.models.Users.role exactly ("admin" / "curator" /
+# "volunteer" / "client" / "guest"). The per-tool role gate lives in tools.py.
 
 
 @dataclass(frozen=True)
@@ -50,7 +47,7 @@ class UserContext:
 def _anonymous() -> UserContext:
     return UserContext(
         authenticated=False,
-        role=ROLE_GUEST,
+        role="guest",
         user_id=None,
         display_name="Guest",
         region="",

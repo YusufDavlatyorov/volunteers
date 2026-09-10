@@ -1,4 +1,4 @@
-/* ===== ai-assistant.css — AI chat page (myapp/ai_assistant.html, ai_advisor.html) =====
+/* ===== ai-assistant.css — AI chat page (myapp/ai_assistant.html) =====
    Loaded after style.css via {% block extra_css %}.
    The persistent .ai-fab floating button stays in style.css — it is rendered by
    base.html on every authenticated page, not only this one. */
@@ -107,7 +107,7 @@
     background: var(--primary-glow);
     animation: aiMsgIn 0.2s ease;
 }
-.ai-confirm__summary { margin: 0 0 var(--space-3); color: var(--text); font-size: 0.9rem; line-height: 1.5; }
+.ai-confirm__summary { margin: 0 0 var(--space-3); color: var(--text); font-size: 0.9rem; line-height: 1.5; overflow-wrap: anywhere; }
 .ai-confirm__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .ai-confirm__actions .button { min-height: 2.3rem; padding: 0.5rem 1.1rem; font-size: 0.85rem; }
 
@@ -127,7 +127,8 @@
     font-size: 0.86rem;
     font-weight: 600;
 }
-.ai-error .button { min-height: 2.1rem; padding: 0.4rem 0.9rem; font-size: 0.82rem; }
+.ai-error span { overflow-wrap: anywhere; min-width: 0; }
+.ai-error .button { min-height: 2.1rem; padding: 0.4rem 0.9rem; font-size: 0.82rem; flex-shrink: 0; }
 
 .ai-side-panel .card span.tag { margin-bottom: 0.6rem; }
 

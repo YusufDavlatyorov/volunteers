@@ -24,7 +24,7 @@ from accounts.models import Users
 logger = logging.getLogger(__name__)
 
 _HELP_TYPES = {t for t, _ in HelpRequest._meta.get_field("help_type").choices}
-_PRIORITIES = {p for p, _ in HelpRequest._meta.get_field("priority").choices}
+_REGIONS = {r for r, _ in HelpRequest._meta.get_field("region").choices}
 _ADVANCEABLE_STAGES = set(HelpRequest.WORK_STAGE_ORDER[1:])  # en_route, arrived, in_progress
 
 
@@ -131,7 +131,7 @@ def validate_create_help_request(ctx, **args) -> dict:
     if not form.is_valid():
         return _err("invalid_args", fields={k: v[0] for k, v in form.errors.items()})
 
-    region = args.get("region") if args.get("region") in {"dushanbe", "sogd", "khatlon", "gbao", "rrp"} else ctx.region
+    region = args.get("region") if args.get("region") in _REGIONS else ctx.region
     label = dict(HelpRequest._meta.get_field("help_type").choices)[fields["help_type"]]
     summary = (
         f"Create a help request: type «{label}», region «{region or 'not set'}», "

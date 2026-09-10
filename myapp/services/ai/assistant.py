@@ -172,7 +172,7 @@ def run_conversation(ctx: UserContext, message: str, history=None, lang: str = "
     )
 
 
-def confirm_action(ctx: UserContext, confirmation_id: str, history=None, lang: str = "ru") -> AssistantReply:
+def confirm_action(ctx: UserContext, confirmation_id: str, lang: str = "ru") -> AssistantReply:
     if not ctx.authenticated:
         return AssistantReply(text=prompts.refusal_text("off_topic", lang))
 

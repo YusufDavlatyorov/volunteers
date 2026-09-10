@@ -36,15 +36,3 @@ def can_view_emergency(user, report) -> bool:
     if user is None:
         return False
     return bool(user.is_superuser or user.is_curator or report.volunteer_id == user.id)
-
-
-def can_route_for_task(user, task) -> bool:
-    """Mirror of ``myapp/views.py::_route_permission``."""
-    if user is None:
-        return False
-    return bool(
-        user.is_superuser
-        or user.is_curator
-        or task.client_id == user.id
-        or task.volunteer_id == user.id
-    )

@@ -4,8 +4,7 @@ Each handler takes the trusted ``UserContext`` and validated kwargs and returns 
 small JSON-serializable dict. Handlers:
 
 * delegate aggregates to the existing services (``analytics``, ``overdue``,
-  ``stale``, ``emergency``, ``matching``, ``maps``) — no query logic is
-  duplicated;
+  ``stale``, ``matching``, ``maps``) — no query logic is duplicated;
 * scope every ORM query to what the role may see, and re-check per-object
   visibility with ``access.py`` (mirrors the view gates);
 * never serialize secrets, tokens, phone numbers of third parties, or email
@@ -32,7 +31,7 @@ from ...models import (
     PetReport,
     VolunteerApplication,
 )
-from .. import analytics, emergency, maps, matching, overdue, stale
+from .. import analytics, maps, matching, overdue, stale
 from . import access
 
 DEFAULT_LIMIT = 20

@@ -311,8 +311,9 @@ def dispatch(name: str, raw_args: dict, ctx: UserContext) -> dict:
         if not outcome.get("ok"):
             logger.info("ai: action '%s' rejected at validate: %s",
                         name, outcome.get("error"))
-            return {"success": False, "error": outcome.get("error", "invalid_args"),
-                    **{k: v for k, v in outcome.items() if k not in ("ok", "error")}}
+            extra = {k: v for k, v in outcome.items()
+                     if k not in ("ok", "error", "success")}
+            return {"success": False, "error": outcome.get("error", "invalid_args"), **extra}
         return {
             "success": True,
             "confirmation": {
