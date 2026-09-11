@@ -484,8 +484,8 @@ class AiChatViewTests(TestCase):
 
     def test_lang_passthrough_for_fallback(self):
         self.client.force_login(self.admin)
-        with override_settings(GROQ_API_KEY="", GEMINI_API_KEY=""), \
-                mock.patch.dict("os.environ", {"GROQ_API_KEY": "", "GEMINI_API_KEY": ""}):
+        with override_settings(GROQ_API_KEY=""), \
+                mock.patch.dict("os.environ", {"GROQ_API_KEY": ""}):
             en = self.client.post(reverse("ai_chat"),
                                   data=json.dumps({"message": "hello", "lang": "en"}),
                                   content_type="application/json").json()["reply"]
@@ -520,7 +520,7 @@ class AiAssistantPageTests(TestCase):
 @override_settings(GROQ_API_KEY="test-key", GROQ_ASSISTANT_MODEL="model-a", GROQ_MODEL="model-b")
 class GroqClientTests(TestCase):
     def test_no_key_returns_error(self):
-        with override_settings(GROQ_API_KEY=""), mock.patch.dict("os.environ", {"GROQ_API_KEY": "", "GEMINI_API_KEY": ""}):
+        with override_settings(GROQ_API_KEY=""), mock.patch.dict("os.environ", {"GROQ_API_KEY": ""}):
             r = ai_client.chat([{"role": "user", "content": "hi"}])
         self.assertFalse(r.ok)
         self.assertEqual(r.error, "no_api_key")

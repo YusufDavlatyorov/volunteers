@@ -90,10 +90,11 @@ class HelpRequestFlowTests(TestCase):
 
     def test_ai_chat_returns_fallback_without_api_key(self):
         self.client.login(username="vol_one", password="pass12345")
-        # Clear both settings and env vars so the view takes the offline fallback
-        # path (no external network call during tests).
-        with override_settings(GROQ_API_KEY="", GEMINI_API_KEY=""), mock.patch.dict(
-            "os.environ", {"GROQ_API_KEY": "", "GEMINI_API_KEY": ""}
+        # Clear the setting and the env var so the view takes the offline
+        # fallback path (no external network call during tests). GROQ_API_KEY
+        # is the only credential the client reads — no Gemini fallback.
+        with override_settings(GROQ_API_KEY=""), mock.patch.dict(
+            "os.environ", {"GROQ_API_KEY": ""}
         ):
             response = self.client.post(
                 reverse("ai_chat"), data='{"message": "привет"}', content_type="application/json"
@@ -5015,8 +5016,8 @@ class AiChatRateLimitTests(TestCase):
 
     def test_requests_past_the_limit_get_429(self):
         from myapp.views import AI_CHAT_RATE_LIMIT
-        with override_settings(GROQ_API_KEY="", GEMINI_API_KEY=""), mock.patch.dict(
-            "os.environ", {"GROQ_API_KEY": "", "GEMINI_API_KEY": ""}
+        with override_settings(GROQ_API_KEY=""), mock.patch.dict(
+            "os.environ", {"GROQ_API_KEY": ""}
         ):
             for _ in range(AI_CHAT_RATE_LIMIT):
                 ok = self.client.post(reverse("ai_chat"), data='{"message":"hi"}', content_type="application/json")

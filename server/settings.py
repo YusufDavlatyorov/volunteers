@@ -261,15 +261,22 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 AUTH_USER_MODEL = 'accounts.Users'
 
 # Third-party integrations (all optional; features degrade gracefully if unset).
-GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
-# The AI assistant talks to Groq's OpenAI-compatible API. Historically the Groq
-# key was stored under GEMINI_API_KEY, so we accept either name.
-GROQ_API_KEY = os.getenv('GROQ_API_KEY') or os.getenv('GEMINI_API_KEY', '')
-GROQ_MODEL = os.getenv('GROQ_MODEL', 'llama-3.1-8b-instant')
-# The role-based assistant (myapp/services/ai) needs reliable function-calling,
-# which the small 8B model does poorly. Default to a tool-capable model; the
-# client falls back to GROQ_MODEL on error.
-GROQ_ASSISTANT_MODEL = os.getenv('GROQ_ASSISTANT_MODEL', 'llama-3.3-70b-versatile')
+# The AI assistant talks to Groq's OpenAI-compatible API. GROQ_API_KEY is the
+# only credential read for it — no silent fallback to a Gemini key (removed:
+# the two are different providers with incompatible key formats, and mixing
+# them up used to send a Gemini key to Groq's endpoint, which Groq correctly
+# rejects with 401 invalid_api_key).
+GROQ_API_KEY = os.getenv('GROQ_API_KEY', '')
+# Defaults verified live against Groq's current model catalog (2026-09) —
+# the previous llama-3.1-8b-instant / llama-3.3-70b-versatile defaults are
+# retired on Groq (404 model_not_found for every account, not just missing
+# access) and were replaced after confirming both qwen models accept our
+# exact tools= schema and correctly choose to call a tool when appropriate.
+GROQ_MODEL = os.getenv('GROQ_MODEL', 'qwen/qwen3.6-27b')
+# The role-based assistant (myapp/services/ai) needs reliable function-calling.
+# Default to the larger of the two verified models; the client falls back to
+# GROQ_MODEL on error.
+GROQ_ASSISTANT_MODEL = os.getenv('GROQ_ASSISTANT_MODEL', 'qwen/qwen3.8-27b')
 
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', '')
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
