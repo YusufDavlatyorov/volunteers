@@ -359,12 +359,47 @@ conditional UPDATE, per-chat throttle) and never raises for an expected failure 
 
 ### AI assistant
 
-`ai_chat_view` (URL name `ai_chat`, POSTed from the `ai_assistant` page) calls Groq's
-OpenAI-compatible endpoint (`GROQ_MODEL`, default `llama-3.1-8b-instant`). The
-Groq key is read from `GROQ_API_KEY`, falling back to `GEMINI_API_KEY` for historical reasons
-(`server/settings.py`) — the `.env.example` variable is literally named `GEMINI_API_KEY` for a
-Groq key. If no key is set, the view returns a canned fallback tip instead of failing. System
-prompt tone differs by role (gentler for clients, practical for volunteers).
+A **role-based operational assistant**, not a chatbot. All logic lives in the
+`myapp/services/ai/` package; `ai_chat_view` (URL name `ai_chat`, `@require_POST`, `@login_required`)
+is a thin transport that parses `{message, history, lang}` (or `{confirm, history, lang}`), keeps
+the per-user rate limit, builds the trusted context and calls the service. Distinct from
+`services/matching.py` (the deterministic scorer) — do not conflate the two "AI"s.
+
+- **`context.py`** — `build_user_context(request.user)` is the ONLY source of role/identity;
+  a role claimed in a message changes nothing. Carries the real `Users` for scoped ORM,
+  but only `prompt_dict()` (role, id, display name, region) reaches the model.
+- **`policies.py::classify_message`** — deterministic multilingual guard that flags
+  `medical` / `political` / `injection` / `off_topic` **before any Groq call**, so the boundary
+  is cheap and test-locked (`myapp/tests_ai.py`). The system prompt is the second layer.
+- **`prompts.py`** — English system prompt (standardized policy) that instructs the model to
+  reply in the user's language; `detect_lang(text, hint)` (message script wins over the UI
+  `lang` hint); localized RU/TJ/EN fallback + refusal strings.
+- **`client.py`** — Groq HTTP client, never raises. `GROQ_ASSISTANT_MODEL`
+  (default `qwen/qwen3.8-27b`, tool-capable) with a one-shot retry on `GROQ_MODEL`
+  (default `qwen/qwen3.6-27b`). Groq periodically retires model IDs (the original
+  llama-3.x defaults started 404ing with `model_not_found` on 2026-09-11) — if the
+  assistant degrades to the fallback message, check `console.groq.com`'s current
+  catalog before assuming the code is broken. Tests patch
+  `myapp.services.ai.client.requests.post`.
+- **`tools.py` / `read_tools.py` / `actions.py`** — the tool registry. Every tool is gated by
+  the caller's role (`ToolSpec.roles`) **and** re-checks per-object visibility (`access.py`
+  mirrors the view gates). Reads delegate to `analytics` / `overdue` / `stale` / `emergency` /
+  `matching` / `maps`; results are count-first, paginated (≤50), and never contain
+  passwords/tokens/phone/email. Roles are cumulative (client ⊂ —, volunteer ⊂ —, curator ⊃
+  staff-reads, admin ⊃ curator + user directory).
+- **Actions** (all need confirmation): `create_help_request` (client), `escalate_task_to_staff`
+  (task party or staff), `notify_volunteer_about_task` (staff, task stays pending),
+  `advance_work_stage` (assigned volunteer/staff). The LLM **never executes** — `dispatch`
+  only validates and `confirmations.py` stashes a server-issued single-use token bound to the
+  user (5-min cache TTL); the action runs only when the frontend POSTs `{confirm: <id>}`.
+  `actions.advance_work_stage_for` / `notify_volunteer_recommendation` are shared with
+  `task_advance_stage_view` / `task_notify_volunteer_view` — one copy of each rule.
+- **`assistant.py`** — `run_conversation` (classifier gate → ≤4-round tool loop → confirmation)
+  and `confirm_action`. Bounds history to 8 turns / 6000 chars. Any Groq or tool failure
+  degrades to a localized string (200, never 5xx).
+
+If no key is set the assistant returns the localized "temporarily unavailable" message.
+The endpoint stays login-only; the ANONYMOUS policy exists in code but is not exposed.
 
 ### Config
 
