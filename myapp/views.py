@@ -5,6 +5,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
+from django.core.files.storage import default_storage
 from django.core.paginator import Paginator
 from django.db.models import Count, Max, Q
 from django.http import Http404, JsonResponse
@@ -86,7 +87,12 @@ def about_view(request):
         "regions": Users.objects.exclude(region="").values("region").distinct().count(),
     }
     reports = PhotoReport.objects.select_related("author").all()[:6]
-    return render(request, "myapp/about.html", {"stats": stats, "reports": reports})
+    hero_video_url = default_storage.url("videos/hero-loop.mp4")
+    return render(
+        request,
+        "myapp/about.html",
+        {"stats": stats, "reports": reports, "hero_video_url": hero_video_url},
+    )
 
 
 @login_required

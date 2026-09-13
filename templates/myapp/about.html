@@ -4,7 +4,7 @@
 {% block extra_css %}<link rel="stylesheet" href="{% static 'css/home.css' %}">{% endblock %}
 {% block content %}
 <section class="hero">
-    <img class="hero-photo" src="{% static 'images/tajikistan/hero.jpg' %}" alt="" loading="eager">
+    <video class="hero-photo" src="{{ hero_video_url }}" poster="{% static 'images/tajikistan/hero.jpg' %}" autoplay muted loop playsinline preload="auto" aria-hidden="true"></video>
     <div class="hero-grid">
         <div class="hero-content reveal">
             <span class="eyebrow" data-i18n="hero.eyebrow">Volunteer platform for Tajikistan</span>
