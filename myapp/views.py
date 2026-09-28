@@ -1,12 +1,11 @@
 import json
 import logging
 
-import requests
-from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
+from django.core.files.storage import default_storage
 from django.core.paginator import Paginator
 from django.db.models import Count, Max, Q
 from django.http import Http404, JsonResponse
@@ -46,6 +45,9 @@ from .models import (
 from .models.emergency import STATUS_CHOICES as EMERGENCY_STATUS_CHOICES
 from .notifications import notify_users, staff_recipients, volunteer_queryset_for_region
 from .services import analytics, donations, emergency, maps, overdue, pets, stale
+from .services.ai import build_user_context, confirm_action, run_conversation
+from .services.ai import actions as ai_actions
+from .services.ai.prompts import detect_lang
 from .services.geo import get_route, is_valid_coordinate
 from .services.matching import location_freshness_label, recommend_volunteers
 
@@ -85,7 +87,12 @@ def about_view(request):
         "regions": Users.objects.exclude(region="").values("region").distinct().count(),
     }
     reports = PhotoReport.objects.select_related("author").all()[:6]
-    return render(request, "myapp/about.html", {"stats": stats, "reports": reports})
+    hero_video_url = default_storage.url("videos/hero-loop.mp4")
+    return render(
+        request,
+        "myapp/about.html",
+        {"stats": stats, "reports": reports, "hero_video_url": hero_video_url},
+    )
 
 
 @login_required
@@ -509,17 +516,13 @@ def complete_task_view(request, pk):
     return redirect("task_list")
 
 
-_STAGE_CLIENT_NOTIFY = {
-    HelpRequest.WORK_STAGE_EN_ROUTE: "Волонтёр выехал к вам",
-    HelpRequest.WORK_STAGE_ARRIVED: "Волонтёр на месте",
-}
-
-
 @login_required
 @require_POST
 def task_advance_stage_view(request, pk):
     """Move an active task's work_stage forward. The assigned volunteer drives
-    their own progress; curator/admin can correct it."""
+    their own progress; curator/admin can correct it. The transition + client
+    notification live in services.ai.actions.advance_work_stage_for, shared with
+    the AI ``advance_work_stage`` action."""
     task = get_object_or_404(HelpRequest.objects.select_related("client", "volunteer"), pk=pk)
     user = request.user
     if not (user == task.volunteer or user.is_superuser or user.is_curator):
@@ -527,17 +530,11 @@ def task_advance_stage_view(request, pk):
         return redirect("profile")
 
     try:
-        task.advance_work_stage(request.POST.get("stage", ""))
+        ai_actions.advance_work_stage_for(user, task, request.POST.get("stage", ""))
     except ValueError:
         messages.warning(request, "Не удалось изменить этап задачи.")
         return redirect("task_detail", pk=pk)
 
-    if task.work_stage in _STAGE_CLIENT_NOTIFY:
-        notify_users(
-            [task.client],
-            _STAGE_CLIENT_NOTIFY[task.work_stage],
-            f"Запрос #{task.id}: {task.get_work_stage_display().lower()}.",
-        )
     messages.success(request, f"Этап обновлён: {task.get_work_stage_display()}.")
     return redirect("task_detail", pk=pk)
 
@@ -582,9 +579,27 @@ def rating_view(request):
     return render(request, "myapp/rating.html", {"volunteers": volunteers, "by_region": by_region})
 
 
+# Role-aware starter prompts shown on the empty chat screen. Kept server-side so
+# a client/volunteer never sees admin/curator suggestions.
+AI_SUGGESTION_KEYS = {
+    "admin": ["ai.suggest_admin_1", "ai.suggest_admin_2", "ai.suggest_admin_3", "ai.suggest_admin_4"],
+    "curator": ["ai.suggest_curator_1", "ai.suggest_curator_2", "ai.suggest_curator_3", "ai.suggest_curator_4"],
+    "volunteer": ["ai.suggest_vol_1", "ai.suggest_vol_2", "ai.suggest_vol_3", "ai.suggest_vol_4"],
+    "client": ["ai.suggest_client_1", "ai.suggest_client_2", "ai.suggest_client_3", "ai.suggest_client_4"],
+}
+
+
 @login_required
 def ai_assistant_view(request):
-    return render(request, "myapp/ai_assistant.html")
+    role = request.user.role
+    return render(request, "myapp/ai_assistant.html", {
+        "ai_role": role,
+        "ai_mode_key": {
+            "admin": "ai.mode_admin", "curator": "ai.mode_curator",
+            "volunteer": "ai.mode_volunteer", "client": "ai.mode_client",
+        }.get(role, "ai.mode_client"),
+        "ai_suggestion_keys": AI_SUGGESTION_KEYS.get(role, AI_SUGGESTION_KEYS["client"]),
+    })
 
 
 # Per-user ceiling on calls to the (billed, network-bound) Groq endpoint, so one
@@ -596,70 +611,53 @@ AI_CHAT_MAX_MESSAGE_CHARS = 2000
 
 
 @login_required
+@require_POST
 def ai_chat_view(request):
-    if request.method != "POST":
-        return JsonResponse({"error": "Method not allowed"}, status=405)
+    """Thin transport for the role-based assistant (myapp/services/ai).
 
+    Accepts JSON ``{message, history, lang}`` for a normal turn, or
+    ``{confirm, history, lang}`` to run a previously-staged action. All the
+    orchestration, permission and safety logic lives in the service package.
+    """
     try:
         data = json.loads(request.body or "{}")
     except json.JSONDecodeError:
         return JsonResponse({"error": "Invalid JSON"}, status=400)
 
-    user_message = data.get("message", "").strip()[:AI_CHAT_MAX_MESSAGE_CHARS]
-    if not user_message:
+    confirm_id = (data.get("confirm") or "").strip()
+    user_message = (data.get("message") or "").strip()[:AI_CHAT_MAX_MESSAGE_CHARS]
+    history = data.get("history")
+    lang_hint = data.get("lang") if data.get("lang") in ("ru", "tj", "en") else None
+
+    if not confirm_id and not user_message:
         return JsonResponse({"error": "Напишите вопрос"}, status=400)
 
     rate_key = f"ai_chat_rate:{request.user.pk}"
     if cache.get(rate_key, 0) >= AI_CHAT_RATE_LIMIT:
+        logger.info("ai: rate limit hit for user #%s", request.user.pk)
         return JsonResponse(
             {"error": "Слишком много запросов к ассистенту. Попробуйте через несколько минут."},
             status=429,
         )
     cache.set(rate_key, cache.get(rate_key, 0) + 1, AI_CHAT_RATE_WINDOW_SECONDS)
 
-    if request.user.is_client:
-        system_prompt = "Ты спокойный помощник для пожилого клиента. Отвечай просто, заботливо, не назначай лекарства, при опасных симптомах советуй врача или 103."
-        fallback = "Понимаю. Если есть сильная боль, одышка, резкая слабость или падение, лучше сразу позвонить 103."
+    ctx = build_user_context(request.user)
+    lang = detect_lang(user_message, lang_hint)
+
+    if confirm_id:
+        reply = confirm_action(ctx, confirm_id, lang=lang)
     else:
-        system_prompt = "Ты помощник волонтера. Давай практичные советы по этике общения, безопасности, маршруту помощи и отчетности."
-        fallback = "Совет волонтеру: заранее позвоните клиенту, уточните адрес и задачу, не берите деньги без подтверждения куратора."
+        reply = run_conversation(ctx, user_message, history=history, lang=lang)
 
-    system_prompt += " Answer only in Tajik, Russian, or English. Use the same language as the user's message. If the message mixes languages, choose the clearest of these three languages."
-
-    # settings.GROQ_API_KEY is already resolved from GROQ_API_KEY|GEMINI_API_KEY
-    # at startup (server/settings.py) — no need to re-read the .env per request.
-    api_key = getattr(settings, "GROQ_API_KEY", "")
-
-    if not api_key:
-        return JsonResponse({"reply": fallback})
-
-    try:
-        response = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": getattr(settings, "GROQ_MODEL", "llama-3.1-8b-instant"),
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_message},
-                ],
-                "temperature": 0.4,
-                "max_completion_tokens": 500,
-            },
-            # (connect, read) — bound how long a single request can pin a worker
-            # waiting on Groq. llama-3.1-8b typically answers in <3s.
-            timeout=(5, 15),
-        )
-        response.raise_for_status()
-        result = response.json()
-        reply = result["choices"][0]["message"]["content"].strip()
-        return JsonResponse({"reply": reply or fallback})
-    except Exception as e:
-        logger.warning("Groq chat request failed: %s", e)
-        return JsonResponse({"reply": fallback})
+    payload = {"reply": reply.text}
+    if reply.pending_action:
+        payload["pending_action"] = {
+            "id": reply.pending_action["id"],
+            "summary": reply.pending_action["summary"],
+        }
+    if reply.action_result is not None:
+        payload["action_ok"] = bool(reply.action_result.get("success"))
+    return JsonResponse(payload)
 
 
 @role_required("admin", "curator")
@@ -1098,13 +1096,9 @@ def task_notify_volunteer_view(request, pk, volunteer_id):
         return JsonResponse({"success": False, "reason": "task_not_pending"})
 
     volunteer = get_object_or_404(Users, pk=volunteer_id, is_volunteer=True, is_active=True)
-    subject = "Рекомендованный запрос помощи"
-    message = (
-        f"Куратор рекомендует вам запрос #{task.id} ({task.get_help_type_display()}) "
-        f"в регионе {task.get_region_display() or '—'}.\n"
-        f"Это рекомендация, а не назначение — запрос остаётся свободным, пока вы сами его не примете."
-    )
-    notify_users([volunteer], subject, message)
+    # Message + send live in services.ai.actions, shared with the AI
+    # ``notify_volunteer_about_task`` action.
+    ai_actions.notify_volunteer_recommendation(request.user, task, volunteer)
     return JsonResponse({"success": True})
 
 

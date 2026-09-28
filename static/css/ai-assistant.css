@@ -1,4 +1,4 @@
-/* ===== ai-assistant.css — AI chat page (myapp/ai_assistant.html, ai_advisor.html) =====
+/* ===== ai-assistant.css — AI chat page (myapp/ai_assistant.html) =====
    Loaded after style.css via {% block extra_css %}.
    The persistent .ai-fab floating button stays in style.css — it is rendered by
    base.html on every authenticated page, not only this one. */
@@ -94,6 +94,41 @@
 .ai-send-btn { flex-shrink: 0; width: 2.75rem; height: 2.75rem; min-height: unset; padding: 0; border-radius: 50%; color: white; background: var(--primary); }
 .ai-send-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 18px var(--primary-glow); }
 .ai-send-btn svg { width: 18px; height: 18px; }
+
+/* Inline confirmation prompt for an AI action — a soft card with two buttons,
+   appended into the message stream. Reuses .button primary/ghost. */
+.ai-confirm {
+    align-self: flex-start;
+    max-width: 82%;
+    margin-bottom: var(--space-4);
+    padding: var(--space-4);
+    border: 1px solid var(--primary);
+    border-radius: 14px;
+    background: var(--primary-glow);
+    animation: aiMsgIn 0.2s ease;
+}
+.ai-confirm__summary { margin: 0 0 var(--space-3); color: var(--text); font-size: 0.9rem; line-height: 1.5; overflow-wrap: anywhere; }
+.ai-confirm__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.ai-confirm__actions .button { min-height: 2.3rem; padding: 0.5rem 1.1rem; font-size: 0.85rem; }
+
+/* Error row with a retry button. */
+.ai-error {
+    align-self: flex-start;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+    margin-bottom: var(--space-4);
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--danger);
+    border-radius: 12px;
+    background: var(--danger-glow);
+    color: var(--danger);
+    font-size: 0.86rem;
+    font-weight: 600;
+}
+.ai-error span { overflow-wrap: anywhere; min-width: 0; }
+.ai-error .button { min-height: 2.1rem; padding: 0.4rem 0.9rem; font-size: 0.82rem; flex-shrink: 0; }
 
 .ai-side-panel .card span.tag { margin-bottom: 0.6rem; }
 
