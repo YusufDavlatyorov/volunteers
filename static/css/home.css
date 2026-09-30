@@ -57,14 +57,8 @@
 .hero .eyebrow { color: #c3d3ff; }
 .hero h1 { color: white; }
 /* The brand name opens the page's single <h1> (SEO: the name people search
-   for), set as a smaller line above the slogan. */
-.hero h1 .hero-brand {
-    display: block;
-    margin-bottom: 0.35rem;
-    font-size: 0.42em;
-    letter-spacing: 0.01em;
-    color: #c3d3ff;
-}
+   for) but is visually hidden, so the hero looks exactly as it did before the
+   SEO pass; the <span> also carries .visually-hidden in about.html. */
 /* On the dark hero the accent word stays white; only the teal underline reads. */
 .hero h1 .h-accent { color: #fff; text-decoration-color: #6ee0d0; }
 .hero p { color: var(--hero-ink-muted); font-size: 1.08rem; max-width: 34rem; }
@@ -112,6 +106,9 @@
 }
 .regions-photo {
     width: 100%;
+    /* height:auto — the <img> width/height attributes (kept for layout-shift
+       hints) would otherwise act as a fixed pixel height and override aspect-ratio. */
+    height: auto;
     aspect-ratio: 16 / 10;
     object-fit: cover;
     border-radius: 12px;
@@ -120,6 +117,9 @@
 .regions-panel .peaks-mark { width: 96px; margin-bottom: var(--space-4); }
 .volunteers-photo {
     width: 100%;
+    /* height:auto — the <img> width/height attributes (kept for layout-shift
+       hints) would otherwise act as a fixed pixel height and override aspect-ratio. */
+    height: auto;
     aspect-ratio: 4 / 3;
     object-fit: cover;
     object-position: center 30%;

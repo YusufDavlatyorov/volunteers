@@ -514,6 +514,11 @@ Stage 9 polish conventions (in `style.css`):
   `margin-top: auto`. CSS-grid already stretches a row's cards to the tallest. Panels whose
   content length genuinely differs (admin-panel feed columns) opt out with `.grid.grid-top`
   (`align-items: start`) — don't force those equal.
+- **`<img width height>` needs `height: auto`** in its CSS class when the class sizes the image
+  with `width: 100%` + `aspect-ratio` (`.volunteers-photo`, `.regions-photo`, `.report-img`):
+  the attributes otherwise act as a fixed pixel height and stretch the image (the 2026-09-30
+  SEO regression). The landing `<h1>` starts with a `.visually-hidden` "KhayrKhoh — " (SEO) so the
+  hero looks unchanged.
 - **`.clamp-text`** (line-clamp, `--clamp` default 3) + `.card__more` (a "View full →" link,
   i18n key `common.view_full`) replace `|truncatechars` so a long description can't stretch a
   card.
