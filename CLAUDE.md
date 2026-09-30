@@ -32,7 +32,7 @@ python manage.py check_stale_requests [--dry-run]       # mirror of the above fo
 python manage.py create_initial_production_accounts    # prod-only bootstrap: exactly 4 accounts (admin/curator/volunteer/client) from INITIAL_<ROLE>_* env vars; idempotent, never seeds business data — see README "Initial production accounts"
 curl -s localhost:8000/health/ ; curl -s localhost:8000/health/ready/   # liveness / readiness (server/health.py) — public, no secrets
 
-python manage.py test                                    # full suite (634 tests, ~160s)
+python manage.py test                                    # full suite (633 tests, ~160s)
 python manage.py test myapp.tests.MatchingAlgorithmTests  # one test class
 python manage.py test myapp.tests.MatchingAlgorithmTests.test_closer_volunteer_ranks_higher  # one test
 python manage.py test accounts                           # one app
@@ -443,7 +443,9 @@ concrete reason, it would duplicate the existing mechanism. The About Us hero vi
 `hero-loop-{mobile,desktop}.{webm,mp4}` (VP9 before H.264; mobile 480×264 via
 `<source media="(max-width: 768px)">`, desktop 640×352 = the native source resolution, **don't
 upscale**; MP4s faststart, keyframe every 2 s) — served via `{% asset %}` so nginx can cache
-`/static/videos/` as immutable. The inline script after the `<video>` in `about.html` pauses it
+`/static/videos/` as immutable. The `<video>` is `preload="none"` with **no `autoplay` attribute**:
+the inline script after it enables preload + muted autoplay on `window` `load`, so the video never
+competes with the page's own resources on the slow uplink. The same script pauses it
 off-screen / in hidden tabs, honours `prefers-reduced-motion` (aborts the download, hides it) and
 toggles `.topbar--over-video` (no backdrop blur over a playing video). It used to be read from
 `media/videos/` via `default_storage.url()`, which is gitignored and would have been silently
@@ -532,13 +534,14 @@ Stage 9 polish conventions (in `style.css`):
   Consequence: **collectstatic must run before `web` (re)starts** — DEPLOY.md "Redeploying" uses
   `docker compose run --rm web … collectstatic` then `up -d`; a missing static file referenced by
   a template raises under the manifest, so add new static files to the repo, not just to prod.
-- **No third-party render dependencies** (`myapp/tests_perf.py` locks it): fonts are
-  self-hosted (`static/css/fonts.css` + `static/fonts/`, verbatim Google CSS with local URLs,
-  unicode-range subsets, two cyrillic faces preloaded in `base.html`); Leaflet is
-  `static/vendor/leaflet-1.9.4/` (SRI-identical to unpkg, incl. `.map` for the manifest), loaded
-  only by map templates. Only OSM tiles stay remote. Large photos are `<picture>` with WebP
-  `srcset` + JPEG fallback resized to their display size (`picture { display: contents }` keeps
-  the `<img>` laid out exactly as before).
+- **Fonts (Google Fonts, `preconnect` + `display=swap`) and Leaflet (unpkg, SRI) stay on their
+  CDNs on purpose** — measured 2026-09-30 they reach visitors 5–12× faster than this origin's
+  uplink (~8–13 KB/s vs 46–156 KB/s); self-hosting them was tried and made first paint slower.
+  Don't move them onto the origin (or add font preloads) unless the origin's bandwidth changes
+  (e.g. a CDN in front). `myapp/tests_perf.py` allows exactly those CDN hosts; anything else —
+  like the old expiring fbcdn photo hot-link — is self-hosted. Large photos are `<picture>` with
+  WebP `srcset` + JPEG fallback resized to their display size (`picture { display: contents }`
+  keeps the `<img>` laid out exactly as before).
 - **Landing-page aggregates are cached** (`about_view`: `ABOUT_STATS_CACHE_KEY`, 5 min, DB cache
   in prod) — `/` and `/myapp/about/` run 1 query per hit.
 - **`.clamp-text`** (line-clamp, `--clamp` default 3) + `.card__more` (a "View full →" link,

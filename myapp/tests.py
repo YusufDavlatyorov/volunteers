@@ -1800,7 +1800,7 @@ class TaskDetailCrmIntegrationTests(TestCase):
         self.assertContains(response, 'id="routeCard"')
         self.assertNotContains(response, 'id="locationMapCard"')
         # Leaflet must load exactly once even though both features can use it.
-        self.assertEqual(response.content.decode().count("vendor/leaflet-1.9.4/leaflet.js"), 1)
+        self.assertEqual(response.content.decode().count("leaflet@1.9.4/dist/leaflet.js"), 1)
 
     def test_history_visible_to_admin_and_curator(self):
         task = HelpRequest.objects.create(
@@ -5276,14 +5276,21 @@ class AboutHeroVideoTests(TestCase):
             i += size
         return atoms
 
-    def test_hero_video_has_no_poster_and_autoplays_inline(self):
+    def test_hero_video_has_no_poster_and_starts_inline_after_page_load(self):
         html, tag, _ = self._hero()
         self.assertNotIn("poster", tag)
         self.assertNotIn("tajikistan/hero.jpg", html)
         # iOS Safari only autoplays inline when muted + playsinline.
-        for attr in ("autoplay", "muted", "loop", "playsinline", 'preload="auto"', "disablepictureinpicture"):
+        for attr in ("muted", "loop", "playsinline", "disablepictureinpicture", 'preload="none"'):
             with self.subTest(attr=attr):
                 self.assertIn(attr, tag)
+        # Not fetched with the page: no autoplay attribute; the script turns on
+        # preload + autoplay after window "load" so the video never competes
+        # with HTML/CSS/fonts on a slow link.
+        self.assertNotRegex(tag, r"\sautoplay[\s>]")
+        self.assertIn("window.addEventListener('load', start", html)
+        self.assertIn("video.autoplay = true", html)
+        self.assertIn("video.preload = 'auto'", html)
 
     def test_sources_mobile_first_webm_before_mp4_with_content_hash(self):
         import re

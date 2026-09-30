@@ -7,17 +7,23 @@
     Video-only hero (no poster — by design). Sources: smallest-first for phones
     (media query), VP9 WebM before H.264 MP4 (smaller at equal quality). All
     are seamless 4.3 s loops without audio; URLs carry a content hash
-    ({% asset %}) so nginx can cache them as immutable. See the script below.
+    ({% asset %}) so nginx can cache them as immutable. preload="none" and no
+    autoplay attribute: nothing is fetched until the script below starts it
+    after window "load", so on a slow link the video never competes with the
+    HTML/CSS/fonts for bandwidth (and doesn't hold back the load event).
     {% endcomment %}
-    <video class="hero-photo" autoplay muted loop playsinline preload="auto" disablepictureinpicture aria-hidden="true" tabindex="-1">
+    <video class="hero-photo" muted loop playsinline preload="none" disablepictureinpicture aria-hidden="true" tabindex="-1">
         <source src="{% asset 'videos/hero-loop-mobile.webm' %}" type='video/webm; codecs="vp9"' media="(max-width: 768px)">
         <source src="{% asset 'videos/hero-loop-mobile.mp4' %}" type="video/mp4" media="(max-width: 768px)">
         <source src="{% asset 'videos/hero-loop-desktop.webm' %}" type='video/webm; codecs="vp9"'>
         <source src="{% asset 'videos/hero-loop-desktop.mp4' %}" type="video/mp4">
     </video>
     <script>
-    /* Hero video playback — inline so it runs before autoplay/preload kick in.
-       - prefers-reduced-motion: never autoplay or download; the hero keeps its
+    /* Hero video playback.
+       - Starts (download + muted autoplay) only after window "load", so the
+         page's own resources get the bandwidth first; until then the hero
+         shows its solid background, exactly as while any video is loading.
+       - prefers-reduced-motion: never downloads or plays; the hero keeps its
          solid background.
        - Pause while scrolled out of view or the tab is hidden; resume after.
        - While the playing video is under the sticky .topbar, the topbar drops
@@ -28,6 +34,7 @@
         var topbar = document.querySelector('.topbar');
         var reduce = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
         var inView = true;
+        var started = false;
 
         var sources = Array.prototype.slice.call(video.querySelectorAll('source'));
         function disable() {
@@ -43,8 +50,16 @@
             }
             if (topbar) topbar.classList.remove('topbar--over-video');
         }
+        function start() {
+            if (started || reduce.matches) return;
+            started = true;
+            video.preload = 'auto';
+            video.autoplay = true;
+            sync();
+        }
         function sync() {
             if (reduce.matches) return disable();
+            if (!started) return;
             if (inView && !document.hidden) {
                 if (video.paused) { var p = video.play(); if (p && p.catch) p.catch(function () {}); }
             } else if (!video.paused) {
@@ -79,12 +94,16 @@
             }
         }
         document.addEventListener('visibilitychange', sync);
+        if (document.readyState === 'complete') start();
+        else window.addEventListener('load', start, { once: true });
         if (reduce.addEventListener) {
             reduce.addEventListener('change', function () {
                 if (!reduce.matches && !video.querySelector('source')) {
                     sources.forEach(function (s) { video.appendChild(s); });
                     video.hidden = false;
                     video.load();
+                    started = false;
+                    start();
                 }
                 sync();
             });
