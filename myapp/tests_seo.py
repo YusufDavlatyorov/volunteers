@@ -101,12 +101,20 @@ class SitemapTests(TestCase):
     def test_only_public_pages_as_absolute_https_urls(self):
         self.assertEqual(
             sorted(self._entries()),
-            sorted([f"{SITE}/", f"{SITE}{reverse('about')}", f"{SITE}{reverse('rating')}",
-                    f"{SITE}/login/", f"{SITE}/register/"]),
+            sorted([f"{SITE}/", f"{SITE}{reverse('rating')}", f"{SITE}/login/", f"{SITE}/register/"]),
         )
 
-    def test_about_is_listed_with_high_priority(self):
-        self.assertEqual(self._entries()[f"{SITE}{reverse('about')}"], "0.9")
+    def test_about_is_not_listed_but_canonicalizes_to_home_and_stays_crawlable(self):
+        # Same content as "/": one canonical URL, no duplicate in the sitemap.
+        self.assertNotIn(f"{SITE}{reverse('about')}", self._entries())
+        response = self.client.get(reverse("about"))  # anonymous, still reachable
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode()
+        self.assertEqual(_canonical(html), f"{SITE}/")
+        self.assertNotIn(NOINDEX, html)
+        robots = self.client.get("/robots.txt").content.decode()
+        self.assertIn(f"Allow: {reverse('about')}", robots.splitlines())
+        self.assertTrue(_google_allows(_robots_rules(robots), reverse("about")))
 
     def test_no_private_or_duplicate_urls(self):
         locs = list(self._entries())
@@ -117,7 +125,7 @@ class SitemapTests(TestCase):
                 path = loc[len(SITE):]
                 self.assertFalse(path.startswith(("/admin/", "/profile/", "/reset-password/", "/confirm-email/")))
                 if path.startswith("/myapp/"):
-                    self.assertIn(path, (reverse("about"), reverse("rating")))
+                    self.assertEqual(path, reverse("rating"))
 
     def test_host_header_does_not_leak_into_urls(self):
         response = self.client.get("/sitemap.xml", HTTP_HOST="localhost")
@@ -139,7 +147,7 @@ class SitemapRobotsConsistencyTests(TestCase):
         parser.parse(robots.splitlines())
         root = ElementTree.fromstring(self.client.get("/sitemap.xml").content)
         locs = [loc.text for loc in root.findall("sm:url/sm:loc", SitemapTests.NS)]
-        self.assertGreaterEqual(len(locs), 5)
+        self.assertEqual(len(locs), 4)
         for loc in locs:
             path = loc[len(SITE):]
             with self.subTest(url=loc):
@@ -157,7 +165,7 @@ class SitemapRobotsConsistencyTests(TestCase):
 class PublicPageHeadTests(TestCase):
     PAGES = {  # url -> expected canonical
         "/": f"{SITE}/",
-        "/myapp/about/": f"{SITE}/myapp/about/",
+        "/myapp/about/": f"{SITE}/",
         "/myapp/rating/": f"{SITE}/myapp/rating/",
         "/register/": f"{SITE}/register/",
         "/login/": f"{SITE}/login/",

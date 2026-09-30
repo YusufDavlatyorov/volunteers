@@ -454,7 +454,7 @@ deployment (production)** for the full command sequence and → **Initial produc
   else is `noindex, nofollow`** automatically. Public templates must **not** override
   `{% block title %}` (the registry supplies it); private pages keep their own title block.
   `robots.txt` and `sitemap.xml` (only entries with a `sitemap` dict) are derived from the same
-  registry: an `Allow` line per sitemap URL first, then `ROBOTS_DISALLOW` (private non-CRM paths)
+  registry: an `Allow` line per public page first, then `ROBOTS_DISALLOW` (private non-CRM paths)
   plus `private_myapp_prefixes()` — one `Disallow: /myapp/<segment>/` per **non-public** first
   segment in `myapp/urls.py`, so a new CRM route is blocked automatically. `/myapp/` is **not**
   blocked wholesale (about/rating live under it). `SitemapRobotsConsistencyTests` locks that every
@@ -464,8 +464,9 @@ deployment (production)** for the full command sequence and → **Initial produc
   never the request Host. `CONTACT_PHONE` must match the footer phone in `base.html`.
 - **`/` is the landing page**: `home_view` renders the About content for anonymous visitors
   and redirects signed-in users to `profile` (it used to be the login form, a duplicate of
-  `/login/`). `/myapp/about/` renders the same content but is **self-canonical and in the
-  sitemap (priority 0.9)** by product decision (2026-09-30) — Google chooses which to show.
+  `/login/`). `/myapp/about/` renders the same content, so its canonical is
+  `https://khayrkhoh.tj/` and it is **not** in the sitemap (no duplicate); it stays reachable
+  (nav links) and explicitly `Allow`ed in robots.txt so Google can see that canonical.
 - **Server-side i18n pre-render.** `ServerSideI18nMiddleware` fills every plain-text
   `data-i18n` element (and `data-i18n-ph` placeholder, with `data-i18n-args` interpolation)
   with the `SERVER_RENDER_LANGUAGE` (`ru`) string parsed from `static/js/i18n.js` itself — no

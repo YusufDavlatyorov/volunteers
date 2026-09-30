@@ -49,10 +49,11 @@ PUBLIC_PAGES = {
             "О платформе KhayrKhoh (Хайрхох): как волонтёры, кураторы и пожилые "
             "люди в Душанбе, Согде, Хатлоне, ГБАО и РРП находят друг друга."
         ),
-        # Same content as the home page, but deliberately indexable on its own
-        # URL (product decision 2026-09-30) — Google picks which to show.
-        "canonical": "about",
-        "sitemap": {"priority": 0.9, "changefreq": "weekly"},
+        # Same content as the home page, so "/" is the single canonical URL
+        # (no duplicate); About stays reachable and robots-allowed, just not
+        # in the sitemap.
+        "canonical": "home",
+        "sitemap": None,
         "structured_data": True,
     },
     "rating": {
@@ -201,8 +202,10 @@ def private_myapp_prefixes():
 
 @require_GET
 def robots_txt(request):
-    # Explicit Allow for every sitemap URL first, then the private prefixes.
-    allow = [reverse(name) for name in sitemap_names() if reverse(name) != "/"]
+    # Explicit Allow for every public page first (incl. non-sitemap ones like
+    # About, which must stay crawlable for its canonical to be seen), then the
+    # private prefixes.
+    allow = [reverse(name) for name in PUBLIC_PAGES if reverse(name) != "/"]
     lines = ["User-agent: *"]
     lines += [f"Allow: {path}" for path in allow]
     lines += [f"Disallow: {path}" for path in ROBOTS_DISALLOW + private_myapp_prefixes()]
@@ -232,9 +235,9 @@ class PublicPagesSitemap(Sitemap):
         return PUBLIC_PAGES[name]["sitemap"]["changefreq"]
 
     def lastmod(self, name):
-        # Home/About show the latest photo reports; the other public pages
+        # The home page shows the latest photo reports; the other public pages
         # have no meaningful modification date.
-        if name in ("home", "about"):
+        if name == "home":
             from myapp.models import PhotoReport
 
             latest = PhotoReport.objects.order_by("-created_at").values_list("created_at", flat=True).first()
