@@ -32,7 +32,7 @@ python manage.py check_stale_requests [--dry-run]       # mirror of the above fo
 python manage.py create_initial_production_accounts    # prod-only bootstrap: exactly 4 accounts (admin/curator/volunteer/client) from INITIAL_<ROLE>_* env vars; idempotent, never seeds business data — see README "Initial production accounts"
 curl -s localhost:8000/health/ ; curl -s localhost:8000/health/ready/   # liveness / readiness (server/health.py) — public, no secrets
 
-python manage.py test                                    # full suite (579 tests, ~160s)
+python manage.py test                                    # full suite (594 tests, ~160s)
 python manage.py test myapp.tests.MatchingAlgorithmTests  # one test class
 python manage.py test myapp.tests.MatchingAlgorithmTests.test_closer_volunteer_ranks_higher  # one test
 python manage.py test accounts                           # one app
@@ -455,7 +455,12 @@ via `[data-theme]` CSS variables). `crispy_forms` / `crispy_bootstrap5` and `dja
 `_field.html` includes and list filtering is hand-rolled in views; don't reach for either.
 `static/js/i18n.js` is a client-side EN/RU/TJ translation
 table driven by `data-i18n` attributes — add new UI strings there, not as hardcoded template text,
-if they need to support all three languages. `static/js/map.js` drives the Leaflet map view
+if they need to support all three languages. Server-rendered form errors follow the same path:
+`accounts/templatetags/form_i18n.py::error_i18n_attrs` maps a `ValidationError.code` (the
+password-validator codes + `password_mismatch`) to an `err.*` i18n key plus `data-i18n-args`
+(`{placeholder}` interpolation in `setLanguage`), used by `partials/_field.html` / `_form.html`
+and `accounts/register.html` — so forms must re-raise `exc.error_list`, **not** `exc.messages`,
+or the codes are lost. `static/js/map.js` drives the Leaflet map view
 (`GCMap`; `createOpsMap()` is the interactive split-view operations controller).
 
 A UI harmonization pass added reusable includes —

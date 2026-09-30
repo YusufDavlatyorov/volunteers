@@ -56,13 +56,16 @@ class RegistrationForm(forms.ModelForm):
         try:
             validate_password(password)
         except ValidationError as exc:
-            raise forms.ValidationError(exc.messages)
+            # Re-raise the validators' own ValidationErrors (not just their
+            # English .messages) so each keeps its code/params — the
+            # error_i18n_attrs tag maps those to i18n.js keys.
+            raise forms.ValidationError(exc.error_list)
         return password
 
     def clean(self):
         cleaned = super().clean()
         if cleaned.get("password") != cleaned.get("confirm_password"):
-            raise forms.ValidationError("Пароли не совпадают")
+            raise forms.ValidationError("Пароли не совпадают", code="password_mismatch")
         return cleaned
 
     def save(self, commit=True):
@@ -116,7 +119,7 @@ class ResetPasswordForm(forms.Form):
         cleaned = super().clean()
         password = cleaned.get("new_password")
         if password != cleaned.get("confirm_password"):
-            raise forms.ValidationError("Пароли не совпадают")
+            raise forms.ValidationError("Пароли не совпадают", code="password_mismatch")
         if password:
             # Same policy as registration — the reset path must not be a way
             # around AUTH_PASSWORD_VALIDATORS (min length, common-password and
@@ -124,7 +127,7 @@ class ResetPasswordForm(forms.Form):
             try:
                 validate_password(password, self.user)
             except ValidationError as exc:
-                raise forms.ValidationError(exc.messages)
+                raise forms.ValidationError(exc.error_list)
         return cleaned
 
 

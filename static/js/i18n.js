@@ -308,7 +308,13 @@ const T = {
     "pet.tl_matched":"Matched","pet.tl_resolved":"Reunited","pet.tl_closed":"Closed",
     "pet.col_type":"Type","pet.col_pet":"Pet",
     "pet.dash_title":"Lost & Found","pet.dash_empty":"No open lost or found reports.","pet.dash_client_empty":"Lost or found a pet? Post it on the community board.",
-    "pet.view_report":"View report"
+    "pet.view_report":"View report",
+    // Password validation errors (tagged by accounts/templatetags/form_i18n.py)
+    "err.password_too_short":"This password is too short. It must contain at least {min_length} characters.",
+    "err.password_too_common":"This password is too common.",
+    "err.password_entirely_numeric":"This password is entirely numeric.",
+    "err.password_too_similar":"The password is too similar to your username, name or email.",
+    "err.password_mismatch":"Passwords do not match."
   },
   ru: {
     "nav.about":"О нас","nav.rating":"Рейтинг","nav.profile":"Профиль",
@@ -619,7 +625,13 @@ const T = {
     "pet.tl_matched":"Совпадение","pet.tl_resolved":"Воссоединён","pet.tl_closed":"Закрыт",
     "pet.col_type":"Тип","pet.col_pet":"Питомец",
     "pet.dash_title":"Потеряшки","pet.dash_empty":"Нет открытых объявлений о животных.","pet.dash_client_empty":"Потеряли или нашли питомца? Разместите объявление на доске.",
-    "pet.view_report":"Открыть объявление"
+    "pet.view_report":"Открыть объявление",
+    // Password validation errors (tagged by accounts/templatetags/form_i18n.py)
+    "err.password_too_short":"Пароль слишком короткий. Он должен содержать не менее {min_length} символов.",
+    "err.password_too_common":"Этот пароль слишком распространён.",
+    "err.password_entirely_numeric":"Пароль не может состоять только из цифр.",
+    "err.password_too_similar":"Пароль слишком похож на ваше имя пользователя, имя или email.",
+    "err.password_mismatch":"Пароли не совпадают."
   },
   tj: {
     "nav.about":"Дар бораи мо","nav.rating":"Рейтинг","nav.profile":"Профил",
@@ -930,7 +942,13 @@ const T = {
     "pet.tl_matched":"Мутобиқат","pet.tl_resolved":"Баргардонида шуд","pet.tl_closed":"Пӯшида",
     "pet.col_type":"Навъ","pet.col_pet":"Ҳайвон",
     "pet.dash_title":"Гумшудаҳо","pet.dash_empty":"Эълони кушода дар бораи ҳайвонот нест.","pet.dash_client_empty":"Ҳайвонатонро гум кардед ё ёфтед? Дар лавҳа эълон гузоред.",
-    "pet.view_report":"Кушодани эълон"
+    "pet.view_report":"Кушодани эълон",
+    // Password validation errors (tagged by accounts/templatetags/form_i18n.py)
+    "err.password_too_short":"Парол хеле кӯтоҳ аст. Он бояд ақаллан {min_length} аломат дошта бошад.",
+    "err.password_too_common":"Ин парол хеле маъмул аст.",
+    "err.password_entirely_numeric":"Парол наметавонад танҳо аз рақамҳо иборат бошад.",
+    "err.password_too_similar":"Парол ба номи корбар, ном ё email-и шумо хеле монанд аст.",
+    "err.password_mismatch":"Паролҳо мувофиқат намекунанд."
   }
 };
 
@@ -938,13 +956,23 @@ const T = {
 // dynamically-created elements without a second copy of the table.
 window.T = T;
 
+// Fill {name} placeholders from a data-i18n-args JSON object (e.g. the
+// min_length of a server-rendered password error); unknown or malformed
+// args leave the placeholder as-is.
+function interpolate(text, argsJson) {
+  if (!argsJson) return text;
+  let args;
+  try { args = JSON.parse(argsJson); } catch (e) { return text; }
+  return text.replace(/\{(\w+)\}/g, (m, name) => (name in args ? String(args[name]) : m));
+}
+
 function setLanguage(lang) {
   if (!T[lang]) lang = 'en';
   localStorage.setItem('gc-lang', lang);
   document.documentElement.setAttribute('lang', lang);
   document.querySelectorAll('[data-i18n]').forEach(el => {
     const key = el.getAttribute('data-i18n');
-    if (T[lang][key]) el.textContent = T[lang][key];
+    if (T[lang][key]) el.textContent = interpolate(T[lang][key], el.getAttribute('data-i18n-args'));
   });
   document.querySelectorAll('[data-i18n-ph]').forEach(el => {
     const key = el.getAttribute('data-i18n-ph');

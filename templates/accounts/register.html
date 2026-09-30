@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load static %}
+{% load static form_i18n %}
 {% block title %}Join KhayrKhoh{% endblock %}
 {% block extra_css %}<link rel="stylesheet" href="{% static 'css/auth.css' %}">{% endblock %}
 {% block content %}
@@ -13,7 +13,7 @@
         <p class="auth-subtitle" data-i18n="reg.desc">Help people. Build your community. Make an impact — or ask for a hand when you need one.</p>
 
         {% if form.non_field_errors %}
-            <div class="auth-alert" role="alert">{{ form.non_field_errors.0 }}</div>
+            <div class="auth-alert" role="alert"{% error_i18n_attrs form.non_field_errors %}>{{ form.non_field_errors.0 }}</div>
         {% endif %}
 
         <form method="post" class="auth-form" id="registerForm">
@@ -74,7 +74,7 @@
                             <svg data-icon-hide viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" hidden><path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a21.6 21.6 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 7 11 7a21.6 21.6 0 0 1-2.68 3.79M14.12 14.12a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/></svg>
                         </button>
                     </div>
-                    <span class="field-error">{{ form.password.errors.0 }}</span>
+                    <span class="field-error"{% error_i18n_attrs form.password.errors %}>{{ form.password.errors.0 }}</span>
                 </div>
                 <div class="field-group">
                     <label for="{{ form.confirm_password.id_for_label }}" data-i18n="field.confirm_password">Confirm password</label>
@@ -85,7 +85,7 @@
                             <svg data-icon-hide viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" hidden><path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a21.6 21.6 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 7 11 7a21.6 21.6 0 0 1-2.68 3.79M14.12 14.12a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/></svg>
                         </button>
                     </div>
-                    <span class="field-error">{{ form.confirm_password.errors.0 }}</span>
+                    <span class="field-error"{% error_i18n_attrs form.confirm_password.errors %}>{{ form.confirm_password.errors.0 }}</span>
                 </div>
             </div>
 

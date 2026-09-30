@@ -4,9 +4,9 @@ and generated forms look identical. Does NOT emit <form>, {% csrf_token %} or th
 submit button — the caller owns those.
 Usage: {% include "partials/_form.html" with form=form %}
 {% endcomment %}
-{% if form.non_field_errors %}
+{% load form_i18n %}{% if form.non_field_errors %}
 <div class="auth-alert" role="alert">
-    {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+    {% for error in form.non_field_errors.as_data %}<p{% error_i18n_attrs error %}>{{ error.messages.0 }}</p>{% endfor %}
 </div>
 {% endif %}
 {% for field in form.hidden_fields %}{{ field }}{% endfor %}

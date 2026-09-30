@@ -580,3 +580,112 @@ class UpdateProfileInputValidationTests(TestCase):
         self.client.post(reverse("update_profile"), {"age": "500"})
         self.user.profile.refresh_from_db()
         self.assertIsNone(self.user.profile.age)
+
+
+class PasswordErrorTranslationTests(TestCase):
+    """Password-validator errors on the register / reset forms are tagged with
+    an i18n.js key (+ args) so they follow the selected EN/RU/TJ language
+    instead of always showing Django's English text."""
+
+    I18N_JS = Path(__file__).resolve().parent.parent / "static" / "js" / "i18n.js"
+
+    def setUp(self):
+        self.user = Users.objects.create_user(
+            username="pw_i18n_user", email="pw_i18n_user@example.com",
+            password="Volunteer2026!", is_client=True,
+        )
+
+    def _register(self, password, confirm=None):
+        return self.client.post(reverse("register"), {
+            "username": "pw_i18n_new", "email": "pw_i18n_new@example.com",
+            "role": "client", "region": "dushanbe",
+            "password": password, "confirm_password": password if confirm is None else confirm,
+        })
+
+    def _reset(self, password, confirm=None):
+        raw_token = self.user.generate_reset_password_token()
+        return self.client.post(reverse("reset_password", args=[raw_token]), {
+            "new_password": password, "confirm_password": password if confirm is None else confirm,
+        })
+
+    def test_register_too_short_carries_min_length_arg(self):
+        response = self._register("Ab1!")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'data-i18n="err.password_too_short"')
+        self.assertContains(response, 'data-i18n-args="{&quot;min_length&quot;: 8}"')
+
+    @override_settings(AUTH_PASSWORD_VALIDATORS=[{
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
+        "OPTIONS": {"min_length": 12},
+    }])
+    def test_min_length_arg_follows_configured_validator(self):
+        response = self._register("Short-Pass1")
+        self.assertContains(response, 'data-i18n-args="{&quot;min_length&quot;: 12}"')
+
+    def test_register_common_password(self):
+        self.assertContains(self._register("password"), 'data-i18n="err.password_too_common"')
+
+    def test_register_numeric_password(self):
+        self.assertContains(self._register("48571903726"), 'data-i18n="err.password_entirely_numeric"')
+
+    def test_register_mismatch(self):
+        response = self._register("Str0ng-Passphrase-42", confirm="Str0ng-Passphrase-43")
+        self.assertContains(response, 'data-i18n="err.password_mismatch"')
+        self.assertFalse(Users.objects.filter(username="pw_i18n_new").exists())
+
+    def test_reset_common_password(self):
+        response = self._reset("password")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'data-i18n="err.password_too_common"')
+
+    def test_reset_similar_to_username_has_no_untranslated_args(self):
+        response = self._reset("pw_i18n_user1")
+        self.assertContains(response, 'data-i18n="err.password_too_similar"')
+        # the validator's English verbose_name isn't passed to the translation
+        self.assertNotContains(response, "verbose_name")
+
+    def test_reset_mismatch(self):
+        response = self._reset("Str0ng-Passphrase-42", confirm="Str0ng-Passphrase-43")
+        self.assertContains(response, 'data-i18n="err.password_mismatch"')
+
+    def test_untagged_errors_render_as_plain_text(self):
+        from django.core.exceptions import ValidationError
+        from django.forms.utils import ErrorList
+
+        from .templatetags.form_i18n import error_i18n_attrs
+
+        self.assertEqual(error_i18n_attrs(ErrorList(["Такой username уже занят"])), "")
+        self.assertEqual(error_i18n_attrs(ValidationError("x", code="unknown_code")), "")
+        self.assertEqual(error_i18n_attrs(ErrorList()), "")
+        self.assertEqual(error_i18n_attrs(""), "")
+
+    def test_every_error_key_is_translated_in_all_three_languages(self):
+        from .templatetags.form_i18n import ERROR_I18N_KEYS
+
+        source = self.I18N_JS.read_text(encoding="utf-8")
+        en, rest = source.split("\n  ru: {", 1)
+        ru, tj = rest.split("\n  tj: {", 1)
+        for lang, block in (("en", en), ("ru", ru), ("tj", tj)):
+            for key in ERROR_I18N_KEYS.values():
+                with self.subTest(lang=lang, key=key):
+                    self.assertIn(f'"{key}":', block)
+
+    def test_i18n_js_interpolates_args(self):
+        import shutil
+
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node not installed")
+        script = (
+            "global.window={};global.document={addEventListener(){}};"
+            f"eval(require('fs').readFileSync({str(self.I18N_JS)!r},'utf8')+';window.interpolate=interpolate;');"
+            "const T=window.T,i=window.interpolate,a='{\"min_length\": 8}';"
+            "console.log(['en','ru','tj'].map(l=>i(T[l]['err.password_too_short'],a)).join('|'));"
+            "console.log(i('keep {x}', 'not json'));"
+        )
+        out = subprocess.run([node, "-e", script], capture_output=True, text=True, check=True).stdout.splitlines()
+        self.assertEqual(len(out[0].split("|")), 3)
+        for text in out[0].split("|"):
+            self.assertIn("8", text)
+            self.assertNotIn("{min_length}", text)
+        self.assertEqual(out[1], "keep {x}")
