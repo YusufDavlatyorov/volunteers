@@ -1,4 +1,4 @@
-# KhayrKhoh (khayrkhokh.tj) — production image.
+# KhayrKhoh (khayrkhoh.tj) — production image.
 # Builds the Django app + gunicorn; PostgreSQL is a separate, pre-existing
 # shared container (see docker-compose.yml) — this image has no database of
 # its own. Migrations / collectstatic / the initial-accounts command are run
@@ -21,14 +21,14 @@ COPY . .
 
 # Runs as an unprivileged user; MEDIA_ROOT/STATIC_ROOT below must stay
 # writable by it (docker-compose.yml mounts them as volumes it owns).
-RUN useradd --create-home --uid 1000 khayrkhokh \
+RUN useradd --create-home --uid 1000 khayrkhoh \
     && mkdir -p /app/media /app/staticfiles \
-    && chown -R khayrkhokh:khayrkhokh /app
-USER khayrkhokh
+    && chown -R khayrkhoh:khayrkhoh /app
+USER khayrkhoh
 
 EXPOSE 8000
 
 # --workers 3 matches the resource budget documented in README (mem_limit
 # 700m / cpus 1.0 for this container). --timeout is Gunicorn's own worker
 # timeout, independent of Django's EMAIL_TIMEOUT / outbound request timeouts.
-CMD ["gunicorn", "server.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "30"]
+CMD ["gunicorn", "server.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "60"]

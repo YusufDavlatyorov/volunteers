@@ -1,7 +1,7 @@
 # DEPLOY.md — KhayrKhoh production bring-up on a fresh Ubuntu server
 
 Exact command sequence to take a bare Ubuntu 22.04/24.04 server to a running
-production deployment at **https://khayrkhokh.tj** (and `www.khayrkhokh.tj`).
+production deployment at **https://khayrkhoh.tj** (and `www.khayrkhoh.tj`).
 Run everything below as a `sudo`-capable non-root user unless noted.
 
 This assumes nothing exists yet — including the shared PostgreSQL container.
@@ -37,10 +37,10 @@ Verify: `docker --version && docker compose version`.
 ## 2. Clone the repo
 
 ```bash
-sudo mkdir -p /srv/khayrkhokh
-sudo chown "$USER":"$USER" /srv/khayrkhokh
-git clone https://github.com/YusufDavlatyorov/volunteers.git /srv/khayrkhokh
-cd /srv/khayrkhokh
+sudo mkdir -p /opt/khayrkhoh
+sudo chown "$USER":"$USER" /opt/khayrkhoh
+git clone https://github.com/YusufDavlatyorov/volunteers.git /opt/khayrkhoh
+cd /opt/khayrkhoh
 ```
 
 ## 3. Configure `.env`
@@ -55,8 +55,8 @@ Fill in at minimum (see `.env.example` for the full annotated list):
 - `DJANGO_SECRET_KEY` — generate with:
   `docker run --rm -v "$PWD":/app -w /app python:3.14-slim python -c "import secrets; print(secrets.token_urlsafe(50))"`
 - `DJANGO_DEBUG=False`
-- `DJANGO_ALLOWED_HOSTS=khayrkhokh.tj,www.khayrkhokh.tj`
-- `DJANGO_CSRF_TRUSTED_ORIGINS=https://khayrkhokh.tj,https://www.khayrkhokh.tj`
+- `DJANGO_ALLOWED_HOSTS=khayrkhoh.tj,www.khayrkhoh.tj`
+- `DJANGO_CSRF_TRUSTED_ORIGINS=https://khayrkhoh.tj,https://www.khayrkhoh.tj`
 - `DJANGO_BEHIND_TLS_PROXY=True` (Caddy terminates TLS — see step 10)
 - `DJANGO_DB_CACHE=True`
 - `DJANGO_DB_NAME`, `DJANGO_DB_USER`, `DJANGO_DB_PASSWORD` — pick real values,
@@ -102,7 +102,7 @@ match it exactly.
 docker compose up -d --build
 ```
 
-This starts `web` (gunicorn) bound to `127.0.0.1:8001` only (see
+This starts `web` (gunicorn) bound to `127.0.0.1:8000` only (see
 `docker-compose.yml`), on the same `$SHARED_POSTGRES_NETWORK` as the
 database. `mem_limit: 700m`, `cpus: 1.0`, `restart: unless-stopped` are
 already set there.
@@ -156,19 +156,19 @@ sudo apt install -y caddy
 Write `/etc/caddy/Caddyfile`:
 
 ```caddyfile
-khayrkhokh.tj, www.khayrkhokh.tj {
+khayrkhoh.tj, www.khayrkhoh.tj {
     handle /static/* {
-        root * /srv/khayrkhokh/staticfiles
+        root * /opt/khayrkhoh/staticfiles
         uri strip_prefix /static
         file_server
     }
     handle /media/* {
-        root * /srv/khayrkhokh/media
+        root * /opt/khayrkhoh/media
         uri strip_prefix /media
         file_server
     }
     handle {
-        reverse_proxy 127.0.0.1:8001
+        reverse_proxy 127.0.0.1:8000
     }
 }
 ```
@@ -179,7 +179,7 @@ sudo systemctl reload caddy
 
 Caddy automatically obtains and renews a Let's Encrypt certificate for both
 hostnames the first time it sees traffic — no extra TLS config needed, as
-long as DNS for `khayrkhokh.tj` / `www.khayrkhokh.tj` already points at this
+long as DNS for `khayrkhoh.tj` / `www.khayrkhoh.tj` already points at this
 server's public IP before this step.
 
 ## 11. Firewall
@@ -194,42 +194,17 @@ sudo ufw enable
 Nothing else needs to be open — PostgreSQL (step 4) has no published port,
 and the app container (step 5) is bound to loopback only.
 
-## 12. Telegram bot as a restarting service
+## 12. Telegram bot
 
 The bot is a separate long-polling process — not part of the gunicorn
-request cycle (see CLAUDE.md → "Telegram account linking"). Run it as a
-systemd-managed container using the same image built in step 5.
-
-`/etc/systemd/system/khayrkhokh-telegram-bot.service`:
-
-```ini
-[Unit]
-Description=KhayrKhoh Telegram bot (long-polling)
-After=docker.service
-Requires=docker.service
-
-[Service]
-Restart=always
-RestartSec=5
-WorkingDirectory=/srv/khayrkhokh
-ExecStartPre=-/usr/bin/docker rm -f khayrkhokh_telegram_bot
-ExecStart=/usr/bin/docker run --rm --name khayrkhokh_telegram_bot \
-    --network shared_postgres_net \
-    --env-file /srv/khayrkhokh/.env \
-    khayrkhokh:latest python manage.py run_telegram_bot
-ExecStop=/usr/bin/docker stop khayrkhokh_telegram_bot
-
-[Install]
-WantedBy=multi-user.target
-```
-
-(Replace `shared_postgres_net` above if you used a different
-`SHARED_POSTGRES_NETWORK` value in `.env`.)
+request cycle (see CLAUDE.md → "Telegram account linking"). It runs as the
+`telegram_bot` service in `docker-compose.yml`: same image and `.env` as
+`web`, `restart: unless-stopped`, on the same `$SHARED_POSTGRES_NETWORK`.
+`docker compose up -d --build` (step 5) already starts it.
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now khayrkhokh-telegram-bot
-sudo systemctl status khayrkhokh-telegram-bot   # should be "active (running)"
+docker compose logs -f telegram_bot   # should show polling, no tracebacks
+docker compose restart telegram_bot   # after a code update / .env change
 ```
 
 ## 13. Cron: overdue + stale request sweeps
@@ -238,7 +213,7 @@ Both commands are idempotent — safe to re-run; see CLAUDE.md → "Background
 jobs" for why.
 
 ```bash
-sudo mkdir -p /var/log/khayrkhokh
+sudo mkdir -p /var/log/khayrkhoh
 crontab -e
 ```
 
@@ -246,19 +221,19 @@ Add:
 
 ```cron
 # KhayrKhoh — alert curators/admins about tasks overdue past 3h, every 15 min.
-*/15 * * * * cd /srv/khayrkhokh && docker compose exec -T web python manage.py check_overdue_tasks >> /var/log/khayrkhokh/cron.log 2>&1
+*/15 * * * * cd /opt/khayrkhoh && docker compose exec -T web python manage.py check_overdue_tasks >> /var/log/khayrkhoh/cron.log 2>&1
 # KhayrKhoh — alert about pending requests stuck without a volunteer past 48h, hourly.
-0 * * * * cd /srv/khayrkhokh && docker compose exec -T web python manage.py check_stale_requests >> /var/log/khayrkhokh/cron.log 2>&1
+0 * * * * cd /opt/khayrkhoh && docker compose exec -T web python manage.py check_stale_requests >> /var/log/khayrkhoh/cron.log 2>&1
 ```
 
 ## 14. Verify
 
 ```bash
-curl -fsS https://khayrkhokh.tj/health/ready/
+curl -fsS https://khayrkhoh.tj/health/ready/
 ```
 
 Expect `{"status":"ready",...}` with HTTP 200. Also spot-check: load
-`https://khayrkhokh.tj/` in a browser, log in with the admin account created
+`https://khayrkhoh.tj/` in a browser, log in with the admin account created
 in step 9, open the dashboard and the map.
 
 ---
@@ -266,16 +241,15 @@ in step 9, open the dashboard and the map.
 ## Redeploying after a code change
 
 ```bash
-cd /srv/khayrkhokh
+cd /opt/khayrkhoh
 git pull
 docker compose up -d --build
 docker compose exec web python manage.py migrate
 docker compose exec web python manage.py collectstatic --noinput
 ```
 
-The telegram-bot service picks up a new image on its next
-`ExecStartPre`/`ExecStart` cycle — restart it explicitly if the bot's own
-code changed: `sudo systemctl restart khayrkhokh-telegram-bot`.
+`docker compose up -d --build` rebuilds the image and recreates both `web`
+and `telegram_bot`, so the bot picks up new code automatically.
 
 ## Notes
 

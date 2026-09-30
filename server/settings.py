@@ -236,7 +236,7 @@ EMAIL_PORT = SMTP_PORT
 EMAIL_HOST_USER = SMTP_USER
 EMAIL_HOST_PASSWORD = SMTP_PASSWORD
 EMAIL_USE_TLS = True
-DEFAULT_FROM_EMAIL = SMTP_USER or 'no-reply@khayrkhokh.tj'
+DEFAULT_FROM_EMAIL = SMTP_USER or 'no-reply@khayrkhoh.tj'
 # Django's SMTP backend has NO default timeout — a hung mail server would block
 # the Gunicorn worker (and the user's request) indefinitely, since notify_users()
 # sends mail synchronously inside request handlers. Bound it.
@@ -299,7 +299,7 @@ MAPS_PROVIDER = os.getenv('MAPS_PROVIDER', 'osm').strip().lower()
 MAPS_API_KEY = os.getenv('MAPS_API_KEY', '')
 GEOCODING_TIMEOUT_SECONDS = 5
 OSRM_BASE_URL = os.getenv('OSRM_BASE_URL', 'https://router.project-osrm.org').rstrip('/')
-NOMINATIM_USER_AGENT = os.getenv('NOMINATIM_USER_AGENT', 'khayrkhokh-dev')
+NOMINATIM_USER_AGENT = os.getenv('NOMINATIM_USER_AGENT', 'khayrkhoh-dev')
 
 # Logging — without this the app's own logger.warning/error calls (the
 # zero-recipient safety net in the overdue/stale/emergency sweeps, OSRM/Nominatim

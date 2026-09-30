@@ -101,7 +101,7 @@ def _nominatim(path, params):
         response = requests.get(
             f"{_NOMINATIM_BASE}/{path}",
             params={**params, "format": "jsonv2"},
-            headers={"User-Agent": getattr(settings, "NOMINATIM_USER_AGENT", "khayrkhokh")},
+            headers={"User-Agent": getattr(settings, "NOMINATIM_USER_AGENT", "khayrkhoh")},
             timeout=_timeout(),
         )
         response.raise_for_status()

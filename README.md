@@ -4,7 +4,7 @@
 (**clients**) with **volunteers** in their region, coordinated by **curators** and **admins**.
 Built for the 5 regions of Tajikistan: Dushanbe, Sogd, Khatlon, GBAO and RRP.
 
-Production domain: **https://khayrkhokh.tj** (and `https://www.khayrkhokh.tj`).
+Production domain: **https://khayrkhoh.tj** (and `https://www.khayrkhoh.tj`).
 
 ## How it works
 
@@ -50,7 +50,7 @@ DEPLOY.md    Exact command sequence for a fresh Ubuntu server (Docker, Postgres,
 
 ```bash
 git clone <your-repo-url>
-cd khayrkhokh
+cd khayrkhoh
 
 python -m venv .venv
 # Windows
@@ -88,8 +88,8 @@ fresh checkout boots; replace it with a real key.
 | --- | --- | --- |
 | `DJANGO_SECRET_KEY` | Django secret key | **startup error** (required) |
 | `DJANGO_DEBUG` | Debug mode (`True`/`False`) | `False` |
-| `DJANGO_ALLOWED_HOSTS` | Comma-separated hosts | `localhost,127.0.0.1` (a `*` wildcard is refused once `DEBUG=False`). Production: `khayrkhokh.tj,www.khayrkhokh.tj` |
-| `DJANGO_CSRF_TRUSTED_ORIGINS` | Full HTTPS origins allowed to POST | empty. Production: `https://khayrkhokh.tj,https://www.khayrkhokh.tj` |
+| `DJANGO_ALLOWED_HOSTS` | Comma-separated hosts | `localhost,127.0.0.1` (a `*` wildcard is refused once `DEBUG=False`). Production: `khayrkhoh.tj,www.khayrkhoh.tj` |
+| `DJANGO_CSRF_TRUSTED_ORIGINS` | Full HTTPS origins allowed to POST | empty. Production: `https://khayrkhoh.tj,https://www.khayrkhoh.tj` |
 | `DJANGO_BEHIND_TLS_PROXY` | Trust `X-Forwarded-Proto` from a reverse proxy | `False`. Production (behind nginx): `True` |
 | `DJANGO_DB_NAME` / `DJANGO_DB_USER` / `DJANGO_DB_PASSWORD` / `DJANGO_DB_HOST` / `DJANGO_DB_PORT` | PostgreSQL connection — **required in production**, see "Docker deployment" | SQLite (dev only) |
 | `DJANGO_DB_CACHE` | Use a shared DB cache for rate-limit counters | `False` (per-process LocMemCache). **Required `True` in production** — a multi-worker gunicorn deployment needs the shared cache for the rate limiters to work at all |
@@ -188,16 +188,16 @@ environment:
 
 ```cron
 # KhayrKhoh — alert curators/admins about tasks overdue past 3h, every 15 min.
-*/15 * * * * cd /srv/khayrkhokh && flock -n /run/lock/gc-overdue.lock /srv/khayrkhokh/.venv/bin/python manage.py check_overdue_tasks >> /var/log/khayrkhokh/cron.log 2>&1
+*/15 * * * * cd /opt/khayrkhoh && flock -n /run/lock/gc-overdue.lock /opt/khayrkhoh/.venv/bin/python manage.py check_overdue_tasks >> /var/log/khayrkhoh/cron.log 2>&1
 # KhayrKhoh — alert about pending requests stuck without a volunteer past 48h, hourly.
-0 * * * * cd /srv/khayrkhokh && flock -n /run/lock/gc-stale.lock /srv/khayrkhokh/.venv/bin/python manage.py check_stale_requests >> /var/log/khayrkhokh/cron.log 2>&1
+0 * * * * cd /opt/khayrkhoh && flock -n /run/lock/gc-stale.lock /opt/khayrkhoh/.venv/bin/python manage.py check_stale_requests >> /var/log/khayrkhoh/cron.log 2>&1
 ```
 
 In a Docker deployment, run these inside the container instead (host cron
 calling `docker compose exec web python manage.py check_overdue_tasks`, etc.)
 rather than via a host-level virtualenv.
 
-Replace `/srv/khayrkhokh` with the deployment path (the directory
+Replace `/opt/khayrkhoh` with the deployment path (the directory
 containing `manage.py`) and `.venv` with the virtualenv location. `settings.py`
 loads `.env` by absolute path, so credentials are picked up regardless of cron's
 working directory; the `cd` is for `manage.py` and the log path.
@@ -270,10 +270,10 @@ is not part of this compose file** — production connects to a pre-existing sha
 container over an external Docker network (name given by `SHARED_POSTGRES_NETWORK` in `.env`,
 see `.env.example`); do not add a second PostgreSQL container.
 
-1. **Clone the repo** on the deployment host (e.g. into `/srv/khayrkhokh`).
+1. **Clone the repo** on the deployment host (e.g. into `/opt/khayrkhoh`).
 2. **Configure `.env`** — `cp .env.example .env` and fill in: `DJANGO_SECRET_KEY` (generate one,
-   see above), `DJANGO_DEBUG=False`, `DJANGO_ALLOWED_HOSTS=khayrkhokh.tj,www.khayrkhokh.tj`,
-   `DJANGO_CSRF_TRUSTED_ORIGINS=https://khayrkhokh.tj,https://www.khayrkhokh.tj`,
+   see above), `DJANGO_DEBUG=False`, `DJANGO_ALLOWED_HOSTS=khayrkhoh.tj,www.khayrkhoh.tj`,
+   `DJANGO_CSRF_TRUSTED_ORIGINS=https://khayrkhoh.tj,https://www.khayrkhoh.tj`,
    `DJANGO_BEHIND_TLS_PROXY=True`, `DJANGO_DB_CACHE=True`, and `SHARED_POSTGRES_NETWORK` (ask
    whoever manages the shared PostgreSQL container).
 3. **Configure PostgreSQL credentials** — `DJANGO_DB_NAME` / `DJANGO_DB_USER` /
@@ -307,29 +307,29 @@ see `.env.example`); do not add a second PostgreSQL container.
    docker compose up -d
    ```
    Resource budget: `mem_limit: 700m`, `cpus: 1.0`, `restart: unless-stopped` (already set in
-   `docker-compose.yml`). The container publishes gunicorn on `127.0.0.1:8001` — nothing else is
+   `docker-compose.yml`). The container publishes gunicorn on `127.0.0.1:8000` — nothing else is
    exposed publicly by the container itself.
 10. **Configure the reverse proxy** (nginx, on the host — not containerized here) to terminate
     TLS and serve static/media directly:
     ```nginx
-    server_name khayrkhokh.tj www.khayrkhokh.tj;
-    location /static/ { alias /srv/khayrkhokh/staticfiles/; }
-    location /media/  { alias /srv/khayrkhokh/media/; }
-    location = /health/ { proxy_pass http://127.0.0.1:8001; access_log off; }
+    server_name khayrkhoh.tj www.khayrkhoh.tj;
+    location /static/ { alias /opt/khayrkhoh/staticfiles/; }
+    location /media/  { alias /opt/khayrkhoh/media/; }
+    location = /health/ { proxy_pass http://127.0.0.1:8000; access_log off; }
     location / {
-        proxy_pass http://127.0.0.1:8001;
+        proxy_pass http://127.0.0.1:8000;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-Proto $scheme;   # required by DJANGO_BEHIND_TLS_PROXY
         proxy_set_header X-Real-IP $remote_addr;
     }
     ```
-11. **Configure HTTPS** — issue a certificate for `khayrkhokh.tj` and `www.khayrkhokh.tj`
+11. **Configure HTTPS** — issue a certificate for `khayrkhoh.tj` and `www.khayrkhoh.tj`
     (e.g. certbot) and redirect `www` → apex or vice versa at the nginx level, whichever is the
     canonical host; both are already in `DJANGO_ALLOWED_HOSTS` / `DJANGO_CSRF_TRUSTED_ORIGINS`
     above so either works at the Django level.
 12. **Verify the health endpoint**:
     ```bash
-    curl -fsS https://khayrkhokh.tj/health/ready/
+    curl -fsS https://khayrkhoh.tj/health/ready/
     ```
     should return `{"status":"ready",...}`.
 
@@ -353,7 +353,7 @@ given host — the steps above are the same (`migrate`, `collectstatic`, `create
 `createcachetable`), just run with the host's own venv instead of `docker compose run`:
 
 ```bash
-gunicorn server.wsgi:application --workers 3 --bind 127.0.0.1:8001
+gunicorn server.wsgi:application --workers 3 --bind 127.0.0.1:8000
 ```
 
 run under systemd (`WorkingDirectory` = the dir with `manage.py`, `EnvironmentFile` = `.env`); the
@@ -375,7 +375,7 @@ pull an instance out of rotation. Responses carry `Cache-Control: no-store`.
 
 A `systemd` unit can gate restarts on it:
 ```ini
-ExecStartPost=/bin/sh -c 'for i in $(seq 30); do curl -fsS http://127.0.0.1:8001/health/ready/ && exit 0; sleep 1; done; exit 1'
+ExecStartPost=/bin/sh -c 'for i in $(seq 30); do curl -fsS http://127.0.0.1:8000/health/ready/ && exit 0; sleep 1; done; exit 1'
 ```
 
 ## Backup & recovery

@@ -1,4 +1,4 @@
-# KhayrKhoh (khayrkhokh.tj) — production compose file.
+# KhayrKhoh (khayrkhoh.tj) — production compose file.
 #
 # Runs ONLY the Django app container. PostgreSQL is NOT started here — this
 # project connects to the pre-existing shared_postgres container over the
@@ -16,8 +16,8 @@
 services:
   web:
     build: .
-    image: khayrkhokh:latest
-    container_name: khayrkhokh_web
+    image: khayrkhoh:latest
+    container_name: khayrkhoh_web
     restart: unless-stopped
     mem_limit: 700m
     cpus: 1.0
@@ -28,10 +28,25 @@ services:
       - ./media:/app/media
     ports:
       # Loopback-only — an external nginx (host-level, per README) reverse
-      # proxies to this port and terminates TLS for khayrkhokh.tj /
-      # www.khayrkhokh.tj. Remove this mapping instead if nginx runs as a
+      # proxies to this port and terminates TLS for khayrkhoh.tj /
+      # www.khayrkhoh.tj. Remove this mapping instead if nginx runs as a
       # container on the same shared network and reaches `web:8000` directly.
-      - "127.0.0.1:8001:8000"
+      - "127.0.0.1:8000:8000"
+    networks:
+      - shared_postgres_net
+
+  telegram_bot:
+    # Long-polling Telegram bot — a separate process from gunicorn, same
+    # image and .env. No ports: it only makes outbound calls to Telegram.
+    image: khayrkhoh:latest
+    container_name: khayrkhoh_telegram_bot
+    command: ["python", "manage.py", "run_telegram_bot"]
+    restart: unless-stopped
+    mem_limit: 300m
+    env_file:
+      - .env
+    depends_on:
+      - web
     networks:
       - shared_postgres_net
 

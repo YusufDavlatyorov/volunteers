@@ -4,10 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-**KhayrKhoh** (production: `khayrkhokh.tj` / `www.khayrkhokh.tj`; formerly branded "Generation
+**KhayrKhoh** (production: `khayrkhoh.tj` / `www.khayrkhoh.tj`; formerly branded "Generation
 Connect" — that name is gone from user-facing text and docs but the Python package/app names
 (`myapp`, `accounts`), DB filenames and internal identifiers were deliberately left unchanged, see
-"Production (khayrkhokh.tj)" below) — a Django (5.2, function-based views, MVT) platform
+"Production (khayrkhoh.tj)" below) — a Django (5.2, function-based views, MVT) platform
 connecting elderly clients with volunteers across 5 regions of Tajikistan (Dushanbe, Sogd,
 Khatlon, GBAO, RRP), coordinated by curators/admins. Custom user model with 4 roles
 (admin/curator/volunteer/client), Groq-backed AI assistant, Telegram notifications, and a
@@ -427,11 +427,11 @@ top of `myapp/views.py`: `ARCHIVE_PAGE_SIZE`, `PEOPLE_PAGE_SIZE`, `APPLICATIONS_
 volunteer/curator dashboards, CRM lists, map JSON and matching candidate set were already bounded
 in Stages 5–7.
 
-### Production (khayrkhokh.tj)
+### Production (khayrkhoh.tj)
 
 Production prep (2026-09) added: `STATIC_ROOT` (`server/settings.py`, required for
 `collectstatic` — was previously missing, dev never needed it since `runserver` serves straight
-from `STATICFILES_DIRS`); a `Dockerfile` + `docker-compose.yml` (app container only — PostgreSQL
+from `STATICFILES_DIRS`); a `Dockerfile` + `docker-compose.yml` (`web` + `telegram_bot` app containers only — PostgreSQL
 is an external pre-existing `shared_postgres` container reached over the network named by
 `SHARED_POSTGRES_NETWORK`, **do not add a second Postgres container/service**); and
 `create_initial_production_accounts` (see **Commands**) as the only sanctioned way to get accounts
