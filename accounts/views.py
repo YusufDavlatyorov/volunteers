@@ -128,6 +128,9 @@ def profile_view(request):
     """The one role-aware dashboard. All per-role aggregation lives in
     myapp.services.dashboard (scoped to request.user); this view stays thin."""
     profile, _ = Profile.objects.get_or_create(user=request.user)
+    # Prime the reverse one-to-one cache so user.profile (dashboard services,
+    # templates) reuses this row instead of querying it again.
+    request.user.profile = profile
     hour = timezone.localtime().hour
     greeting = "morning" if hour < 12 else "afternoon" if hour < 18 else "evening"
     context = {

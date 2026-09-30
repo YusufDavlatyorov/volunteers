@@ -87,13 +87,26 @@ def home_view(request):
     return about_view(request)
 
 
-def about_view(request):
-    stats = {
-        "volunteers": Users.objects.filter(is_volunteer=True, is_active=True).count(),
-        "clients": Users.objects.filter(is_client=True, is_active=True).count(),
+ABOUT_STATS_CACHE_KEY = "about_stats:v1"
+ABOUT_STATS_TTL = 300  # seconds — public landing-page numbers, fine to be a few minutes old
+
+
+def _about_stats():
+    counts = Users.objects.filter(is_active=True).aggregate(
+        volunteers=Count("id", filter=Q(is_volunteer=True)),
+        clients=Count("id", filter=Q(is_client=True)),
+    )
+    return {
+        **counts,
         "completed": HelpRequest.objects.filter(status="completed").count(),
         "regions": Users.objects.exclude(region="").values("region").distinct().count(),
     }
+
+
+def about_view(request):
+    # The most-visited page (also "/"): its aggregates come from the shared
+    # cache (DB cache in production) instead of four COUNTs per hit.
+    stats = cache.get_or_set(ABOUT_STATS_CACHE_KEY, _about_stats, ABOUT_STATS_TTL)
     reports = PhotoReport.objects.select_related("author").all()[:6]
     return render(
         request,
@@ -127,6 +140,10 @@ def admin_panel_view(request):
             requests_qs = requests_qs.filter(is_urgent=True)
 
     now = timezone.now()
+    people_counts = Users.objects.filter(is_active=True).aggregate(
+        total_volunteers=Count("id", filter=Q(is_volunteer=True)),
+        total_clients=Count("id", filter=Q(is_client=True)),
+    )
     # Bound the two grids — the full, paginated list is one click away at
     # crm/tasks/. Without a cap this page renders every pending+active row.
     context = {
@@ -138,8 +155,7 @@ def admin_panel_view(request):
         "recent_broadcasts": Broadcast.objects.select_related("sender")[:5],
         "pending_volunteer_applications": VolunteerApplication.objects.filter(status=VolunteerApplication.STATUS_PENDING).count(),
         "total_requests": HelpRequest.objects.filter(status__in=["pending", "active"]).count(),
-        "total_volunteers": Users.objects.filter(is_volunteer=True, is_active=True).count(),
-        "total_clients": Users.objects.filter(is_client=True, is_active=True).count(),
+        **people_counts,
         "total_events": Event.objects.count(),
         # CRM dashboard: real aggregate stats + a unified recent-activity feed,
         # both computed in myapp.services.analytics so this view stays thin.
@@ -208,9 +224,12 @@ def people_list_view(request, role):
         "availability_filter": availability_filter,
         "availability_choices": Profile.AVAILABILITY_CHOICES,
         "region_choices": REGION_CHOICES,
-        "volunteer_count": Users.objects.filter(is_volunteer=True, is_active=True).count(),
-        "client_count": Users.objects.filter(is_client=True, is_active=True).count(),
-        "curator_count": Users.objects.filter(is_curator=True, is_active=True).count(),
+        # One aggregate query for the three tab counts.
+        **Users.objects.filter(is_active=True).aggregate(
+            volunteer_count=Count("id", filter=Q(is_volunteer=True)),
+            client_count=Count("id", filter=Q(is_client=True)),
+            curator_count=Count("id", filter=Q(is_curator=True)),
+        ),
     }
     return render(request, "myapp/people_list.html", context)
 
@@ -765,7 +784,12 @@ def volunteer_applications_view(request):
     querystring = request.GET.copy()
     querystring.pop("page", None)
 
-    all_applications = VolunteerApplication.objects.all()
+    # One aggregate query for the three tab counts.
+    counts = VolunteerApplication.objects.aggregate(
+        pending_count=Count("id", filter=Q(status=VolunteerApplication.STATUS_PENDING)),
+        approved_count=Count("id", filter=Q(status=VolunteerApplication.STATUS_APPROVED)),
+        rejected_count=Count("id", filter=Q(status=VolunteerApplication.STATUS_REJECTED)),
+    )
     context = {
         "applications": page_obj,
         "page_obj": page_obj,
@@ -774,9 +798,7 @@ def volunteer_applications_view(request):
         "region_filter": region_filter,
         "search_query": search_query,
         "region_choices": REGION_CHOICES,
-        "pending_count": all_applications.filter(status=VolunteerApplication.STATUS_PENDING).count(),
-        "approved_count": all_applications.filter(status=VolunteerApplication.STATUS_APPROVED).count(),
-        "rejected_count": all_applications.filter(status=VolunteerApplication.STATUS_REJECTED).count(),
+        **counts,
     }
     return render(request, "myapp/volunteer_applications.html", context)
 

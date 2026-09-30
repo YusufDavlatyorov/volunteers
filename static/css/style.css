@@ -150,6 +150,9 @@ body {
 a { color: inherit; text-decoration: none; transition: color 0.25s ease; }
 main { min-height: 72vh; }
 img { max-width: 100%; display: block; }
+/* <picture> only chooses a source (WebP/srcset) — it must not add a box of
+   its own, so the <img> lays out exactly as if it were a direct child. */
+picture { display: contents; }
 
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; scroll-behavior: auto !important; }

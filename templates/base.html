@@ -48,9 +48,12 @@
     <meta name="theme-color" content="#0a1220" media="(prefers-color-scheme: dark)">
     {% block structured_data %}{% if seo.json_ld %}<script type="application/ld+json">{{ seo.json_ld }}</script>{% endif %}{% endblock %}
     {{ maps_tile_config|json_script:"gc-maps-tile" }}
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;0,700;0,800;1,600&display=swap" rel="stylesheet">
+    {# Self-hosted fonts (static/css/fonts.css): no third-party connections. The #}
+    {# two faces a Russian page renders first are preloaded so they don't wait #}
+    {# for fonts.css to be parsed. #}
+    <link rel="preload" href="{% static 'fonts/inter-cyrillic.woff2' %}" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="{% static 'fonts/playfair-display-cyrillic.woff2' %}" as="font" type="font/woff2" crossorigin>
+    <link rel="stylesheet" href="{% asset 'css/fonts.css' %}">
     <link rel="stylesheet" href="{% asset 'css/style.css' %}">
     {% block extra_css %}{% endblock %}
 </head>

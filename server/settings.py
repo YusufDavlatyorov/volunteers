@@ -267,6 +267,24 @@ STATICFILES_DIRS=[
 # `runserver` (STATICFILES_DIRS covers local dev).
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
+# Production (docker-compose sets DJANGO_STATIC_MANIFEST=True): collectstatic
+# writes content-hashed copies (style.3f2a…css) plus staticfiles.json, and
+# {% static %} returns the hashed names, so nginx can cache /static/ for a year
+# as immutable. Off by default: the manifest only exists after collectstatic,
+# so tests and runserver keep the plain storage. With it on, run collectstatic
+# BEFORE (re)starting web — DEPLOY.md "Redeploying" does this.
+STATIC_MANIFEST = os.getenv('DJANGO_STATIC_MANIFEST', 'False').lower() in ('1', 'true', 'yes')
+STORAGES = {
+    'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+    'staticfiles': {
+        'BACKEND': (
+            'django.contrib.staticfiles.storage.ManifestStaticFilesStorage'
+            if STATIC_MANIFEST
+            else 'django.contrib.staticfiles.storage.StaticFilesStorage'
+        ),
+    },
+}
+
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 

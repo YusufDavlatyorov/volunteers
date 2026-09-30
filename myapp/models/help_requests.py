@@ -121,6 +121,12 @@ class HelpRequest(models.Model):
         verbose_name = "Запрос помощи"
         verbose_name_plural = "Запросы помощи"
         ordering = ["-created_at"]
+        # status (+ newest first) drives every CRM list, sweep and the map;
+        # region+status is the volunteer task feed's filter.
+        indexes = [
+            models.Index(fields=["status", "-created_at"], name="helpreq_status_created_idx"),
+            models.Index(fields=["region", "status"], name="helpreq_region_status_idx"),
+        ]
 
     def __str__(self):
         return f"{self.get_help_type_display()} для {self.client.username}"

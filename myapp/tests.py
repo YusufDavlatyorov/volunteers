@@ -1800,7 +1800,7 @@ class TaskDetailCrmIntegrationTests(TestCase):
         self.assertContains(response, 'id="routeCard"')
         self.assertNotContains(response, 'id="locationMapCard"')
         # Leaflet must load exactly once even though both features can use it.
-        self.assertEqual(response.content.decode().count("leaflet@1.9.4/dist/leaflet.js"), 1)
+        self.assertEqual(response.content.decode().count("vendor/leaflet-1.9.4/leaflet.js"), 1)
 
     def test_history_visible_to_admin_and_curator(self):
         task = HelpRequest.objects.create(

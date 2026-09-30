@@ -32,6 +32,7 @@ class VolunteerApplication(models.Model):
         verbose_name = "Заявка волонтера"
         verbose_name_plural = "Заявки волонтеров"
         ordering = ["-created_at"]
+        indexes = [models.Index(fields=["status", "-created_at"], name="volapp_status_created_idx")]
 
     def __str__(self):
         return f"{self.user.username} — {self.get_status_display()}"

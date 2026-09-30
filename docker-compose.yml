@@ -23,6 +23,11 @@ services:
     cpus: 1.0
     env_file:
       - .env
+    environment:
+      # Content-hashed static filenames (ManifestStaticFilesStorage) so nginx
+      # can cache /static/ for a year — see server/settings.py STATIC_MANIFEST.
+      # Requires collectstatic before web starts (DEPLOY.md "Redeploying").
+      DJANGO_STATIC_MANIFEST: "True"
     volumes:
       - ./staticfiles:/app/staticfiles
       - ./media:/app/media

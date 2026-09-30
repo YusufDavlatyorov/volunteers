@@ -26,6 +26,7 @@ class PhotoReport(models.Model):
         verbose_name = "Фотоотчет"
         verbose_name_plural = "Фотоотчеты"
         ordering = ["-created_at"]
+        indexes = [models.Index(fields=["-created_at"], name="photoreport_created_idx")]
 
     def __str__(self):
         return self.title

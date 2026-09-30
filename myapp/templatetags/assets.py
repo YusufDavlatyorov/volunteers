@@ -12,6 +12,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from django import template
+from django.conf import settings
 from django.contrib.staticfiles import finders
 from django.templatetags.static import static
 
@@ -33,5 +34,7 @@ def asset_version(relative_path):
 @register.simple_tag
 def asset(relative_path):
     url = static(relative_path)
+    if getattr(settings, "STATIC_MANIFEST", False):
+        return url  # ManifestStaticFilesStorage already put the hash in the filename
     version = asset_version(relative_path)
     return f"{url}?v={version}" if version else url

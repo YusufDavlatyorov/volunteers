@@ -244,6 +244,7 @@ class Profile(models.Model):
     class Meta:
         verbose_name = "Профиль"
         verbose_name_plural = "Профили"
+        indexes = [models.Index(fields=["-rating"], name="profile_rating_idx")]  # rating page order
 
     def __str__(self):
         return f"Профиль {self.user.username}"

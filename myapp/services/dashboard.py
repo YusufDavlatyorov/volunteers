@@ -14,6 +14,8 @@ aggregation logic is duplicated.
 from django.db.models import Count, Q
 from django.utils import timezone
 
+from accounts.models import Profile
+
 from ..models import Donation, EmergencyReport, Event, HelpRequest, PetReport, VolunteerApplication
 from . import analytics, donations, emergency, matching, overdue, pets, stale
 
@@ -165,7 +167,12 @@ def _curator(user):
             .select_related("user")
             .order_by("-created_at")[:LIST_LIMIT]
         ),
-        "availability": analytics.volunteer_availability_breakdown(),
+        # Same numbers dashboard_stats() already computed — no second query.
+        "availability": {
+            Profile.AVAILABILITY_AVAILABLE: stats["volunteers_available"],
+            Profile.AVAILABILITY_BUSY: stats["volunteers_busy"],
+            Profile.AVAILABILITY_OFFLINE: stats["volunteers_offline"],
+        },
         "region_breakdown": analytics.region_task_breakdown(),
         "recent_activity": analytics.recent_activity(limit=8),
         # Lost & Found board — a coordination surface, not a CRM aggregate. Open

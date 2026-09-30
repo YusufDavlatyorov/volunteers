@@ -22,7 +22,7 @@ committed (see `.gitignore`).
 
 ```bash
 sudo apt-get update && sudo apt-get -y upgrade
-sudo apt-get install -y ca-certificates curl gnupg nginx certbot python3-certbot-nginx git ufw cron
+sudo apt-get install -y ca-certificates curl gnupg nginx libnginx-mod-http-brotli-filter certbot python3-certbot-nginx git ufw cron
 sudo install -m 0755 -d /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 sudo chmod a+r /etc/apt/keyrings/docker.gpg
@@ -140,7 +140,13 @@ within a single gunicorn worker.
 
 ```bash
 docker compose exec -T web python manage.py collectstatic --noinput
+docker compose restart web   # load the new staticfiles.json (hashed names)
 ```
+
+`docker-compose.yml` sets `DJANGO_STATIC_MANIFEST=True`, so collectstatic
+writes content-hashed copies (`style.3f2a….css`) plus `staticfiles.json`, and
+templates reference the hashed names. `web` reads that manifest at start-up —
+hence the restart.
 
 Writes into the `./staticfiles` bind mount (`docker-compose.yml`), which
 nginx serves directly in step 10.
@@ -229,24 +235,34 @@ server {
     gzip_types text/plain text/css text/xml application/javascript application/json
                application/xml image/svg+xml;
 
-    # Hero videos: templates reference them with ?v=<content hash> ({% asset %}),
-    # so a changed file gets a new URL and the long immutable cache is safe.
-    # Already-compressed media: no gzip; sendfile + tcp_nopush for large bodies.
-    # nginx answers Range requests (Accept-Ranges: bytes) for static files and
-    # its stock mime.types already maps .webm -> video/webm, .mp4 -> video/mp4.
-    location ^~ /static/videos/ {
-        alias /opt/khayrkhoh/staticfiles/videos/;
-        expires 30d;
+    # Brotli (apt: libnginx-mod-http-brotli-filter) for browsers that accept it
+    # — ~15-20% smaller than gzip for CSS/JS/HTML; gzip stays as the fallback.
+    # Fonts, images and video are already compressed and are not in either list.
+    brotli on;
+    brotli_comp_level 5;
+    brotli_min_length 256;
+    brotli_types text/plain text/css text/xml application/javascript application/json
+                 application/xml image/svg+xml;
+
+    # Content-hashed static files (DJANGO_STATIC_MANIFEST=True →
+    # ManifestStaticFilesStorage: name.<12 hex>.ext). A changed file gets a new
+    # name, so the same URL never changes content: cache for a year, immutable.
+    # Covers CSS/JS/fonts/images and the hero videos (Range requests work —
+    # Accept-Ranges: bytes; mime.types maps .webm/.mp4/.woff2).
+    location ~ "^/static/(.+\.[0-9a-f]{12}\.[A-Za-z0-9]+)$" {
+        alias /opt/khayrkhoh/staticfiles/$1;
+        expires 1y;
         add_header Cache-Control "public, immutable";
-        gzip off;
         sendfile on;
         tcp_nopush on;
         access_log off;
     }
 
+    # Unhashed originals (collectstatic keeps them too, e.g. for a hand-typed
+    # URL) — these can change under the same name, so keep the cache modest.
     location /static/ {
         alias /opt/khayrkhoh/staticfiles/;
-        expires 7d;   # CSS/JS URLs carry ?v=<hash>; images don't — keep this modest
+        expires 7d;
         add_header Cache-Control "public";
         access_log off;
     }
@@ -351,13 +367,18 @@ in step 9, open the dashboard and the map.
 ```bash
 cd /opt/khayrkhoh
 git pull
-docker compose up -d --build
-docker compose exec -T web python manage.py migrate
-docker compose exec -T web python manage.py collectstatic --noinput
+docker compose build
+docker compose run --rm web python manage.py migrate --noinput
+docker compose run --rm web python manage.py collectstatic --noinput
+docker compose up -d
 ```
 
-`docker compose up -d --build` rebuilds the image and recreates both `web`
-and `telegram_bot`, so the bot picks up new code automatically.
+Order matters with hashed static files: migrate and collectstatic run in
+one-off containers from the **new** image first, so when `up -d` recreates
+`web` (and `telegram_bot`) the new manifest and schema are already in place —
+the running site never serves new templates against an old `staticfiles.json`.
+`up -d` recreates both containers on the new image, so the bot picks up new
+code automatically.
 
 ## Notes
 

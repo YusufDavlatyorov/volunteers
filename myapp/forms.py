@@ -121,9 +121,12 @@ class PhotoReportForm(forms.ModelForm):
         # A volunteer must not be able to enumerate every HelpRequest in the
         # system through this <select> — its option labels carry the client's
         # username ("<type> для <client>"). Scope it to tasks they are actually
-        # attached to; staff keep the full list.
+        # attached to; staff keep the full list. select_related: each option
+        # label reads task.client (one query per option otherwise).
+        help_requests = self.fields["help_request"].queryset.select_related("client")
         if user is not None and not (user.is_superuser or user.is_curator):
-            self.fields["help_request"].queryset = HelpRequest.objects.filter(volunteer=user)
+            help_requests = help_requests.filter(volunteer=user)
+        self.fields["help_request"].queryset = help_requests
 
     class Meta:
         model = PhotoReport

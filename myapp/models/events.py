@@ -24,6 +24,7 @@ class Event(models.Model):
         verbose_name = "Акция"
         verbose_name_plural = "Акции"
         ordering = ["-date"]
+        indexes = [models.Index(fields=["date"], name="event_date_idx")]
 
     def __str__(self):
         return self.title

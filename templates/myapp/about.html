@@ -116,7 +116,14 @@
 <section class="section">
     <div class="two-col">
         <div class="volunteers-photo-wrap reveal">
-            <img class="volunteers-photo" src="https://scontent-fra5-1.xx.fbcdn.net/v/t39.30808-6/485751145_683869704216095_5696029354457947108_n.jpg?stp=dst-jpg_tt6&cstp=mx2048x1536&ctp=s2048x1536&_nc_cat=110&ccb=1-7&_nc_sid=833d8c&_nc_ohc=eKvh9Aym-mgQ7kNvwFUo1Za&_nc_oc=AdrWxZdJ2QdtED_b4kb3XBZDQDTG-2U5Y7517YF__SPtg7HcUzTf8DBCi-PpBu3D5T0&_nc_zt=23&_nc_ht=scontent-fra5-1.xx&_nc_gid=W2a75FW0Xe1_qaQ5z8I0SA&_nc_ss=7b289&oh=00_AQNOK2dGGkQXRU6MzSKB8FUw-msHsZq5PRz1Vo-NjnDH9g&oe=6AC27AD9" alt="Молодой волонтёр передаёт пожилому мужчине коробку с продуктовой помощью" width="2048" height="1536" loading="lazy" decoding="async">
+            <picture>
+                <source type="image/webp" sizes="(max-width: 820px) 100vw, 620px"
+                        srcset="{% static 'images/volunteers/volunteers-team-640.webp' %} 640w, {% static 'images/volunteers/volunteers-team-960.webp' %} 960w, {% static 'images/volunteers/volunteers-team-1280.webp' %} 1280w">
+                <img class="volunteers-photo" src="{% static 'images/volunteers/volunteers-team-960.jpg' %}"
+                     srcset="{% static 'images/volunteers/volunteers-team-640.jpg' %} 640w, {% static 'images/volunteers/volunteers-team-960.jpg' %} 960w, {% static 'images/volunteers/volunteers-team-1280.jpg' %} 1280w"
+                     sizes="(max-width: 820px) 100vw, 620px"
+                     alt="Молодой волонтёр передаёт пожилому мужчине коробку с продуктовой помощью" width="1280" height="960" loading="lazy" decoding="async">
+            </picture>
         </div>
         <div class="reveal">
             <span class="eyebrow" data-i18n="section.volunteers_eyebrow">Meet Our Volunteers</span>
@@ -158,7 +165,14 @@
             </div>
         </div>
         <div class="regions-panel reveal">
-            <img class="regions-photo" src="{% static 'images/tajikistan/mountains.jpg' %}" alt="Ваханская долина, Памир, Таджикистан" width="1800" height="1200" loading="lazy" decoding="async">
+            <picture>
+                <source type="image/webp" sizes="(max-width: 820px) 90vw, 440px"
+                        srcset="{% static 'images/tajikistan/mountains-480.webp' %} 480w, {% static 'images/tajikistan/mountains-960.webp' %} 960w">
+                <img class="regions-photo" src="{% static 'images/tajikistan/mountains-960.jpg' %}"
+                     srcset="{% static 'images/tajikistan/mountains-480.jpg' %} 480w, {% static 'images/tajikistan/mountains-960.jpg' %} 960w"
+                     sizes="(max-width: 820px) 90vw, 440px"
+                     alt="Ваханская долина, Памир, Таджикистан" width="960" height="640" loading="lazy" decoding="async">
+            </picture>
             {% include "_peaks_mark.html" %}
             <h3 data-i18n="section.regions">Five regions, one platform</h3>
             <div class="region-grid">

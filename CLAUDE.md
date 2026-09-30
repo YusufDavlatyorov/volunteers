@@ -32,7 +32,7 @@ python manage.py check_stale_requests [--dry-run]       # mirror of the above fo
 python manage.py create_initial_production_accounts    # prod-only bootstrap: exactly 4 accounts (admin/curator/volunteer/client) from INITIAL_<ROLE>_* env vars; idempotent, never seeds business data — see README "Initial production accounts"
 curl -s localhost:8000/health/ ; curl -s localhost:8000/health/ready/   # liveness / readiness (server/health.py) — public, no secrets
 
-python manage.py test                                    # full suite (626 tests, ~160s)
+python manage.py test                                    # full suite (634 tests, ~160s)
 python manage.py test myapp.tests.MatchingAlgorithmTests  # one test class
 python manage.py test myapp.tests.MatchingAlgorithmTests.test_closer_volunteer_ranks_higher  # one test
 python manage.py test accounts                           # one app
@@ -526,8 +526,21 @@ Stage 9 polish conventions (in `style.css`):
   SEO regression). The landing `<h1>` starts with a `.visually-hidden` "KhayrKhoh — " (SEO) so the
   hero looks unchanged.
 - **CSS/JS go through `{% asset 'css/x.css' %}`** (`myapp/templatetags/assets.py`), not
-  `{% static %}`: it appends `?v=<content hash>` so a changed file isn't served from the 7-day
-  browser cache nginx sets on unhashed `/static/` filenames. Images/video keep `{% static %}`.
+  `{% static %}`: without the manifest it appends `?v=<content hash>`; with
+  `DJANGO_STATIC_MANIFEST=True` (production, set in `docker-compose.yml`) it returns the
+  `ManifestStaticFilesStorage` hashed name. Hashed files get a 1-year immutable cache in nginx.
+  Consequence: **collectstatic must run before `web` (re)starts** — DEPLOY.md "Redeploying" uses
+  `docker compose run --rm web … collectstatic` then `up -d`; a missing static file referenced by
+  a template raises under the manifest, so add new static files to the repo, not just to prod.
+- **No third-party render dependencies** (`myapp/tests_perf.py` locks it): fonts are
+  self-hosted (`static/css/fonts.css` + `static/fonts/`, verbatim Google CSS with local URLs,
+  unicode-range subsets, two cyrillic faces preloaded in `base.html`); Leaflet is
+  `static/vendor/leaflet-1.9.4/` (SRI-identical to unpkg, incl. `.map` for the manifest), loaded
+  only by map templates. Only OSM tiles stay remote. Large photos are `<picture>` with WebP
+  `srcset` + JPEG fallback resized to their display size (`picture { display: contents }` keeps
+  the `<img>` laid out exactly as before).
+- **Landing-page aggregates are cached** (`about_view`: `ABOUT_STATS_CACHE_KEY`, 5 min, DB cache
+  in prod) — `/` and `/myapp/about/` run 1 query per hit.
 - **`.clamp-text`** (line-clamp, `--clamp` default 3) + `.card__more` (a "View full →" link,
   i18n key `common.view_full`) replace `|truncatechars` so a long description can't stretch a
   card.
