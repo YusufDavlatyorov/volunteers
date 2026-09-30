@@ -26,43 +26,90 @@ def _json_ld(html):
     return [json.loads(block) for block in blocks]
 
 
+def _robots_rules(text):
+    rules = []
+    for line in text.splitlines():
+        field, _, value = line.partition(":")
+        if field.strip().lower() in ("allow", "disallow") and value.strip():
+            rules.append((field.strip().lower() == "allow", value.strip()))
+    return rules
+
+
+def _google_allows(rules, path):
+    """Google's robots.txt semantics: the longest matching rule wins; on a
+    tie Allow wins; no matching rule means allowed."""
+    matches = [(len(rule), allow) for allow, rule in rules if path.startswith(rule)]
+    if not matches:
+        return True
+    longest = max(length for length, _ in matches)
+    return any(allow for length, allow in matches if length == longest)
+
+
 @override_settings(SITE_URL=SITE)
 class RobotsTxtTests(TestCase):
-    def test_rules_and_sitemap_line(self):
+    def _robots(self):
         response = self.client.get("/robots.txt")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Content-Type"], "text/plain; charset=utf-8")
-        lines = response.content.decode().splitlines()
+        return response.content.decode()
+
+    def test_rules_and_sitemap_line(self):
+        lines = self._robots().splitlines()
         self.assertEqual(lines[0], "User-agent: *")
-        for path in ("/admin/", "/myapp/", "/profile/", "/update-profile/",
+        for path in ("/admin/", "/profile/", "/update-profile/",
                      "/reset-password/", "/confirm-email/", "/forgot-password/"):
             with self.subTest(path=path):
                 self.assertIn(f"Disallow: {path}", lines)
-        # public pages that live under the disallowed /myapp/ prefix
         self.assertIn(f"Allow: {reverse('about')}", lines)
         self.assertIn(f"Allow: {reverse('rating')}", lines)
         self.assertIn(f"Sitemap: {SITE}/sitemap.xml", lines)
-        self.assertNotIn("Disallow: /\n", response.content.decode())
+        # no blanket blocks: not the whole site, not the whole /myapp/ prefix
+        self.assertNotIn("Disallow: /", lines)
+        self.assertNotIn("Disallow: /myapp/", lines)
+
+    def test_allow_lines_come_before_disallow_lines(self):
+        kinds = [line.split(":")[0] for line in self._robots().splitlines() if line.startswith(("Allow:", "Disallow:"))]
+        self.assertEqual(kinds, sorted(kinds))  # "Allow" < "Disallow"
+        self.assertIn("Allow", kinds)
+
+    def test_every_private_myapp_route_is_disallowed(self):
+        from myapp import urls as myapp_urls
+
+        rules = _robots_rules(self._robots())
+        public = {reverse(name) for name in PUBLIC_PAGES}
+        for pattern in myapp_urls.urlpatterns:
+            path = "/myapp/" + re.sub(r"<[^>]+>", "1", str(pattern.pattern))
+            if path in public:
+                continue
+            with self.subTest(route=pattern.name, path=path):
+                self.assertFalse(_google_allows(rules, path))
 
 
 @override_settings(SITE_URL=SITE)
 class SitemapTests(TestCase):
     NS = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
 
-    def _locs(self):
+    def _entries(self):
         response = self.client.get("/sitemap.xml")
         self.assertEqual(response.status_code, 200)
         root = ElementTree.fromstring(response.content)
-        return [loc.text for loc in root.findall("sm:url/sm:loc", self.NS)]
+        return {
+            url.find("sm:loc", self.NS).text: url.find("sm:priority", self.NS).text
+            for url in root.findall("sm:url", self.NS)
+        }
 
     def test_only_public_pages_as_absolute_https_urls(self):
         self.assertEqual(
-            sorted(self._locs()),
-            sorted([f"{SITE}/", f"{SITE}/login/", f"{SITE}/register/", f"{SITE}{reverse('rating')}"]),
+            sorted(self._entries()),
+            sorted([f"{SITE}/", f"{SITE}{reverse('about')}", f"{SITE}{reverse('rating')}",
+                    f"{SITE}/login/", f"{SITE}/register/"]),
         )
 
+    def test_about_is_listed_with_high_priority(self):
+        self.assertEqual(self._entries()[f"{SITE}{reverse('about')}"], "0.9")
+
     def test_no_private_or_duplicate_urls(self):
-        locs = self._locs()
+        locs = list(self._entries())
         self.assertEqual(len(locs), len(set(locs)))
         for loc in locs:
             with self.subTest(loc=loc):
@@ -70,9 +117,7 @@ class SitemapTests(TestCase):
                 path = loc[len(SITE):]
                 self.assertFalse(path.startswith(("/admin/", "/profile/", "/reset-password/", "/confirm-email/")))
                 if path.startswith("/myapp/"):
-                    self.assertEqual(path, reverse("rating"))
-        # About's canonical is the home page, so it isn't listed separately.
-        self.assertNotIn(f"{SITE}{reverse('about')}", locs)
+                    self.assertIn(path, (reverse("about"), reverse("rating")))
 
     def test_host_header_does_not_leak_into_urls(self):
         response = self.client.get("/sitemap.xml", HTTP_HOST="localhost")
@@ -80,10 +125,39 @@ class SitemapTests(TestCase):
 
 
 @override_settings(SITE_URL=SITE)
+class SitemapRobotsConsistencyTests(TestCase):
+    """Every sitemap URL must be crawlable, public and indexable — otherwise
+    Search Console reports "Submitted URL blocked by robots.txt" / "marked
+    noindex" / "not selected as canonical"."""
+
+    def test_every_sitemap_url_is_allowed_public_and_indexable(self):
+        from urllib.robotparser import RobotFileParser
+
+        robots = self.client.get("/robots.txt").content.decode()
+        rules = _robots_rules(robots)
+        parser = RobotFileParser()
+        parser.parse(robots.splitlines())
+        root = ElementTree.fromstring(self.client.get("/sitemap.xml").content)
+        locs = [loc.text for loc in root.findall("sm:url/sm:loc", SitemapTests.NS)]
+        self.assertGreaterEqual(len(locs), 5)
+        for loc in locs:
+            path = loc[len(SITE):]
+            with self.subTest(url=loc):
+                self.assertTrue(_google_allows(rules, path), "blocked by robots.txt (Google rules)")
+                self.assertTrue(parser.can_fetch("Googlebot", loc), "blocked by robots.txt (first-match parsers)")
+                response = self.client.get(path)  # anonymous
+                self.assertEqual(response.status_code, 200)
+                html = response.content.decode()
+                self.assertNotIn(NOINDEX, html)
+                self.assertNotRegex(html, r'<meta name="robots" content="[^"]*noindex')
+                self.assertEqual(_canonical(html), loc, "a sitemap URL must be its own canonical")
+
+
+@override_settings(SITE_URL=SITE)
 class PublicPageHeadTests(TestCase):
     PAGES = {  # url -> expected canonical
         "/": f"{SITE}/",
-        "/myapp/about/": f"{SITE}/",
+        "/myapp/about/": f"{SITE}/myapp/about/",
         "/myapp/rating/": f"{SITE}/myapp/rating/",
         "/register/": f"{SITE}/register/",
         "/login/": f"{SITE}/login/",

@@ -32,7 +32,7 @@ python manage.py check_stale_requests [--dry-run]       # mirror of the above fo
 python manage.py create_initial_production_accounts    # prod-only bootstrap: exactly 4 accounts (admin/curator/volunteer/client) from INITIAL_<ROLE>_* env vars; idempotent, never seeds business data — see README "Initial production accounts"
 curl -s localhost:8000/health/ ; curl -s localhost:8000/health/ready/   # liveness / readiness (server/health.py) — public, no secrets
 
-python manage.py test                                    # full suite (616 tests, ~160s)
+python manage.py test                                    # full suite (620 tests, ~160s)
 python manage.py test myapp.tests.MatchingAlgorithmTests  # one test class
 python manage.py test myapp.tests.MatchingAlgorithmTests.test_closer_volunteer_ranks_higher  # one test
 python manage.py test accounts                           # one app
@@ -453,13 +453,19 @@ deployment (production)** for the full command sequence and → **Initial produc
   title/description/canonical/OG/Twitter (+ NGO/WebSite JSON-LD on home/about); **everything
   else is `noindex, nofollow`** automatically. Public templates must **not** override
   `{% block title %}` (the registry supplies it); private pages keep their own title block.
-  `robots.txt` (`ROBOTS_DISALLOW` + `Allow` for public pages under `/myapp/`) and
-  `sitemap.xml` (only entries with a `sitemap` dict) are derived from the same registry.
+  `robots.txt` and `sitemap.xml` (only entries with a `sitemap` dict) are derived from the same
+  registry: an `Allow` line per sitemap URL first, then `ROBOTS_DISALLOW` (private non-CRM paths)
+  plus `private_myapp_prefixes()` — one `Disallow: /myapp/<segment>/` per **non-public** first
+  segment in `myapp/urls.py`, so a new CRM route is blocked automatically. `/myapp/` is **not**
+  blocked wholesale (about/rating live under it). `SitemapRobotsConsistencyTests` locks that every
+  sitemap URL is robots-allowed (Google longest-match *and* first-match parsers), returns 200
+  anonymously, has no noindex, and is its own canonical.
   Absolute URLs use `settings.SITE_URL` (`DJANGO_SITE_URL`, default `https://khayrkhoh.tj`),
   never the request Host. `CONTACT_PHONE` must match the footer phone in `base.html`.
 - **`/` is the landing page**: `home_view` renders the About content for anonymous visitors
   and redirects signed-in users to `profile` (it used to be the login form, a duplicate of
-  `/login/`). `/myapp/about/` still renders but its canonical is `/`, so it isn't in the sitemap.
+  `/login/`). `/myapp/about/` renders the same content but is **self-canonical and in the
+  sitemap (priority 0.9)** by product decision (2026-09-30) — Google chooses which to show.
 - **Server-side i18n pre-render.** `ServerSideI18nMiddleware` fills every plain-text
   `data-i18n` element (and `data-i18n-ph` placeholder, with `data-i18n-args` interpolation)
   with the `SERVER_RENDER_LANGUAGE` (`ru`) string parsed from `static/js/i18n.js` itself — no

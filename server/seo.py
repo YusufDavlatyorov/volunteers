@@ -33,7 +33,8 @@ LOGO = "images/brand/logo-512.png"  # 512x512
 HOME_TITLE = "KhayrKhoh — волонтёры помогают пожилым людям по всему Таджикистану"
 
 # (url namespace "", url_name) -> page metadata. `canonical` is the url_name
-# whose URL is canonical (the About page is the home page's content).
+# whose URL is canonical. Every page with a `sitemap` entry must be its own
+# canonical (a sitemap may only list canonical URLs) — test-locked.
 PUBLIC_PAGES = {
     "home": {
         "title": HOME_TITLE,
@@ -48,8 +49,10 @@ PUBLIC_PAGES = {
             "О платформе KhayrKhoh (Хайрхох): как волонтёры, кураторы и пожилые "
             "люди в Душанбе, Согде, Хатлоне, ГБАО и РРП находят друг друга."
         ),
-        "canonical": "home",
-        "sitemap": None,  # canonical is the home page
+        # Same content as the home page, but deliberately indexable on its own
+        # URL (product decision 2026-09-30) — Google picks which to show.
+        "canonical": "about",
+        "sitemap": {"priority": 0.9, "changefreq": "weekly"},
         "structured_data": True,
     },
     "rating": {
@@ -81,11 +84,12 @@ PUBLIC_PAGES = {
     },
 }
 
-# Crawlable prefixes are the public pages; everything else private is listed
-# here. Public pages under /myapp/ get an explicit Allow (longest match wins).
+# Private prefixes outside /myapp/. The /myapp/ CRM prefixes are derived from
+# myapp.urls (private_myapp_prefixes), so a new login-only page is disallowed
+# without touching this file; /myapp/ itself is NOT blocked wholesale, because
+# public pages (about, rating) live under it.
 ROBOTS_DISALLOW = [
     "/admin/",
-    "/myapp/",
     "/profile/",
     "/update-profile/",
     "/forgot-password/",
@@ -176,14 +180,32 @@ def seo_context(request):
     return {"seo": context}
 
 
+def sitemap_names():
+    return [name for name, page in PUBLIC_PAGES.items() if page["sitemap"]]
+
+
+def private_myapp_prefixes():
+    """`/myapp/<segment>/` for every myapp route whose first path segment
+    isn't a public page's — i.e. the whole login-only CRM."""
+    from myapp import urls as myapp_urls
+
+    mount = reverse("rating").rsplit("rating/", 1)[0]  # "/myapp/"
+    public = {
+        reverse(name)[len(mount):].split("/", 1)[0]
+        for name in PUBLIC_PAGES
+        if reverse(name).startswith(mount)
+    }
+    segments = {str(pattern.pattern).split("/", 1)[0] for pattern in myapp_urls.urlpatterns}
+    return [f"{mount}{segment}/" for segment in sorted(segments - public - {""})]
+
+
 @require_GET
 def robots_txt(request):
-    allow = sorted(
-        {reverse(name) for name in PUBLIC_PAGES if reverse(name).startswith("/myapp/")}
-    )
+    # Explicit Allow for every sitemap URL first, then the private prefixes.
+    allow = [reverse(name) for name in sitemap_names() if reverse(name) != "/"]
     lines = ["User-agent: *"]
     lines += [f"Allow: {path}" for path in allow]
-    lines += [f"Disallow: {path}" for path in ROBOTS_DISALLOW]
+    lines += [f"Disallow: {path}" for path in ROBOTS_DISALLOW + private_myapp_prefixes()]
     lines += ["", f"Sitemap: {absolute(reverse('sitemap'))}", ""]
     return HttpResponse("\n".join(lines), content_type="text/plain; charset=utf-8")
 
@@ -192,7 +214,7 @@ class PublicPagesSitemap(Sitemap):
     """Only PUBLIC_PAGES with a sitemap entry, as absolute SITE_URL URLs."""
 
     def items(self):
-        return [name for name, page in PUBLIC_PAGES.items() if page["sitemap"]]
+        return sitemap_names()
 
     def location(self, name):
         return reverse(name)
@@ -210,9 +232,9 @@ class PublicPagesSitemap(Sitemap):
         return PUBLIC_PAGES[name]["sitemap"]["changefreq"]
 
     def lastmod(self, name):
-        # The home page shows the latest photo reports; the other public pages
+        # Home/About show the latest photo reports; the other public pages
         # have no meaningful modification date.
-        if name == "home":
+        if name in ("home", "about"):
             from myapp.models import PhotoReport
 
             latest = PhotoReport.objects.order_by("-created_at").values_list("created_at", flat=True).first()
