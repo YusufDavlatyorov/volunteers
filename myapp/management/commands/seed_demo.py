@@ -111,7 +111,7 @@ class Command(BaseCommand):
         self.static_images_root = Path(settings.BASE_DIR) / "static" / "images"
         (self.media_root / "reports").mkdir(parents=True, exist_ok=True)
 
-        admin = self._upsert_user("admin_demo", "Админ Generation", "admin@gc.local", "dushanbe", is_superuser=True)
+        admin = self._upsert_user("admin_demo", "Админ KhayrKhoh", "admin@gc.local", "dushanbe", is_superuser=True)
         curators = [
             self._upsert_user(username, full_name, f"{username}@gc.local", region, is_curator=True)
             for username, full_name, region in CURATORS

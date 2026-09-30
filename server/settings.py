@@ -271,14 +271,17 @@ AUTH_USER_MODEL = 'accounts.Users'
 # them up used to send a Gemini key to Groq's endpoint, which Groq correctly
 # rejects with 401 invalid_api_key).
 GROQ_API_KEY = os.getenv('GROQ_API_KEY', '')
-# Defaults verified live against Groq's current model catalog (2026-09) —
-# the previous llama-3.1-8b-instant / llama-3.3-70b-versatile defaults are
-# retired on Groq (404 model_not_found for every account, not just missing
-# access) and were replaced after confirming both qwen models accept our
-# exact tools= schema and correctly choose to call a tool when appropriate.
-GROQ_MODEL = os.getenv('GROQ_MODEL', 'qwen/qwen3.6-27b')
+# Defaults verified live against this account's actual Groq model catalog
+# (GET /openai/v1/models) on 2026-09-30 — the previous llama-3.1-8b-instant /
+# llama-3.3-70b-versatile defaults, and later qwen/qwen3.6-27b, all 404
+# model_not_found (retired/never existed for this account, not just missing
+# access). gpt-oss-20b was confirmed live to accept our exact tools= schema
+# and correctly choose to call a tool when appropriate — see
+# GROQ_ASSISTANT_MODEL below for the primary model's own verification.
+GROQ_MODEL = os.getenv('GROQ_MODEL', 'openai/gpt-oss-20b')
 # The role-based assistant (myapp/services/ai) needs reliable function-calling.
-# Default to the larger of the two verified models; the client falls back to
+# Confirmed live on 2026-09-30: plain chat + tool-calling both succeed
+# (200, correct tool_calls in the response). The client falls back to
 # GROQ_MODEL on error.
 GROQ_ASSISTANT_MODEL = os.getenv('GROQ_ASSISTANT_MODEL', 'qwen/qwen3.8-27b')
 

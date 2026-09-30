@@ -96,7 +96,7 @@ fresh checkout boots; replace it with a real key.
 | `SMTP_USER`, `SMTP_PASSWORD` | SMTP credentials | emails print to console |
 | `EMAIL_TIMEOUT` | Seconds before a synchronous SMTP send is abandoned | `10` |
 | `GROQ_API_KEY` | Groq API key for the AI assistant (must start with `gsk_`) | AI returns a fallback tip |
-| `GROQ_MODEL` / `GROQ_ASSISTANT_MODEL` | Groq model IDs (fallback / primary tool-calling model) | `qwen/qwen3.6-27b` / `qwen/qwen3.8-27b` |
+| `GROQ_MODEL` / `GROQ_ASSISTANT_MODEL` | Groq model IDs (fallback / primary tool-calling model) — verify against `GET /openai/v1/models` before changing, don't guess | `openai/gpt-oss-20b` / `qwen/qwen3.8-27b` |
 | `TELEGRAM_BOT_TOKEN` | Telegram bot token | Telegram features disabled |
 | `OSRM_BASE_URL`, `NOMINATIM_USER_AGENT` | Routing / geocoding for the `osm` maps provider | public demo endpoints (rate-limited, not for production) |
 | `INITIAL_ADMIN_EMAIL` / `_PASSWORD` / `_USERNAME` (and `_CURATOR_`, `_VOLUNTEER_`, `_CLIENT_`) | The 4 initial production accounts, see "Initial production accounts" below | none — required only when running `create_initial_production_accounts` |

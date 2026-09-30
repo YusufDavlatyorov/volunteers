@@ -562,6 +562,77 @@ class GroqClientTests(TestCase):
         self.assertTrue(r.ok)
         self.assertEqual(calls, ["model-a", "model-b"])
 
+    def test_successful_call_returns_provider_text(self):
+        """Happy path: a single 200 response is parsed into ok=True + the
+        model's text, unmodified. (Real-provider success is additionally
+        verified live — see chat log / final report; this locks the parsing
+        contract so a schema change doesn't silently break it.)"""
+        resp = mock.Mock()
+        resp.raise_for_status.return_value = None
+        resp.json.return_value = {"choices": [{"message": {"content": "AI_OK"}}]}
+        with mock.patch("myapp.services.ai.client.requests.post", return_value=resp) as post:
+            r = ai_client.chat([{"role": "user", "content": "hi"}])
+        self.assertTrue(r.ok)
+        self.assertEqual(r.text, "AI_OK")
+        # Only one model needed to be tried — GROQ_ASSISTANT_MODEL ("model-a").
+        self.assertEqual(post.call_count, 1)
+        self.assertEqual(post.call_args.kwargs["json"]["model"], "model-a")
+
+    def test_gemini_key_is_never_used_as_groq_fallback(self):
+        """GROQ_API_KEY is the only credential the client reads. A GEMINI_API_KEY
+        sitting in the environment (e.g. left over from an old .env) must never
+        be silently picked up as a Groq bearer token — regression test for the
+        exact bug documented in PROJECT_OVERVIEW.md's historical audit."""
+        with override_settings(GROQ_API_KEY=""), mock.patch.dict(
+            "os.environ", {"GROQ_API_KEY": "", "GEMINI_API_KEY": "AQ.fake-gemini-key-not-a-groq-key"}
+        ):
+            r = ai_client.chat([{"role": "user", "content": "hi"}])
+        self.assertFalse(r.ok)
+        self.assertEqual(r.error, "no_api_key")
+
+    def test_authorization_header_uses_groq_key_not_gemini(self):
+        """When both a real-shaped GROQ_API_KEY and an unrelated GEMINI_API_KEY
+        are present, the Authorization header sent to Groq must be built from
+        GROQ_API_KEY only."""
+        captured = {}
+
+        def post(url, **kw):
+            captured["auth"] = kw["headers"]["Authorization"]
+            resp = mock.Mock()
+            resp.raise_for_status.return_value = None
+            resp.json.return_value = {"choices": [{"message": {"content": "ok"}}]}
+            return resp
+
+        with override_settings(GROQ_API_KEY="gsk_the_real_groq_key"), mock.patch.dict(
+            "os.environ", {"GEMINI_API_KEY": "AQ.a_totally_different_gemini_key"}
+        ), mock.patch("myapp.services.ai.client.requests.post", side_effect=post):
+            ai_client.chat([{"role": "user", "content": "hi"}])
+
+        self.assertEqual(captured["auth"], "Bearer gsk_the_real_groq_key")
+        self.assertNotIn("AQ.a_totally_different_gemini_key", captured["auth"])
+
+    def test_provider_failure_never_leaks_key_and_never_500s(self):
+        """A total provider outage must degrade to the localized fallback via
+        the real view (HTTP 200), and the response body must never contain the
+        configured GROQ_API_KEY, an Authorization header, or a traceback."""
+        user = mk("ai_leak_check", is_client=True)
+        self.client.login(username="ai_leak_check", password="pass12345")
+        with override_settings(GROQ_API_KEY="gsk_super_secret_should_never_leak"), mock.patch(
+            "myapp.services.ai.client.requests.post",
+            side_effect=ai_client.requests.exceptions.ConnectionError("simulated outage"),
+        ):
+            response = self.client.post(
+                reverse("ai_chat"),
+                data=json.dumps({"message": "What can you help me with?"}),
+                content_type="application/json",
+            )
+        self.assertEqual(response.status_code, 200)
+        body = response.content.decode()
+        self.assertNotIn("gsk_super_secret_should_never_leak", body)
+        self.assertNotIn("Authorization", body)
+        self.assertNotIn("Traceback", body)
+        self.assertIn("reply", response.json())
+
 
 class MultilingualTests(TestCase):
     def test_detect_lang(self):

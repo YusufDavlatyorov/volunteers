@@ -79,8 +79,8 @@ _REFUSALS = {
             "куратор пайваст кунам ё дар тартиб додани дархости кӯмак ёрӣ диҳам."
         ),
         "en": (
-            "I can't choose medicines or dosages or give medical advice. In Generation "
-            "Connect I can help with the organisational side: find the relevant request, "
+            "I can't choose medicines or dosages or give medical advice. In KhayrKhoh "
+            "I can help with the organisational side: find the relevant request, "
             "reach a curator, or help submit a request for help."
         ),
     },
@@ -161,8 +161,8 @@ _ROLE_BLURB = {
         "promise that help is guaranteed."
     ),
     "guest": (
-        "This user is not signed in. Only general public information about Generation "
-        "Connect is available. Encourage them to sign in or register for anything "
+        "This user is not signed in. Only general public information about KhayrKhoh "
+        "is available. Encourage them to sign in or register for anything "
         "account-specific."
     ),
 }

@@ -380,10 +380,13 @@ the per-user rate limit, builds the trusted context and calls the service. Disti
   `lang` hint); localized RU/TJ/EN fallback + refusal strings.
 - **`client.py`** — Groq HTTP client, never raises. `GROQ_ASSISTANT_MODEL`
   (default `qwen/qwen3.8-27b`, tool-capable) with a one-shot retry on `GROQ_MODEL`
-  (default `qwen/qwen3.6-27b`). Groq periodically retires model IDs (the original
-  llama-3.x defaults started 404ing with `model_not_found` on 2026-09-11) — if the
-  assistant degrades to the fallback message, check `console.groq.com`'s current
-  catalog before assuming the code is broken. Tests patch
+  (default `openai/gpt-oss-20b`, also tool-capable — fixed 2026-09-30, the
+  prior `qwen/qwen3.6-27b` default 404'd `model_not_found` for this account).
+  Groq periodically retires model IDs, and availability varies by account (the
+  original llama-3.x defaults started 404ing on 2026-09-11) — if the assistant
+  degrades to the fallback message, hit `GET /openai/v1/models` with the
+  configured key to see this account's actual current catalog before assuming
+  the code is broken; don't guess a replacement model ID. Tests patch
   `myapp.services.ai.client.requests.post`.
 - **`tools.py` / `read_tools.py` / `actions.py`** — the tool registry. Every tool is gated by
   the caller's role (`ToolSpec.roles`) **and** re-checks per-object visibility (`access.py`
