@@ -56,7 +56,7 @@ def register_view(request):
         token = user.generate_email_verification_token()
         verify_url = request.build_absolute_uri(f"/confirm-email/{token}/")
         send_mail(
-            "Подтвердите email - Generation Connect",
+            "Подтвердите email - KhayrKhoh",
             f"Здравствуйте, {user.username}!\nПодтвердите email по ссылке:\n{verify_url}",
             settings.DEFAULT_FROM_EMAIL,
             [user.email],
@@ -166,7 +166,7 @@ def forgot_password_view(request):
             token = user.generate_reset_password_token()
             reset_url = request.build_absolute_uri(f"/reset-password/{token}/")
             send_mail(
-                "Сброс пароля - Generation Connect",
+                "Сброс пароля - KhayrKhoh",
                 f"Здравствуйте, {user.username}!\nСсылка для сброса пароля:\n{reset_url}",
                 settings.DEFAULT_FROM_EMAIL,
                 [user.email],

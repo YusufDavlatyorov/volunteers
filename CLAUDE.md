@@ -4,11 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-**Generation Connect** — a Django (5.2, function-based views, MVT) platform connecting elderly
-clients with volunteers across 5 regions of Tajikistan (Dushanbe, Sogd, Khatlon, GBAO, RRP),
-coordinated by curators/admins. Custom user model with 4 roles (admin/curator/volunteer/client),
-Groq-backed AI assistant, Telegram notifications, and a geo-aware CRM (map, volunteer matching,
-routing) added in a later phase.
+**KhayrKhoh** (production: `khayrkhokh.tj` / `www.khayrkhokh.tj`; formerly branded "Generation
+Connect" — that name is gone from user-facing text and docs but the Python package/app names
+(`myapp`, `accounts`), DB filenames and internal identifiers were deliberately left unchanged, see
+"Production (khayrkhokh.tj)" below) — a Django (5.2, function-based views, MVT) platform
+connecting elderly clients with volunteers across 5 regions of Tajikistan (Dushanbe, Sogd,
+Khatlon, GBAO, RRP), coordinated by curators/admins. Custom user model with 4 roles
+(admin/curator/volunteer/client), Groq-backed AI assistant, Telegram notifications, and a
+geo-aware CRM (map, volunteer matching, routing) added in a later phase.
 
 `README.md` has setup/env-var details. `PROJECT_OVERVIEW.md` is a deep, auto-generated snapshot
 of the codebase — useful for context but **dated 2026-06-13 and stale**: it predates the CRM
@@ -26,9 +29,10 @@ python manage.py run_telegram_bot    # long-polling Telegram bot (separate proce
 python manage.py geocode_missing [--limit N --dry-run --profiles]   # backfill lat/lng for HelpRequests (and --profiles) via Nominatim; sleeps 1.1s/row for the usage policy
 python manage.py check_overdue_tasks [--dry-run]        # alert curators/admins about tasks overdue past 3h; idempotent, runs on cron (see README "Background jobs")
 python manage.py check_stale_requests [--dry-run]       # mirror of the above for the *pending* side: alert about requests waiting >48h without a volunteer; idempotent, hourly cron
+python manage.py create_initial_production_accounts    # prod-only bootstrap: exactly 4 accounts (admin/curator/volunteer/client) from INITIAL_<ROLE>_* env vars; idempotent, never seeds business data — see README "Initial production accounts"
 curl -s localhost:8000/health/ ; curl -s localhost:8000/health/ready/   # liveness / readiness (server/health.py) — public, no secrets
 
-python manage.py test                                    # full suite (528 tests, ~150s)
+python manage.py test                                    # full suite (579 tests, ~160s)
 python manage.py test myapp.tests.MatchingAlgorithmTests  # one test class
 python manage.py test myapp.tests.MatchingAlgorithmTests.test_closer_volunteer_ranks_higher  # one test
 python manage.py test accounts                           # one app
@@ -376,10 +380,13 @@ the per-user rate limit, builds the trusted context and calls the service. Disti
   `lang` hint); localized RU/TJ/EN fallback + refusal strings.
 - **`client.py`** — Groq HTTP client, never raises. `GROQ_ASSISTANT_MODEL`
   (default `qwen/qwen3.8-27b`, tool-capable) with a one-shot retry on `GROQ_MODEL`
-  (default `qwen/qwen3.6-27b`). Groq periodically retires model IDs (the original
-  llama-3.x defaults started 404ing with `model_not_found` on 2026-09-11) — if the
-  assistant degrades to the fallback message, check `console.groq.com`'s current
-  catalog before assuming the code is broken. Tests patch
+  (default `openai/gpt-oss-20b`, also tool-capable — fixed 2026-09-30, the
+  prior `qwen/qwen3.6-27b` default 404'd `model_not_found` for this account).
+  Groq periodically retires model IDs, and availability varies by account (the
+  original llama-3.x defaults started 404ing on 2026-09-11) — if the assistant
+  degrades to the fallback message, hit `GET /openai/v1/models` with the
+  configured key to see this account's actual current catalog before assuming
+  the code is broken; don't guess a replacement model ID. Tests patch
   `myapp.services.ai.client.requests.post`.
 - **`tools.py` / `read_tools.py` / `actions.py`** — the tool registry. Every tool is gated by
   the caller's role (`ToolSpec.roles`) **and** re-checks per-object visibility (`access.py`
@@ -419,6 +426,24 @@ top of `myapp/views.py`: `ARCHIVE_PAGE_SIZE`, `PEOPLE_PAGE_SIZE`, `APPLICATIONS_
 `PHOTO_REPORTS_PAGE_SIZE`; `event_list`/`broadcast_list` use a plain recent-N slice). The
 volunteer/curator dashboards, CRM lists, map JSON and matching candidate set were already bounded
 in Stages 5–7.
+
+### Production (khayrkhokh.tj)
+
+Production prep (2026-09) added: `STATIC_ROOT` (`server/settings.py`, required for
+`collectstatic` — was previously missing, dev never needed it since `runserver` serves straight
+from `STATICFILES_DIRS`); a `Dockerfile` + `docker-compose.yml` (app container only — PostgreSQL
+is an external pre-existing `shared_postgres` container reached over the network named by
+`SHARED_POSTGRES_NETWORK`, **do not add a second Postgres container/service**); and
+`create_initial_production_accounts` (see **Commands**) as the only sanctioned way to get accounts
+onto a production DB — `seed_demo` must never run there. This project has **no single
+`DATABASE_URL` variable** — PostgreSQL connection info stays as the pre-existing discrete
+`DJANGO_DB_NAME` / `_USER` / `_PASSWORD` / `_HOST` / `_PORT` vars; don't introduce one without a
+concrete reason, it would duplicate the existing mechanism. The About Us hero video lives at
+`static/videos/hero-loop.mp4` (git-tracked, served via `{% static %}` in `about.html`) — it used
+to be read from `media/videos/` via `default_storage.url()`, which is gitignored and would have
+been silently missing on a fresh production clone; don't move it back. See README → **Docker
+deployment (production)** for the full command sequence and → **Initial production accounts** /
+**Demo data — NEVER in production** for the account-bootstrap rules.
 
 ### Templates/static
 
