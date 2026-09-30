@@ -21,9 +21,9 @@ db.sqlite3-journal
 *.sqlite3
 *.sqlite3-journal
 
-# User-uploaded media (keep the folder, ignore contents)
-/media/*
-!/media/.gitkeep
+# User-uploaded media — never tracked; the Docker volume / deploy step
+# creates this directory at runtime (see DEPLOY.md).
+media/
 
 # Collected static files
 /staticfiles/

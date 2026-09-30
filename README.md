@@ -41,6 +41,7 @@ templates/   HTML templates (base + accounts/ + myapp/)
 static/      CSS, JS, images, the About Us background video
 media/       User-uploaded avatars and photo reports (not committed)
 Dockerfile, docker-compose.yml, .dockerignore   Production container build (see "Docker deployment")
+DEPLOY.md    Exact command sequence for a fresh Ubuntu server (Docker, Postgres, Caddy, cron)
 ```
 
 ## Getting started
@@ -258,6 +259,11 @@ the optional `_USERNAME` (defaults to `admin`/`curator`/`volunteer`/`client`) an
 ## Deployment
 
 ### Docker deployment (production)
+
+**See `DEPLOY.md` for the exact, copy-pasteable command sequence for a fresh Ubuntu server**
+(installing Docker, standing up the shared PostgreSQL container, Caddy with automatic HTTPS, the
+Telegram bot as a systemd service, and the cron sweeps). The summary below is the same flow in
+prose.
 
 The repo ships a `Dockerfile` + `docker-compose.yml` for the Django app container. **PostgreSQL
 is not part of this compose file** — production connects to a pre-existing shared `shared_postgres`
