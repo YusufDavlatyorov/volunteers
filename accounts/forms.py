@@ -84,12 +84,14 @@ class RegistrationForm(forms.ModelForm):
 class LoginForm(forms.Form):
     username = forms.CharField(widget=forms.TextInput(attrs={
         "placeholder": "Username",
+        "data-i18n-ph": "field.username",
         "autocomplete": "username",
         "autofocus": True,
         "aria-describedby": "id_username_error",
     }))
     password = forms.CharField(widget=forms.PasswordInput(attrs={
         "placeholder": "Password",
+        "data-i18n-ph": "field.password",
         "autocomplete": "current-password",
         "aria-describedby": "id_password_error",
     }))

@@ -158,25 +158,88 @@ local-dev-only tool.
 
 ## 10. nginx reverse proxy + HTTPS (certbot)
 
-Write `/etc/nginx/sites-available/khayrkhoh`:
+Write `/etc/nginx/sites-available/khayrkhoh` — first as plain HTTP so
+certbot can issue the certificate:
 
 ```nginx
 server {
     listen 80;
     listen [::]:80;
     server_name khayrkhoh.tj www.khayrkhoh.tj;
+    location / { proxy_pass http://127.0.0.1:8000; proxy_set_header Host $host; }
+}
+```
+
+```bash
+sudo ln -sf /etc/nginx/sites-available/khayrkhoh /etc/nginx/sites-enabled/khayrkhoh
+sudo rm /etc/nginx/sites-enabled/default
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+Once DNS for `khayrkhoh.tj` **and** `www.khayrkhoh.tj` resolves to this
+server (`dig +short A khayrkhoh.tj @8.8.8.8`), issue the certificate:
+
+```bash
+sudo certbot --nginx -d khayrkhoh.tj -d www.khayrkhoh.tj --redirect
+sudo certbot renew --dry-run   # renewal runs from certbot's systemd timer
+```
+
+Then replace the file with the final config. It keeps certbot's certificate
+paths and makes **`https://khayrkhoh.tj` the one canonical host**: plain HTTP
+and `www` both 301 there with the path kept (SEO — see CLAUDE.md → "SEO").
+
+```nginx
+# HTTP (both names) -> https://khayrkhoh.tj, path kept
+server {
+    listen 80;
+    listen [::]:80;
+    server_name khayrkhoh.tj www.khayrkhoh.tj;
+    return 301 https://khayrkhoh.tj$request_uri;
+}
+
+# https://www -> https://khayrkhoh.tj, path kept
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name www.khayrkhoh.tj;
+    ssl_certificate /etc/letsencrypt/live/khayrkhoh.tj/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/khayrkhoh.tj/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+    return 301 https://khayrkhoh.tj$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2 ipv6only=on;
+    server_name khayrkhoh.tj;
+    ssl_certificate /etc/letsencrypt/live/khayrkhoh.tj/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/khayrkhoh.tj/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
     client_max_body_size 6M;   # uploads are capped at 5 MB by the app
 
+    # text/html is always compressed once gzip is on; add the static types.
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 5;
+    gzip_min_length 256;
+    gzip_types text/plain text/css text/xml application/javascript application/json
+               application/xml image/svg+xml;
+
     location /static/ {
         alias /opt/khayrkhoh/staticfiles/;
-        expires 7d;
+        expires 7d;   # filenames aren't content-hashed — keep this modest
+        add_header Cache-Control "public";
         access_log off;
     }
 
     location /media/ {
         alias /opt/khayrkhoh/media/;
         expires 7d;
+        add_header Cache-Control "public";
     }
 
     location / {
@@ -191,22 +254,11 @@ server {
 ```
 
 ```bash
-sudo ln -sf /etc/nginx/sites-available/khayrkhoh /etc/nginx/sites-enabled/khayrkhoh
-sudo rm /etc/nginx/sites-enabled/default
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
 `X-Forwarded-Proto` is what `DJANGO_BEHIND_TLS_PROXY=True` trusts — without
 it Django sees every request as plain HTTP and redirect-loops.
-
-Once DNS for `khayrkhoh.tj` **and** `www.khayrkhoh.tj` resolves to this
-server (`dig +short A khayrkhoh.tj @8.8.8.8`), issue the certificate — certbot
-adds the TLS server block and an HTTP→HTTPS redirect to the file above:
-
-```bash
-sudo certbot --nginx -d khayrkhoh.tj -d www.khayrkhoh.tj --redirect
-sudo certbot renew --dry-run   # renewal runs from certbot's systemd timer
-```
 
 ## 11. Firewall + SSH hardening
 

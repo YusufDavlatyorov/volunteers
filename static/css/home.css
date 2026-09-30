@@ -56,6 +56,15 @@
 .hero-content { max-width: 640px; }
 .hero .eyebrow { color: #c3d3ff; }
 .hero h1 { color: white; }
+/* The brand name opens the page's single <h1> (SEO: the name people search
+   for), set as a smaller line above the slogan. */
+.hero h1 .hero-brand {
+    display: block;
+    margin-bottom: 0.35rem;
+    font-size: 0.42em;
+    letter-spacing: 0.01em;
+    color: #c3d3ff;
+}
 /* On the dark hero the accent word stays white; only the teal underline reads. */
 .hero h1 .h-accent { color: #fff; text-decoration-color: #6ee0d0; }
 .hero p { color: var(--hero-ink-muted); font-size: 1.08rem; max-width: 34rem; }

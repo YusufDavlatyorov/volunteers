@@ -1,6 +1,5 @@
 {% extends "base.html" %}
 {% load static %}
-{% block title %}KhayrKhoh{% endblock %}
 {% block extra_css %}<link rel="stylesheet" href="{% static 'css/home.css' %}">{% endblock %}
 {% block content %}
 <section class="hero">
@@ -8,7 +7,7 @@
     <div class="hero-grid">
         <div class="hero-content reveal">
             <span class="eyebrow" data-i18n="hero.eyebrow">Volunteer platform for Tajikistan</span>
-            <h1><span data-i18n="hero.title_1">Connect. </span><span class="h-accent" data-i18n="hero.title_accent">Help.</span><span data-i18n="hero.title_2"> Change lives.</span></h1>
+            <h1><span class="hero-brand">KhayrKhoh<span class="visually-hidden"> — </span></span><span data-i18n="hero.title_1">Connect. </span><span class="h-accent" data-i18n="hero.title_accent">Help.</span><span data-i18n="hero.title_2"> Change lives.</span></h1>
             <p data-i18n="hero.desc">KhayrKhoh matches volunteers with elderly people who need a hand — a request, an acceptance, a notification, a finished task. Clear roles, real accountability, five regions.</p>
             <div class="hero-actions">
                 <a class="button primary" href="{% url 'register' %}" data-i18n="hero.join">Become a Volunteer</a>
@@ -30,7 +29,7 @@
 <section class="section">
     <div class="two-col">
         <div class="volunteers-photo-wrap reveal">
-            <img class="volunteers-photo" src="https://scontent-fra5-1.xx.fbcdn.net/v/t39.30808-6/485751145_683869704216095_5696029354457947108_n.jpg?stp=dst-jpg_tt6&cstp=mx2048x1536&ctp=s2048x1536&_nc_cat=110&ccb=1-7&_nc_sid=833d8c&_nc_ohc=eKvh9Aym-mgQ7kNvwFUo1Za&_nc_oc=AdrWxZdJ2QdtED_b4kb3XBZDQDTG-2U5Y7517YF__SPtg7HcUzTf8DBCi-PpBu3D5T0&_nc_zt=23&_nc_ht=scontent-fra5-1.xx&_nc_gid=W2a75FW0Xe1_qaQ5z8I0SA&_nc_ss=7b289&oh=00_AQNOK2dGGkQXRU6MzSKB8FUw-msHsZq5PRz1Vo-NjnDH9g&oe=6AC27AD9" alt="A young volunteer hands a food-aid box to an elderly man in Tajikistan">
+            <img class="volunteers-photo" src="https://scontent-fra5-1.xx.fbcdn.net/v/t39.30808-6/485751145_683869704216095_5696029354457947108_n.jpg?stp=dst-jpg_tt6&cstp=mx2048x1536&ctp=s2048x1536&_nc_cat=110&ccb=1-7&_nc_sid=833d8c&_nc_ohc=eKvh9Aym-mgQ7kNvwFUo1Za&_nc_oc=AdrWxZdJ2QdtED_b4kb3XBZDQDTG-2U5Y7517YF__SPtg7HcUzTf8DBCi-PpBu3D5T0&_nc_zt=23&_nc_ht=scontent-fra5-1.xx&_nc_gid=W2a75FW0Xe1_qaQ5z8I0SA&_nc_ss=7b289&oh=00_AQNOK2dGGkQXRU6MzSKB8FUw-msHsZq5PRz1Vo-NjnDH9g&oe=6AC27AD9" alt="Молодой волонтёр передаёт пожилому мужчине коробку с продуктовой помощью" width="2048" height="1536" loading="lazy" decoding="async">
         </div>
         <div class="reveal">
             <span class="eyebrow" data-i18n="section.volunteers_eyebrow">Meet Our Volunteers</span>
@@ -72,7 +71,7 @@
             </div>
         </div>
         <div class="regions-panel reveal">
-            <img class="regions-photo" src="{% static 'images/tajikistan/mountains.jpg' %}" alt="Wakhan valley, Tajikistan">
+            <img class="regions-photo" src="{% static 'images/tajikistan/mountains.jpg' %}" alt="Ваханская долина, Памир, Таджикистан" width="1800" height="1200" loading="lazy" decoding="async">
             {% include "_peaks_mark.html" %}
             <h3 data-i18n="section.regions">Five regions, one platform</h3>
             <div class="region-grid">
@@ -95,7 +94,7 @@
     {% if reports %}
     <div class="grid">
         {% for report in reports %}
-            <div class="card reveal"><img class="report-img" src="{{ report.image.url }}" alt="{{ report.title }}"><h3>{{ report.title }}</h3><p class="clamp-text">{{ report.description }}</p></div>
+            <div class="card reveal"><img class="report-img" src="{{ report.image.url }}" alt="Фотоотчёт: {{ report.title }}" width="800" height="600" loading="lazy" decoding="async"><h3>{{ report.title }}</h3><p class="clamp-text">{{ report.description }}</p></div>
         {% endfor %}
     </div>
     {% else %}

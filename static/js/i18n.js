@@ -998,6 +998,8 @@ function setLanguage(lang) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  const lang = localStorage.getItem('gc-lang') || 'en';
+  // Russian by default: the server pre-renders Russian text (<html lang="ru">,
+  // server/i18n_prerender.py), so a first visit shows no language flash.
+  const lang = localStorage.getItem('gc-lang') || 'ru';
   setLanguage(lang);
 });

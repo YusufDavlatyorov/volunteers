@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% block title %}Rating - KhayrKhoh{% endblock %}
 {% block content %}
 <section class="section">
     {% include "partials/_page_header.html" with title="Rating" title_i18n="rating.title" lede="Rating grows when a volunteer completes a request. Urgent help gives more points." lede_i18n="rating.desc" %}
@@ -10,7 +9,7 @@
                     <div class="row-rank">
                         <span class="rank-num">{{ forloop.counter }}</span>
                         {% if profile.image %}
-                            <img class="avatar avatar-sm" src="{{ profile.image.url }}" alt="">
+                            <img class="avatar avatar-sm" src="{{ profile.image.url }}" alt="Фото волонтёра {{ profile.full_name|default:profile.user.username }}" width="44" height="44" loading="lazy" decoding="async">
                         {% else %}
                             <div class="avatar avatar-fallback avatar-sm">{{ profile.full_name|default:profile.user.username|first|upper }}</div>
                         {% endif %}

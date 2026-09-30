@@ -91,6 +91,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.sitemaps',
     
     # Third party
     'django_filters',
@@ -107,6 +108,9 @@ CRISPY_TEMPLATE_PACK = "bootstrap5"
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # Fills data-i18n elements with the Russian i18n.js strings server-side, so
+    # crawlers (and no-JS visitors) get real Russian text — see server/i18n_prerender.py.
+    'server.i18n_prerender.ServerSideI18nMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -128,6 +132,7 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'myapp.context_processors.maps_config',
+                'server.seo.seo_context',
             ],
         },
     },
@@ -207,6 +212,14 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
+
+# Public origin used for canonical URLs, the sitemap, Open Graph and JSON-LD
+# (absolute URLs must not depend on the request's Host header).
+SITE_URL = os.getenv('DJANGO_SITE_URL', 'https://khayrkhoh.tj').rstrip('/')
+
+# Language the server pre-renders data-i18n text in (static/js/i18n.js keys);
+# i18n.js still switches EN/RU/TJ client-side after load.
+SERVER_RENDER_LANGUAGE = 'ru'
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/

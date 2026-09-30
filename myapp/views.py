@@ -78,6 +78,15 @@ def role_required(*roles):
     return decorator
 
 
+def home_view(request):
+    # The landing page: logged-out visitors (and search engines) get the
+    # About content at "/"; signed-in users go straight to their dashboard,
+    # as "/" (then the login form) always did.
+    if request.user.is_authenticated:
+        return redirect("profile")
+    return about_view(request)
+
+
 def about_view(request):
     stats = {
         "volunteers": Users.objects.filter(is_volunteer=True, is_active=True).count(),
