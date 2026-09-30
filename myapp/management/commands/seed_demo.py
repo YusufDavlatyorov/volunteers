@@ -163,7 +163,7 @@ class Command(BaseCommand):
         profile, _ = Profile.objects.get_or_create(user=user)
         profile.full_name = full_name
         profile.age = age or 30
-        profile.bio = bio or "Участник Generation Connect. Готов помогать по своему региону и быстро отвечать на запросы."
+        profile.bio = bio or "Участник KhayrKhoh. Готов помогать по своему региону и быстро отвечать на запросы."
         profile.rating = self._rating_for(username, is_volunteer)
         profile.image = ""
         # Give volunteers and clients a location near their region centre so the

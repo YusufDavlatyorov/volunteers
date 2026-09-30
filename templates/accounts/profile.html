@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% load static %}
-{% block title %}Dashboard - Generation Connect{% endblock %}
+{% block title %}Dashboard - KhayrKhoh{% endblock %}
 {% block extra_css %}<link rel="stylesheet" href="{% static 'css/dashboard.css' %}">{% endblock %}
 {% block content %}
 <section class="section">
@@ -19,7 +19,7 @@
         {% elif dash_role == "curator" or dash_role == "admin" %}
             <p data-i18n="dash.admin_sub">Here's what's happening across the platform.</p>
         {% else %}
-            <p data-i18n="dash.guest_sub">Welcome back to Generation Connect.</p>
+            <p data-i18n="dash.guest_sub">Welcome back to KhayrKhoh.</p>
         {% endif %}
     </div>
 

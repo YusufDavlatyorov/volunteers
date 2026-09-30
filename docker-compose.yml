@@ -1,0 +1,41 @@
+# KhayrKhoh (khayrkhokh.tj) — production compose file.
+#
+# Runs ONLY the Django app container. PostgreSQL is NOT started here — this
+# project connects to the pre-existing shared_postgres container over the
+# shared external Docker network named by SHARED_POSTGRES_NETWORK in .env
+# (see .env.example). Do not add a postgres service here.
+#
+# Static/media are bind-mounted to host directories so an external reverse
+# proxy (nginx, on the host or in its own container attached to the same
+# volumes) can serve them directly — see README → "Docker deployment".
+#
+# Migrations, collectstatic and the initial-accounts command are run as
+# separate one-off commands against this same image, not automatically on
+# start — see README for the exact sequence.
+
+services:
+  web:
+    build: .
+    image: khayrkhokh:latest
+    container_name: khayrkhokh_web
+    restart: unless-stopped
+    mem_limit: 700m
+    cpus: 1.0
+    env_file:
+      - .env
+    volumes:
+      - ./staticfiles:/app/staticfiles
+      - ./media:/app/media
+    ports:
+      # Loopback-only — an external nginx (host-level, per README) reverse
+      # proxies to this port and terminates TLS for khayrkhokh.tj /
+      # www.khayrkhokh.tj. Remove this mapping instead if nginx runs as a
+      # container on the same shared network and reaches `web:8000` directly.
+      - "127.0.0.1:8001:8000"
+    networks:
+      - shared_postgres_net
+
+networks:
+  shared_postgres_net:
+    external: true
+    name: ${SHARED_POSTGRES_NETWORK:-shared_postgres_net}
