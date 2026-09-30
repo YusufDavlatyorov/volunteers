@@ -308,3 +308,31 @@ class ServerSideI18nTests(TestCase):
     def test_unknown_language_is_a_no_op(self):
         source = '<p data-i18n="hero.request">Request Help</p>'
         self.assertEqual(render_html(source, "xx"), source)
+
+
+class AssetCacheBustingTests(TestCase):
+    """CSS/JS URLs carry a content hash so a changed file isn't served from a
+    visitor's 7-day browser cache (nginx `expires 7d`, unhashed filenames)."""
+
+    def test_asset_url_carries_content_hash(self):
+        import hashlib
+
+        from django.contrib.staticfiles import finders
+
+        from myapp.templatetags.assets import asset
+
+        url = asset("css/home.css")
+        digest = hashlib.sha256(open(finders.find("css/home.css"), "rb").read()).hexdigest()[:10]
+        self.assertEqual(url, f"/static/css/home.css?v={digest}")
+
+    def test_missing_file_falls_back_to_plain_static_url(self):
+        from myapp.templatetags.assets import asset
+
+        self.assertEqual(asset("css/does-not-exist.css"), "/static/css/does-not-exist.css")
+
+    def test_pages_reference_versioned_css_and_js(self):
+        html = self.client.get("/").content.decode()
+        for path in ("css/style.css", "css/home.css", "js/i18n.js"):
+            with self.subTest(path=path):
+                self.assertRegex(html, rf'/static/{re.escape(path)}\?v=[0-9a-f]{{10}}"')
+        self.assertNotRegex(html, r'/static/(css|js)/[^"?]+\.(css|js)"')

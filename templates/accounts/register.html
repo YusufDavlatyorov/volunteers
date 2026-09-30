@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% load static form_i18n %}
-{% block extra_css %}<link rel="stylesheet" href="{% static 'css/auth.css' %}">{% endblock %}
+{% load static form_i18n assets %}
+{% block extra_css %}<link rel="stylesheet" href="{% asset 'css/auth.css' %}">{% endblock %}
 {% block content %}
 <section class="auth-shell">
     <div class="auth-card auth-card--wide reveal">

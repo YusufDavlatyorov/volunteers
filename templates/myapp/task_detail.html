@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% load static %}
+{% load static assets %}
 {% block title %}{{ task.get_help_type_display }} - KhayrKhoh{% endblock %}
 {% block extra_css %}
-<link rel="stylesheet" href="{% static 'css/task-detail.css' %}">
+<link rel="stylesheet" href="{% asset 'css/task-detail.css' %}">
 {% if show_route or show_location_map %}
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
-<link rel="stylesheet" href="{% static 'css/map.css' %}">
+<link rel="stylesheet" href="{% asset 'css/map.css' %}">
 {% endif %}
 {% endblock %}
 {% block content %}
@@ -329,7 +329,7 @@
 {% endif %}
 {% if show_location_map %}
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-<script src="{% static 'js/map.js' %}"></script>
+<script src="{% asset 'js/map.js' %}"></script>
 <script>
 (function () {
     const card = document.getElementById('locationMapCard');
@@ -346,7 +346,7 @@
 {% endif %}
 {% if show_route %}
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-<script src="{% static 'js/map.js' %}"></script>
+<script src="{% asset 'js/map.js' %}"></script>
 <script>
 (function () {
     const card = document.getElementById('routeCard');

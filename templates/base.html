@@ -1,4 +1,4 @@
-{% load static %}
+{% load static assets %}
 <!doctype html>
 <html lang="ru" data-theme="light">
 <head>
@@ -51,7 +51,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;0,700;0,800;1,600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{% static 'css/style.css' %}">
+    <link rel="stylesheet" href="{% asset 'css/style.css' %}">
     {% block extra_css %}{% endblock %}
 </head>
 <body>
@@ -182,7 +182,7 @@
     </div>
 </footer>
 
-<script src="{% static 'js/i18n.js' %}"></script>
+<script src="{% asset 'js/i18n.js' %}"></script>
 <script>
 /* ===== THEME TOGGLE ===== */
 (function() {

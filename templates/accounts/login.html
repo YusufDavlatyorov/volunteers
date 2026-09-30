@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% load static %}
-{% block extra_css %}<link rel="stylesheet" href="{% static 'css/auth.css' %}">{% endblock %}
+{% load static assets %}
+{% block extra_css %}<link rel="stylesheet" href="{% asset 'css/auth.css' %}">{% endblock %}
 {% block content %}
 <section class="auth-shell">
     <div class="auth-card reveal">

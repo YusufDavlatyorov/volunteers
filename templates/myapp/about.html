@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% load static %}
-{% block extra_css %}<link rel="stylesheet" href="{% static 'css/home.css' %}">{% endblock %}
+{% load static assets %}
+{% block extra_css %}<link rel="stylesheet" href="{% asset 'css/home.css' %}">{% endblock %}
 {% block content %}
 <section class="hero">
     <video class="hero-photo" src="{% static 'videos/hero-loop.mp4' %}" autoplay muted loop playsinline preload="auto" aria-hidden="true"></video>
