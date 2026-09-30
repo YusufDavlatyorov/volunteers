@@ -32,6 +32,7 @@
     --card-bg: #ffffff;
     --card-border: #e4e9f6;
     --nav-bg: rgba(255,255,255,0.92);
+    --nav-bg-solid: rgba(255,255,255,0.97);
     --input-bg: #ffffff;
     --bubble-bg: #eef2fb;
     /* Reference-system section grounds */
@@ -78,6 +79,7 @@
     --card-bg: #151b28;
     --card-border: rgba(255,255,255,0.08);
     --nav-bg: rgba(14,19,29,0.92);
+    --nav-bg-solid: rgba(14,19,29,0.97);
     --input-bg: #1c2436;
     --bubble-bg: rgba(125,162,240,0.10);
     --section-alt: #141b2b;
@@ -228,6 +230,15 @@ p { color: var(--muted); line-height: 1.65; transition: color 0.3s ease; }
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
     transition: background 0.3s ease, border-color 0.3s ease;
+}
+/* While the playing hero video is under the sticky topbar (about.html toggles
+   this), skip the backdrop blur: re-blurring a video every frame is expensive
+   and made playback stutter on low-end devices. The slightly more opaque
+   background keeps it looking the same. */
+.topbar.topbar--over-video {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: var(--nav-bg-solid);
 }
 .brand {
     flex: 0 0 auto;

@@ -3,7 +3,94 @@
 {% block extra_css %}<link rel="stylesheet" href="{% asset 'css/home.css' %}">{% endblock %}
 {% block content %}
 <section class="hero">
-    <video class="hero-photo" src="{% static 'videos/hero-loop.mp4' %}" autoplay muted loop playsinline preload="auto" aria-hidden="true"></video>
+    {% comment %}
+    Video-only hero (no poster — by design). Sources: smallest-first for phones
+    (media query), VP9 WebM before H.264 MP4 (smaller at equal quality). All
+    are seamless 4.3 s loops without audio; URLs carry a content hash
+    ({% asset %}) so nginx can cache them as immutable. See the script below.
+    {% endcomment %}
+    <video class="hero-photo" autoplay muted loop playsinline preload="auto" disablepictureinpicture aria-hidden="true" tabindex="-1">
+        <source src="{% asset 'videos/hero-loop-mobile.webm' %}" type='video/webm; codecs="vp9"' media="(max-width: 768px)">
+        <source src="{% asset 'videos/hero-loop-mobile.mp4' %}" type="video/mp4" media="(max-width: 768px)">
+        <source src="{% asset 'videos/hero-loop-desktop.webm' %}" type='video/webm; codecs="vp9"'>
+        <source src="{% asset 'videos/hero-loop-desktop.mp4' %}" type="video/mp4">
+    </video>
+    <script>
+    /* Hero video playback — inline so it runs before autoplay/preload kick in.
+       - prefers-reduced-motion: never autoplay or download; the hero keeps its
+         solid background.
+       - Pause while scrolled out of view or the tab is hidden; resume after.
+       - While the playing video is under the sticky .topbar, the topbar drops
+         its backdrop blur (re-blurring a video every frame is expensive). */
+    (function () {
+        var video = document.currentScript.previousElementSibling;
+        var hero = video.closest('.hero');
+        var topbar = document.querySelector('.topbar');
+        var reduce = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
+        var inView = true;
+
+        var sources = Array.prototype.slice.call(video.querySelectorAll('source'));
+        function disable() {
+            video.autoplay = false;
+            video.removeAttribute('autoplay');
+            video.pause();
+            video.hidden = true;
+            // The browser picks a source as soon as <source> is parsed; detach
+            // them and reload so that fetch is aborted, not just hidden.
+            if (video.querySelector('source')) {
+                sources.forEach(function (s) { video.removeChild(s); });
+                video.load();
+            }
+            if (topbar) topbar.classList.remove('topbar--over-video');
+        }
+        function sync() {
+            if (reduce.matches) return disable();
+            if (inView && !document.hidden) {
+                if (video.paused) { var p = video.play(); if (p && p.catch) p.catch(function () {}); }
+            } else if (!video.paused) {
+                video.pause();
+            }
+        }
+        if (reduce.matches) return disable();
+
+        if ('IntersectionObserver' in window) {
+            new IntersectionObserver(function (entries) {
+                inView = entries[0].isIntersecting;
+                sync();
+            }).observe(video);
+
+            if (topbar) {
+                // Observe a strip of the viewport exactly as tall as the topbar.
+                var navObserver;
+                var watchUnderNav = function () {
+                    if (navObserver) navObserver.disconnect();
+                    var strip = Math.max(window.innerHeight - topbar.offsetHeight + 1, 0);
+                    navObserver = new IntersectionObserver(function (entries) {
+                        topbar.classList.toggle('topbar--over-video', entries[0].isIntersecting && !video.hidden);
+                    }, { rootMargin: '0px 0px -' + strip + 'px 0px' });
+                    navObserver.observe(hero);
+                };
+                watchUnderNav();
+                var resizeTimer;
+                window.addEventListener('resize', function () {
+                    clearTimeout(resizeTimer);
+                    resizeTimer = setTimeout(watchUnderNav, 200);
+                }, { passive: true });
+            }
+        }
+        document.addEventListener('visibilitychange', sync);
+        if (reduce.addEventListener) {
+            reduce.addEventListener('change', function () {
+                if (!reduce.matches && !video.querySelector('source')) {
+                    sources.forEach(function (s) { video.appendChild(s); });
+                    video.hidden = false;
+                    video.load();
+                }
+                sync();
+            });
+        }
+    })();
+    </script>
     <div class="hero-grid">
         <div class="hero-content reveal">
             <span class="eyebrow" data-i18n="hero.eyebrow">Volunteer platform for Tajikistan</span>

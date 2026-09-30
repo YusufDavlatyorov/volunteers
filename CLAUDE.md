@@ -32,7 +32,7 @@ python manage.py check_stale_requests [--dry-run]       # mirror of the above fo
 python manage.py create_initial_production_accounts    # prod-only bootstrap: exactly 4 accounts (admin/curator/volunteer/client) from INITIAL_<ROLE>_* env vars; idempotent, never seeds business data — see README "Initial production accounts"
 curl -s localhost:8000/health/ ; curl -s localhost:8000/health/ready/   # liveness / readiness (server/health.py) — public, no secrets
 
-python manage.py test                                    # full suite (623 tests, ~160s)
+python manage.py test                                    # full suite (626 tests, ~160s)
 python manage.py test myapp.tests.MatchingAlgorithmTests  # one test class
 python manage.py test myapp.tests.MatchingAlgorithmTests.test_closer_volunteer_ranks_higher  # one test
 python manage.py test accounts                           # one app
@@ -438,10 +438,16 @@ is an external pre-existing `shared_postgres` container reached over the network
 onto a production DB — `seed_demo` must never run there. This project has **no single
 `DATABASE_URL` variable** — PostgreSQL connection info stays as the pre-existing discrete
 `DJANGO_DB_NAME` / `_USER` / `_PASSWORD` / `_HOST` / `_PORT` vars; don't introduce one without a
-concrete reason, it would duplicate the existing mechanism. The About Us hero video lives at
-`static/videos/hero-loop.mp4` (git-tracked, served via `{% static %}` in `about.html`) — it used
-to be read from `media/videos/` via `default_storage.url()`, which is gitignored and would have
-been silently missing on a fresh production clone; don't move it back. See README → **Docker
+concrete reason, it would duplicate the existing mechanism. The About Us hero video lives in
+`static/videos/` as four git-tracked, audio-less, seamless 4.3 s loops —
+`hero-loop-{mobile,desktop}.{webm,mp4}` (VP9 before H.264; mobile 480×264 via
+`<source media="(max-width: 768px)">`, desktop 640×352 = the native source resolution, **don't
+upscale**; MP4s faststart, keyframe every 2 s) — served via `{% asset %}` so nginx can cache
+`/static/videos/` as immutable. The inline script after the `<video>` in `about.html` pauses it
+off-screen / in hidden tabs, honours `prefers-reduced-motion` (aborts the download, hides it) and
+toggles `.topbar--over-video` (no backdrop blur over a playing video). It used to be read from
+`media/videos/` via `default_storage.url()`, which is gitignored and would have been silently
+missing on a fresh production clone; don't move it back. See README → **Docker
 deployment (production)** for the full command sequence and → **Initial production accounts** /
 **Demo data — NEVER in production** for the account-bootstrap rules.
 

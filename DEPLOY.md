@@ -229,9 +229,24 @@ server {
     gzip_types text/plain text/css text/xml application/javascript application/json
                application/xml image/svg+xml;
 
+    # Hero videos: templates reference them with ?v=<content hash> ({% asset %}),
+    # so a changed file gets a new URL and the long immutable cache is safe.
+    # Already-compressed media: no gzip; sendfile + tcp_nopush for large bodies.
+    # nginx answers Range requests (Accept-Ranges: bytes) for static files and
+    # its stock mime.types already maps .webm -> video/webm, .mp4 -> video/mp4.
+    location ^~ /static/videos/ {
+        alias /opt/khayrkhoh/staticfiles/videos/;
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+        gzip off;
+        sendfile on;
+        tcp_nopush on;
+        access_log off;
+    }
+
     location /static/ {
         alias /opt/khayrkhoh/staticfiles/;
-        expires 7d;   # filenames aren't content-hashed — keep this modest
+        expires 7d;   # CSS/JS URLs carry ?v=<hash>; images don't — keep this modest
         add_header Cache-Control "public";
         access_log off;
     }

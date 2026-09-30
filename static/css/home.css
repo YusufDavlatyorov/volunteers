@@ -4,8 +4,8 @@
    Design tokens, buttons, cards, grid and typography stay in style.css. */
 
 /* ===== HERO =====
-   A looping background video (static/videos/hero-loop.mp4 — no poster image, by
-   design) grounds the platform in the actual work volunteers do. Until its first
+   A looping background video (static/videos/hero-loop-{desktop,mobile}.{webm,mp4}
+   — no poster image, by design; playback logic is inline in about.html) grounds the platform in the actual work volunteers do. Until its first
    frame paints, the hero is a plain solid brand navy (--hero-from, theme-aware)
    rather than a photo, so nothing flashes before the video. A gradient scrim in
    the brand colors sits over it so the headline stays legible in both themes;
@@ -29,6 +29,10 @@
     object-fit: cover;
     object-position: center 30%;
     z-index: 0;
+}
+/* No-JS fallback for reduced motion (the inline script also stops the download). */
+@media (prefers-reduced-motion: reduce) {
+    .hero-photo { display: none; }
 }
 .hero::before {
     content: '';
