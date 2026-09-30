@@ -1,8 +1,10 @@
-# Generation Connect
+# KhayrKhoh
 
-**Generation Connect** is a Django web platform that connects elderly people who need help
+**KhayrKhoh** is a Django web platform that connects elderly people who need help
 (**clients**) with **volunteers** in their region, coordinated by **curators** and **admins**.
 Built for the 5 regions of Tajikistan: Dushanbe, Sogd, Khatlon, GBAO and RRP.
+
+Production domain: **https://khayrkhokh.tj** (and `https://www.khayrkhokh.tj`).
 
 ## How it works
 
@@ -23,9 +25,10 @@ Built for the 5 regions of Tajikistan: Dushanbe, Sogd, Khatlon, GBAO and RRP.
 ## Tech stack
 
 - **Python 3.12+** (developed on 3.14) / **Django 5.2** (function-based views, MVT)
-- **SQLite** database (default)
+- **SQLite** (local dev / tests) / **PostgreSQL** (required in production — see "Docker deployment")
 - **django-filter**, **django-crispy-forms** + **crispy-bootstrap5**
 - **requests** (Groq AI + Telegram), **python-dotenv** (config), **Pillow** (image uploads)
+- **gunicorn** + **psycopg[binary]** (production only — see "Docker deployment")
 - Custom user model `accounts.Users` with roles: admin / curator / volunteer / client
 
 ## Project layout
@@ -35,8 +38,10 @@ server/      Django project (settings, urls, wsgi/asgi)
 accounts/    Users, Profile, auth views, registration, password reset
 myapp/       Help requests, events, broadcasts, photo reports, rating, AI, Telegram bot
 templates/   HTML templates (base + accounts/ + myapp/)
-static/      CSS, JS, video
+static/      CSS, JS, images, the About Us background video
 media/       User-uploaded avatars and photo reports (not committed)
+Dockerfile, docker-compose.yml, .dockerignore   Production container build (see "Docker deployment")
+DEPLOY.md    Exact command sequence for a fresh Ubuntu server (Docker, Postgres, Caddy, cron)
 ```
 
 ## Getting started
@@ -45,7 +50,7 @@ media/       User-uploaded avatars and photo reports (not committed)
 
 ```bash
 git clone <your-repo-url>
-cd generation-connect
+cd khayrkhokh
 
 python -m venv .venv
 # Windows
@@ -83,18 +88,20 @@ fresh checkout boots; replace it with a real key.
 | --- | --- | --- |
 | `DJANGO_SECRET_KEY` | Django secret key | **startup error** (required) |
 | `DJANGO_DEBUG` | Debug mode (`True`/`False`) | `False` |
-| `DJANGO_ALLOWED_HOSTS` | Comma-separated hosts | `localhost,127.0.0.1` (a `*` wildcard is refused once `DEBUG=False`) |
-| `DJANGO_CSRF_TRUSTED_ORIGINS` | Full HTTPS origins allowed to POST | empty (set your prod origin(s)) |
-| `DJANGO_BEHIND_TLS_PROXY` | Trust `X-Forwarded-Proto` from a reverse proxy | `False` |
-| `DJANGO_DB_NAME` / `DJANGO_DB_USER` / … | PostgreSQL connection | SQLite |
-| `DJANGO_DB_CACHE` | Use a shared DB cache for rate-limit counters | `False` (per-process LocMemCache) |
+| `DJANGO_ALLOWED_HOSTS` | Comma-separated hosts | `localhost,127.0.0.1` (a `*` wildcard is refused once `DEBUG=False`). Production: `khayrkhokh.tj,www.khayrkhokh.tj` |
+| `DJANGO_CSRF_TRUSTED_ORIGINS` | Full HTTPS origins allowed to POST | empty. Production: `https://khayrkhokh.tj,https://www.khayrkhokh.tj` |
+| `DJANGO_BEHIND_TLS_PROXY` | Trust `X-Forwarded-Proto` from a reverse proxy | `False`. Production (behind nginx): `True` |
+| `DJANGO_DB_NAME` / `DJANGO_DB_USER` / `DJANGO_DB_PASSWORD` / `DJANGO_DB_HOST` / `DJANGO_DB_PORT` | PostgreSQL connection — **required in production**, see "Docker deployment" | SQLite (dev only) |
+| `DJANGO_DB_CACHE` | Use a shared DB cache for rate-limit counters | `False` (per-process LocMemCache). **Required `True` in production** — a multi-worker gunicorn deployment needs the shared cache for the rate limiters to work at all |
 | `DJANGO_LOG_LEVEL` | App logger level | `INFO` |
-| `SMTP_USER`, `SMTP_PASSWORD` | Gmail SMTP credentials | emails print to console |
+| `SMTP_USER`, `SMTP_PASSWORD` | SMTP credentials | emails print to console |
 | `EMAIL_TIMEOUT` | Seconds before a synchronous SMTP send is abandoned | `10` |
 | `GROQ_API_KEY` | Groq API key for the AI assistant (must start with `gsk_`) | AI returns a fallback tip |
-| `GROQ_MODEL` / `GROQ_ASSISTANT_MODEL` | Groq model IDs (fallback / primary tool-calling model) | `qwen/qwen3.6-27b` / `qwen/qwen3.8-27b` |
+| `GROQ_MODEL` / `GROQ_ASSISTANT_MODEL` | Groq model IDs (fallback / primary tool-calling model) — verify against `GET /openai/v1/models` before changing, don't guess | `openai/gpt-oss-20b` / `qwen/qwen3.8-27b` |
 | `TELEGRAM_BOT_TOKEN` | Telegram bot token | Telegram features disabled |
 | `OSRM_BASE_URL`, `NOMINATIM_USER_AGENT` | Routing / geocoding for the `osm` maps provider | public demo endpoints (rate-limited, not for production) |
+| `INITIAL_ADMIN_EMAIL` / `_PASSWORD` / `_USERNAME` (and `_CURATOR_`, `_VOLUNTEER_`, `_CLIENT_`) | The 4 initial production accounts, see "Initial production accounts" below | none — required only when running `create_initial_production_accounts` |
+| `SHARED_POSTGRES_NETWORK` | Name of the external Docker network the shared PostgreSQL container is attached to | `shared_postgres_net` |
 
 > **Never commit your real `.env`.** It is already listed in `.gitignore`.
 
@@ -117,6 +124,10 @@ Demo login (all demo users share the same password):
 - `admin_demo` / `Volunteer2026!` (admin)
 - `malika_s` / `Volunteer2026!` (volunteer)
 - `client_zamira` / `Volunteer2026!` (client)
+
+**`seed_demo` is dev/demo-only — never run it against production.** Production gets its
+accounts from `create_initial_production_accounts` instead; see "Initial production accounts"
+below.
 
 ### 6. Run the server
 
@@ -176,13 +187,17 @@ project's own virtualenv Python and `manage.py` — cron runs with a bare
 environment:
 
 ```cron
-# Generation Connect — alert curators/admins about tasks overdue past 3h, every 15 min.
-*/15 * * * * cd /srv/generation-connect && flock -n /run/lock/gc-overdue.lock /srv/generation-connect/.venv/bin/python manage.py check_overdue_tasks >> /var/log/generation-connect/cron.log 2>&1
-# Generation Connect — alert about pending requests stuck without a volunteer past 48h, hourly.
-0 * * * * cd /srv/generation-connect && flock -n /run/lock/gc-stale.lock /srv/generation-connect/.venv/bin/python manage.py check_stale_requests >> /var/log/generation-connect/cron.log 2>&1
+# KhayrKhoh — alert curators/admins about tasks overdue past 3h, every 15 min.
+*/15 * * * * cd /srv/khayrkhokh && flock -n /run/lock/gc-overdue.lock /srv/khayrkhokh/.venv/bin/python manage.py check_overdue_tasks >> /var/log/khayrkhokh/cron.log 2>&1
+# KhayrKhoh — alert about pending requests stuck without a volunteer past 48h, hourly.
+0 * * * * cd /srv/khayrkhokh && flock -n /run/lock/gc-stale.lock /srv/khayrkhokh/.venv/bin/python manage.py check_stale_requests >> /var/log/khayrkhokh/cron.log 2>&1
 ```
 
-Replace `/srv/generation-connect` with the deployment path (the directory
+In a Docker deployment, run these inside the container instead (host cron
+calling `docker compose exec web python manage.py check_overdue_tasks`, etc.)
+rather than via a host-level virtualenv.
+
+Replace `/srv/khayrkhokh` with the deployment path (the directory
 containing `manage.py`) and `.venv` with the virtualenv location. `settings.py`
 loads `.env` by absolute path, so credentials are picked up regardless of cron's
 working directory; the `cd` is for `manage.py` and the log path.
@@ -199,7 +214,7 @@ support `--dry-run`, and log every alert (and any zero-recipient failure, at
 ## Running tests
 
 ```bash
-python manage.py test            # full suite (528 tests, ~145s)
+python manage.py test            # full suite (579 tests, ~160s)
 python manage.py test myapp      # one app
 python manage.py test myapp.tests.MatchingAlgorithmTests   # one class
 ```
@@ -211,47 +226,138 @@ donation offers, the Lost & Found board, the health endpoints, external-service 
 handling, list-view pagination bounds, and a set of concurrency / IDOR / rate-limit regression
 tests.
 
+## Demo data — NEVER in production
+
+`seed_demo` creates fake admins/curators/volunteers/clients, help requests, events, donations,
+pet reports, photo reports and emergency reports. It exists **only** for local development and
+demos. **Do NOT run `seed_demo` against the production database.** Production starts from a
+fresh PostgreSQL database with all migrations applied and gets its only accounts from
+`create_initial_production_accounts` (below) — zero demo business data.
+
+## Initial production accounts
+
+`create_initial_production_accounts` creates exactly 4 accounts — 1 admin, 1 curator, 1
+volunteer, 1 client — from environment variables, and nothing else:
+
+```bash
+python manage.py create_initial_production_accounts
+```
+
+Reads `INITIAL_ADMIN_EMAIL` / `INITIAL_ADMIN_PASSWORD` (and the matching `_CURATOR_`,
+`_VOLUNTEER_`, `_CLIENT_` pairs) from `.env` — see `.env.example` for the full list, including
+the optional `_USERNAME` (defaults to `admin`/`curator`/`volunteer`/`client`) and `_REGION`
+(defaults to `dushanbe`) overrides. It:
+
+- **never invents a password** — missing email/password env vars fail the command with a list of
+  exactly which ones are missing, before creating anything;
+- runs every password through Django's normal `AUTH_PASSWORD_VALIDATORS` and rejects a weak one
+  with the same validation messages `register` would show, never logging the password itself;
+- is **idempotent** — an account that already exists (matched by username or email) is left
+  untouched, so re-running it after someone has changed their password in the UI is safe;
+- uses normal Django password hashing (`set_password`), same as every other account.
+
 ## Deployment
 
-There is no container or IaC in the repo; a conventional Gunicorn + nginx + systemd setup:
+### Docker deployment (production)
 
-1. **App server** — `gunicorn server.wsgi:application --workers 3 --bind 127.0.0.1:8001`
-   (run under systemd; `WorkingDirectory` = the dir with `manage.py`, `EnvironmentFile` = the
-   `.env`).
-2. **Reverse proxy (nginx)** terminates TLS and serves static/media directly:
-   ```nginx
-   location /static/ { alias /srv/generation-connect/staticfiles/; }
-   location /media/  { alias /srv/generation-connect/media/; }
-   location = /health/ { proxy_pass http://127.0.0.1:8001; access_log off; }
-   location / {
-       proxy_pass http://127.0.0.1:8001;
-       proxy_set_header Host $host;
-       proxy_set_header X-Forwarded-Proto $scheme;   # required by DJANGO_BEHIND_TLS_PROXY
-       proxy_set_header X-Real-IP $remote_addr;
-   }
+**See `DEPLOY.md` for the exact, copy-pasteable command sequence for a fresh Ubuntu server**
+(installing Docker, standing up the shared PostgreSQL container, Caddy with automatic HTTPS, the
+Telegram bot as a systemd service, and the cron sweeps). The summary below is the same flow in
+prose.
+
+The repo ships a `Dockerfile` + `docker-compose.yml` for the Django app container. **PostgreSQL
+is not part of this compose file** — production connects to a pre-existing shared `shared_postgres`
+container over an external Docker network (name given by `SHARED_POSTGRES_NETWORK` in `.env`,
+see `.env.example`); do not add a second PostgreSQL container.
+
+1. **Clone the repo** on the deployment host (e.g. into `/srv/khayrkhokh`).
+2. **Configure `.env`** — `cp .env.example .env` and fill in: `DJANGO_SECRET_KEY` (generate one,
+   see above), `DJANGO_DEBUG=False`, `DJANGO_ALLOWED_HOSTS=khayrkhokh.tj,www.khayrkhokh.tj`,
+   `DJANGO_CSRF_TRUSTED_ORIGINS=https://khayrkhokh.tj,https://www.khayrkhokh.tj`,
+   `DJANGO_BEHIND_TLS_PROXY=True`, `DJANGO_DB_CACHE=True`, and `SHARED_POSTGRES_NETWORK` (ask
+   whoever manages the shared PostgreSQL container).
+3. **Configure PostgreSQL credentials** — `DJANGO_DB_NAME` / `DJANGO_DB_USER` /
+   `DJANGO_DB_PASSWORD` / `DJANGO_DB_HOST` (the shared container's service name, e.g.
+   `shared_postgres`) / `DJANGO_DB_PORT` in the same `.env`. This project has no single
+   `DATABASE_URL` — these four map 1:1 to the same connection info.
+4. **Build the image**:
+   ```bash
+   docker compose build
    ```
-3. **Before the first boot with `DEBUG=False`:**
-   - set `DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS` (real hosts, no `*`),
-     `DJANGO_CSRF_TRUSTED_ORIGINS` (e.g. `https://your-host`), `DJANGO_BEHIND_TLS_PROXY=True`;
-   - `python manage.py collectstatic --noinput` (WhiteNoise is **not** configured — nginx serves
-     `staticfiles/`);
-   - `python manage.py migrate`;
-   - `DJANGO_DB_CACHE=True` and `python manage.py createcachetable` — otherwise the login /
-     password-reset / AI / Telegram-link rate limiters only throttle within a single Gunicorn
-     worker (they use the per-process LocMemCache);
-   - for PostgreSQL: `pip install "psycopg[binary]"` and set `DJANGO_DB_*`.
-4. **Cron** — add the background jobs (see above). Use absolute venv/`manage.py` paths.
-5. **Logs** — the app logs to stderr (`myapp` / `accounts` loggers, level `DJANGO_LOG_LEVEL`);
-   journald/Docker captures them. Server errors (`django.request`, `ERROR`) and the
-   zero-recipient safety nets in the overdue / stale / emergency sweeps go to stderr too.
-   Administrative state changes (task assign/complete, application approve/reject, emergency and
-   donation and pet transitions, rate-limit hits) emit one `INFO` line each with IDs only.
-6. **Verify** — `curl -fsS http://127.0.0.1:8001/health/ready/` should return `{"status":"ready",...}`.
+5. **Run migrations**:
+   ```bash
+   docker compose run --rm web python manage.py migrate
+   ```
+6. **Collect static**:
+   ```bash
+   docker compose run --rm web python manage.py collectstatic --noinput
+   ```
+   (writes into the `./staticfiles` bind mount — see step 9.)
+7. **Create the 4 initial accounts**:
+   ```bash
+   docker compose run --rm web python manage.py create_initial_production_accounts
+   ```
+8. **Also once**: the shared DB cache table the rate limiters need (`DJANGO_DB_CACHE=True` set in
+   step 2):
+   ```bash
+   docker compose run --rm web python manage.py createcachetable
+   ```
+9. **Start the application**:
+   ```bash
+   docker compose up -d
+   ```
+   Resource budget: `mem_limit: 700m`, `cpus: 1.0`, `restart: unless-stopped` (already set in
+   `docker-compose.yml`). The container publishes gunicorn on `127.0.0.1:8001` — nothing else is
+   exposed publicly by the container itself.
+10. **Configure the reverse proxy** (nginx, on the host — not containerized here) to terminate
+    TLS and serve static/media directly:
+    ```nginx
+    server_name khayrkhokh.tj www.khayrkhokh.tj;
+    location /static/ { alias /srv/khayrkhokh/staticfiles/; }
+    location /media/  { alias /srv/khayrkhokh/media/; }
+    location = /health/ { proxy_pass http://127.0.0.1:8001; access_log off; }
+    location / {
+        proxy_pass http://127.0.0.1:8001;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;   # required by DJANGO_BEHIND_TLS_PROXY
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+    ```
+11. **Configure HTTPS** — issue a certificate for `khayrkhokh.tj` and `www.khayrkhokh.tj`
+    (e.g. certbot) and redirect `www` → apex or vice versa at the nginx level, whichever is the
+    canonical host; both are already in `DJANGO_ALLOWED_HOSTS` / `DJANGO_CSRF_TRUSTED_ORIGINS`
+    above so either works at the Django level.
+12. **Verify the health endpoint**:
+    ```bash
+    curl -fsS https://khayrkhokh.tj/health/ready/
+    ```
+    should return `{"status":"ready",...}`.
 
 `DEBUG=False` automatically switches on `SECURE_SSL_REDIRECT`, HSTS (1 year, preload),
 `SESSION_COOKIE_SECURE` / `CSRF_COOKIE_SECURE`; `SECURE_CONTENT_TYPE_NOSNIFF` and
 `X_FRAME_OPTIONS=DENY` are always on. `EMAIL_TIMEOUT` bounds the synchronous SMTP send in
-request handlers (default 10s).
+request handlers (default 10s). None of this needs a code change per environment — it all reads
+from `.env`.
+
+**Logs** — the app logs to stderr (`myapp` / `accounts` loggers, level `DJANGO_LOG_LEVEL`);
+`docker logs` / journald captures them (Docker's default log driver — no extra config needed).
+Server errors (`django.request`, `ERROR`) and the zero-recipient safety nets in the overdue /
+stale / emergency sweeps go to stderr too. Administrative state changes (task assign/complete,
+application approve/reject, emergency/donation/pet transitions, rate-limit hits) emit one `INFO`
+line each with IDs only — never message bodies, tokens, or PII.
+
+### Bare-metal / VM alternative (no Docker)
+
+The app also runs directly under a Gunicorn + nginx + systemd setup if Docker isn't used for a
+given host — the steps above are the same (`migrate`, `collectstatic`, `create_initial_production_accounts`,
+`createcachetable`), just run with the host's own venv instead of `docker compose run`:
+
+```bash
+gunicorn server.wsgi:application --workers 3 --bind 127.0.0.1:8001
+```
+
+run under systemd (`WorkingDirectory` = the dir with `manage.py`, `EnvironmentFile` = `.env`); the
+nginx config and health-check steps above are identical either way.
 
 ## Health checks
 

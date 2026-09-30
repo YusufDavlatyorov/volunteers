@@ -25,16 +25,16 @@ def send_welcome_email(sender, instance, created, **kwargs):
     if created and instance.email:
         try:
             send_mail(
-                subject='🎉 Добро пожаловать в Generation Connect!',
+                subject='🎉 Добро пожаловать в KhayrKhoh!',
                 message=f'''
 Здравствуйте, {instance.username}!
 
-Вы успешно зарегистрировались в Generation Connect.
+Вы успешно зарегистрировались в KhayrKhoh.
 Ваша роль: {instance.role_display}
 Ваш регион: {instance.get_region_display() if instance.region else "Не указан"}
 
 С уважением,
-Команда Generation Connect
+Команда KhayrKhoh
                 ''',
                 from_email=settings.DEFAULT_FROM_EMAIL,
                 recipient_list=[instance.email],

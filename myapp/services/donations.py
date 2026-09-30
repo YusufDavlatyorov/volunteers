@@ -146,7 +146,7 @@ def mark_offer_ready(offer, *, actor):
 
 
 def mark_offer_received(offer, *, actor):
-    """The goods have reached Generation Connect (collected or dropped off)."""
+    """The goods have reached KhayrKhoh (collected or dropped off)."""
     offer.mark_received(actor)
     _log_transition(offer, "received", actor)
     return offer

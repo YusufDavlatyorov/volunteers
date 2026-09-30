@@ -236,7 +236,7 @@ EMAIL_PORT = SMTP_PORT
 EMAIL_HOST_USER = SMTP_USER
 EMAIL_HOST_PASSWORD = SMTP_PASSWORD
 EMAIL_USE_TLS = True
-DEFAULT_FROM_EMAIL = SMTP_USER or 'no-reply@generation-connect.local'
+DEFAULT_FROM_EMAIL = SMTP_USER or 'no-reply@khayrkhokh.tj'
 # Django's SMTP backend has NO default timeout — a hung mail server would block
 # the Gunicorn worker (and the user's request) indefinitely, since notify_users()
 # sends mail synchronously inside request handlers. Bound it.
@@ -249,6 +249,10 @@ STATIC_URL = '/static/'
 STATICFILES_DIRS=[
     BASE_DIR / 'static'
 ]
+# Target dir for `collectstatic` — nginx serves straight from here in prod
+# (no WhiteNoise/CDN configured, see README → Deployment). Not used by
+# `runserver` (STATICFILES_DIRS covers local dev).
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
@@ -267,14 +271,17 @@ AUTH_USER_MODEL = 'accounts.Users'
 # them up used to send a Gemini key to Groq's endpoint, which Groq correctly
 # rejects with 401 invalid_api_key).
 GROQ_API_KEY = os.getenv('GROQ_API_KEY', '')
-# Defaults verified live against Groq's current model catalog (2026-09) —
-# the previous llama-3.1-8b-instant / llama-3.3-70b-versatile defaults are
-# retired on Groq (404 model_not_found for every account, not just missing
-# access) and were replaced after confirming both qwen models accept our
-# exact tools= schema and correctly choose to call a tool when appropriate.
-GROQ_MODEL = os.getenv('GROQ_MODEL', 'qwen/qwen3.6-27b')
+# Defaults verified live against this account's actual Groq model catalog
+# (GET /openai/v1/models) on 2026-09-30 — the previous llama-3.1-8b-instant /
+# llama-3.3-70b-versatile defaults, and later qwen/qwen3.6-27b, all 404
+# model_not_found (retired/never existed for this account, not just missing
+# access). gpt-oss-20b was confirmed live to accept our exact tools= schema
+# and correctly choose to call a tool when appropriate — see
+# GROQ_ASSISTANT_MODEL below for the primary model's own verification.
+GROQ_MODEL = os.getenv('GROQ_MODEL', 'openai/gpt-oss-20b')
 # The role-based assistant (myapp/services/ai) needs reliable function-calling.
-# Default to the larger of the two verified models; the client falls back to
+# Confirmed live on 2026-09-30: plain chat + tool-calling both succeed
+# (200, correct tool_calls in the response). The client falls back to
 # GROQ_MODEL on error.
 GROQ_ASSISTANT_MODEL = os.getenv('GROQ_ASSISTANT_MODEL', 'qwen/qwen3.8-27b')
 
@@ -292,7 +299,7 @@ MAPS_PROVIDER = os.getenv('MAPS_PROVIDER', 'osm').strip().lower()
 MAPS_API_KEY = os.getenv('MAPS_API_KEY', '')
 GEOCODING_TIMEOUT_SECONDS = 5
 OSRM_BASE_URL = os.getenv('OSRM_BASE_URL', 'https://router.project-osrm.org').rstrip('/')
-NOMINATIM_USER_AGENT = os.getenv('NOMINATIM_USER_AGENT', 'generation-connect-dev')
+NOMINATIM_USER_AGENT = os.getenv('NOMINATIM_USER_AGENT', 'khayrkhokh-dev')
 
 # Logging — without this the app's own logger.warning/error calls (the
 # zero-recipient safety net in the overdue/stale/emergency sweeps, OSRM/Nominatim

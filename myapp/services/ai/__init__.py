@@ -1,4 +1,4 @@
-"""Role-based operational AI assistant for Generation Connect.
+"""Role-based operational AI assistant for KhayrKhoh.
 
 This package replaces the single stateless Groq call that used to live in
 ``myapp/views.py::ai_chat_view``. It is an *operational* assistant, not a

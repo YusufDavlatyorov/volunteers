@@ -2,7 +2,7 @@
 
 Donors (individuals or local businesses — bakeries, shops, bazaars, pharmacies)
 offer **physical goods**: food, bakery products, clothing, footwear, hygiene
-kits, blankets, school supplies, water, household items. Generation Connect
+kits, blankets, school supplies, water, household items. KhayrKhoh
 routes an offer through a curator to a volunteer and on to a client or a help
 request.
 

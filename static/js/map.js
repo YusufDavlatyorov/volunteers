@@ -1,4 +1,4 @@
-/* Shared Leaflet helpers for Generation Connect map pages.
+/* Shared Leaflet helpers for KhayrKhoh map pages.
    Loaded on demand (not from base.html) by any page that embeds a map, right
    after the Leaflet CDN script. Requires the global `L` from Leaflet. */
 const GCMap = {

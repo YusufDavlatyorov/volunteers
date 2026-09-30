@@ -95,7 +95,7 @@ def _action(name, desc, roles, validate, execute, properties=None, required=None
 _SPECS = [
     # ---- common ----------------------------------------------------------- #
     _read("get_platform_help",
-          "Curated explanation of how Generation Connect works. topic ∈ "
+          "Curated explanation of how KhayrKhoh works. topic ∈ "
           "how_it_works, roles, create_request, volunteering, regions, contact.",
           ALL_AUTH, read_tools.get_platform_help, {"topic": _STR}),
     _read("get_my_profile", "The current user's own profile summary.",

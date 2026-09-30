@@ -8,7 +8,7 @@ from myapp.services.telegram_link import redeem_link_code
 
 
 HELP_TEXT = (
-    "Generation Connect\n\n"
+    "KhayrKhoh\n\n"
     "Команды:\n"
     "/link <код> — привязать этот Telegram к вашему аккаунту.\n"
     "   Одноразовый код можно получить на сайте: войдите в аккаунт →\n"
