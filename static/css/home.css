@@ -1,14 +1,15 @@
 /* ===== home.css — landing / about page (myapp/about.html) =====
-   Page-specific styles for the marketing landing page: the photographic hero
+   Page-specific styles for the marketing landing page: the video hero
    and the "five regions" panel. Loaded after style.css via {% block extra_css %}.
    Design tokens, buttons, cards, grid and typography stay in style.css. */
 
 /* ===== HERO =====
-   A real photograph (helping an elderly person) grounds the platform in the actual
-   work volunteers do. A gradient scrim in the brand colors sits over it so the
-   headline stays legible in both themes; the "five peaks" mark moves to the
-   footer and the regions panel, where it works as a small brand accent instead
-   of the hero's main visual. */
+   A looping background video (static/videos/hero-loop.mp4 — no poster image, by
+   design) grounds the platform in the actual work volunteers do. Until its first
+   frame paints, the hero is a plain solid brand navy (--hero-from, theme-aware)
+   rather than a photo, so nothing flashes before the video. A gradient scrim in
+   the brand colors sits over it so the headline stays legible in both themes;
+   the "five peaks" mark lives in the footer and the regions panel. */
 .hero {
     position: relative;
     overflow: hidden;
@@ -16,13 +17,13 @@
     display: grid;
     align-items: center;
     padding: clamp(2.2rem, 6vw, 5rem);
-    background: linear-gradient(155deg, var(--hero-from) 0%, var(--hero-via) 48%, var(--hero-to) 100%);
+    background: var(--hero-from);
     color: var(--hero-ink);
 }
 .hero-photo {
     position: absolute;
-    
     inset: 0;
+    background: var(--hero-from);
     width: 100%;
     height: 100%;
     object-fit: cover;

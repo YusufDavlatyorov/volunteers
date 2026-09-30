@@ -5244,3 +5244,51 @@ class ListViewPaginationBoundsTests(TestCase):
         with mock.patch("myapp.views.PHOTO_REPORTS_PAGE_SIZE", 2):
             resp = self.client.get(reverse("photo_reports"))
         self.assertEqual(len(resp.context["page_obj"]), 2)
+
+
+class AboutHeroVideoTests(TestCase):
+    """The About hero shows ONLY the background video: no poster photo before
+    it, no background image behind it, and a web-optimized (faststart) file
+    so playback starts before the whole file has downloaded."""
+
+    VIDEO = settings.BASE_DIR / "static" / "videos" / "hero-loop.mp4"
+    HOME_CSS = settings.BASE_DIR / "static" / "css" / "home.css"
+
+    def _hero_video_tag(self):
+        import re
+
+        html = self.client.get(reverse("about")).content.decode()
+        match = re.search(r"<video[^>]*hero-loop\.mp4[^>]*>", html)
+        self.assertIsNotNone(match, "hero <video> missing from the About page")
+        return html, match.group(0)
+
+    def test_hero_video_has_no_poster_and_autoplays_inline(self):
+        html, tag = self._hero_video_tag()
+        self.assertNotIn("poster", tag)
+        self.assertNotIn("tajikistan/hero.jpg", html)
+        # iOS Safari only autoplays inline when muted + playsinline.
+        for attr in ("autoplay", "muted", "loop", "playsinline", 'preload="auto"'):
+            with self.subTest(attr=attr):
+                self.assertIn(attr, tag)
+
+    def test_hero_video_is_faststart(self):
+        data = self.VIDEO.read_bytes()
+        atoms, i = [], 0
+        while i + 8 <= len(data):
+            size = int.from_bytes(data[i:i + 4], "big")
+            atoms.append(data[i + 4:i + 8])
+            if size < 8:
+                break
+            i += size
+        self.assertIn(b"moov", atoms)
+        self.assertLess(atoms.index(b"moov"), atoms.index(b"mdat"))
+
+    def test_hero_css_has_no_background_photo(self):
+        import re
+
+        css = self.HOME_CSS.read_text(encoding="utf-8")
+        for selector in (".hero", ".hero-photo", ".hero::before"):
+            with self.subTest(selector=selector):
+                block = re.search(re.escape(selector) + r"\s*\{([^}]*)\}", css)
+                self.assertIsNotNone(block)
+                self.assertNotIn("url(", block.group(1))

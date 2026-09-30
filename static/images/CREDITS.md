@@ -9,7 +9,6 @@ platform's own region rather than generic "Asian" stock imagery.
 
 | File | Description | Author | License | Source |
 |---|---|---|---|---|
-| `tajikistan/hero.jpg` | Young Tajik couple in national dress (tubeteika, embroidered coat) in the Tajik mountains | Nasib27 | CC BY-SA 4.0 | https://commons.wikimedia.org/wiki/File:National_tajik.jpg |
 | `tajikistan/mountains.jpg` | Wakhan valley, Pamir mountains, Tajikistan | Ninara (Helsinki) | CC BY 2.0 | https://commons.wikimedia.org/wiki/File:Wakhan,_Tajikistan_(30187116688).jpg |
 | `volunteers/aid-delivery-elderly.jpg` | A young Red Crescent volunteer hands a food-aid box to an elderly man, Tajikistan | Шухрат Саъдиев (Shukhrat Sadiev) | CC BY-SA 4.0 | https://commons.wikimedia.org/wiki/File:Humanitarian_aid_in_Tajikistan_01.jpg |
 | `volunteers/community-registration.jpg` | Volunteers registering community members for aid distribution, Tajikistan | Шухрат Саъдиев (Shukhrat Sadiev) | CC BY-SA 4.0 | https://commons.wikimedia.org/wiki/File:Humanitarian_aid_in_Tajikistan_02.jpg |
