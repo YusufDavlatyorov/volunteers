@@ -51,7 +51,7 @@ class HelpRequestFlowTests(TestCase):
         self.client.login(username="client_one", password="pass12345")
         response = self.client.post(
             reverse("create_request"),
-            {"help_type": "grocery", "description": "Need groceries", "address": "Some street", "phone": "+992"},
+            {"help_type": "grocery", "description": "Need groceries", "address": "Some street", "phone": "+992 90 123 45 67"},
         )
         self.assertEqual(response.status_code, 302)
         request = HelpRequest.objects.get(client=self.client_user)
@@ -538,7 +538,7 @@ class PriorityFieldTests(TestCase):
     def test_form_priority_syncs_is_urgent(self):
         self.client.login(username="pr_client", password="pass12345")
         self.client.post(reverse("create_request"), {
-            "help_type": "medical", "description": "urgent", "address": "a", "phone": "+992", "priority": "emergency",
+            "help_type": "medical", "description": "urgent", "address": "a", "phone": "+992 90 123 45 67", "priority": "emergency",
         })
         task = HelpRequest.objects.get(client=self.client_user)
         self.assertEqual(task.priority, "emergency")
@@ -547,7 +547,7 @@ class PriorityFieldTests(TestCase):
     def test_form_normal_priority_leaves_is_urgent_false(self):
         self.client.login(username="pr_client", password="pass12345")
         self.client.post(reverse("create_request"), {
-            "help_type": "grocery", "description": "calm", "address": "a", "phone": "+992", "priority": "normal",
+            "help_type": "grocery", "description": "calm", "address": "a", "phone": "+992 90 123 45 67", "priority": "normal",
         })
         task = HelpRequest.objects.get(client=self.client_user)
         self.assertEqual(task.priority, "normal")
@@ -728,7 +728,8 @@ class DirectAssignTests(TestCase):
         self.assertEqual(self.task.status, "active")
         self.assertEqual(self.task.volunteer, self.volunteer)
         self.assertEqual(self.task.work_stage, "assigned")
-        self.assertEqual(len(mail.outbox), 1)  # one send to [volunteer, client]
+        self.assertEqual(len(mail.outbox), 2)  # one email each to the volunteer and the client
+        self.assertCountEqual([m.to for m in mail.outbox], [[self.volunteer.email], [self.client_user.email]])
 
     def test_cannot_assign_non_pending_task(self):
         self.task.accept(self.volunteer)
@@ -892,7 +893,7 @@ class CreateRequestGeocodingTests(TestCase):
         self.client.login(username="geo_client", password="pass12345")
 
     def _post(self, **extra):
-        data = {"help_type": "grocery", "description": "x", "address": "ул. Рудаки 12", "phone": "+992"}
+        data = {"help_type": "grocery", "description": "x", "address": "ул. Рудаки 12", "phone": "+992 90 123 45 67"}
         data.update(extra)
         return self.client.post(reverse("create_request"), data)
 
@@ -2188,10 +2189,10 @@ class OverdueSweepServiceTests(TestCase):
         self.assertEqual(alerted, [task])
         task.refresh_from_db()
         self.assertTrue(task.alarm_sent)
-        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(len(mail.outbox), 2)  # one email per recipient (never a shared To: list)
         self.assertEqual(mail.outbox[0].subject, "Просроченный запрос")
         self.assertIn(str(task.id), mail.outbox[0].body)
-        self.assertCountEqual(mail.outbox[0].to, [self.admin.email, self.curator.email])
+        self.assertCountEqual([m.to for m in mail.outbox], [[self.admin.email], [self.curator.email]])
 
     def test_second_sweep_is_a_noop(self):
         self._task(hours_ago=4)
@@ -2348,10 +2349,10 @@ class StalePendingSweepServiceTests(TestCase):
         self.assertEqual(alerted, [task])
         task.refresh_from_db()
         self.assertTrue(task.stale_alert_sent)
-        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(len(mail.outbox), 2)  # one email per recipient (never a shared To: list)
         self.assertEqual(mail.outbox[0].subject, stale.STALE_SUBJECT)
         self.assertIn(str(task.id), mail.outbox[0].body)
-        self.assertCountEqual(mail.outbox[0].to, [self.admin.email, self.curator.email])
+        self.assertCountEqual([m.to for m in mail.outbox], [[self.admin.email], [self.curator.email]])
 
     def test_second_sweep_is_a_noop(self):
         self._request(age_hours=60)
@@ -2478,7 +2479,7 @@ class HelpRequestFormCoordinateValidationTests(TestCase):
     (up to ~1000), not just real WGS84 coordinates."""
 
     def _base_data(self, **overrides):
-        data = {"help_type": "grocery", "description": "x", "address": "a", "phone": "p"}
+        data = {"help_type": "grocery", "description": "x", "address": "a", "phone": "+992 90 123 45 67"}
         data.update(overrides)
         return data
 
@@ -2833,7 +2834,7 @@ class EmergencyServiceTests(TestCase):
         self.assertFalse(c2)
         self.assertEqual(first.pk, second.pk)
         self.assertEqual(EmergencyReport.objects.count(), 1)
-        self.assertEqual(len(mail.outbox), 1)  # only the first press alerted staff
+        self.assertEqual(len(mail.outbox), 2)  # only the first press alerted staff (one email per staff member)
 
     def test_location_explicit_coords(self):
         report, _ = emergency.report_emergency(
@@ -2862,15 +2863,15 @@ class EmergencyServiceTests(TestCase):
 
     def test_notify_staff_is_idempotent(self):
         report, _ = emergency.report_emergency(volunteer=self.volunteer, help_request=self.task)
-        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(len(mail.outbox), 2)  # one email per recipient (never a shared To: list)
         self.assertFalse(emergency.notify_staff(report))  # already claimed
-        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(len(mail.outbox), 2)  # nothing new
 
     def test_staff_notification_recipients_and_body(self):
         emergency.report_emergency(volunteer=self.volunteer, help_request=self.task, reason="fell")
-        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(len(mail.outbox), 2)  # one email per recipient (never a shared To: list)
         msg = mail.outbox[0]
-        self.assertCountEqual(msg.to, [self.admin.email, self.curator.email])
+        self.assertCountEqual([m.to for m in mail.outbox], [[self.admin.email], [self.curator.email]])
         self.assertIn(self.volunteer.username, msg.body)
         self.assertIn(str(self.task.id), msg.body)
         self.assertIn(self.client_user.username, msg.body)
@@ -2905,7 +2906,7 @@ class EmergencyReportViewTests(TestCase):
         self.assertEqual(report.help_request, self.task)
         self.assertEqual(report.reason, "unsafe")
         self.assertEqual(report.status, "open")
-        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(len(mail.outbox), 2)  # one email per recipient (never a shared To: list)
 
     def test_get_is_rejected(self):
         self.client.login(username="e_vol", password="pass12345")
@@ -2950,7 +2951,7 @@ class EmergencyReportViewTests(TestCase):
         cache.clear()  # bypass the short cooldown lock to hit the DB-level dedup
         self.client.post(self._url(), {"reason": "two"})
         self.assertEqual(EmergencyReport.objects.count(), 1)
-        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(len(mail.outbox), 2)  # one email per recipient (never a shared To: list)
 
     def test_rapid_double_submit_bounces_to_existing_report(self):
         self.client.login(username="e_vol", password="pass12345")
@@ -2959,7 +2960,7 @@ class EmergencyReportViewTests(TestCase):
         resp = self.client.post(self._url())  # cooldown still held
         self.assertRedirects(resp, reverse("emergency_detail", args=[report.pk]))
         self.assertEqual(EmergencyReport.objects.count(), 1)
-        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(len(mail.outbox), 2)  # one email per recipient (never a shared To: list)
 
 
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
@@ -3270,7 +3271,7 @@ class EmergencyDedupHardeningTests(TestCase):
         cache.clear()
         self.client.post(url, {"reason": "c"})
         self.assertEqual(EmergencyReport.objects.count(), 1)
-        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(len(mail.outbox), 2)  # one email per recipient (never a shared To: list)
 
 
 class EmergencyInvalidTransitionRejectionTests(TestCase):
@@ -3330,10 +3331,10 @@ class EmergencyNotificationFailureTests(TestCase):
 
     def test_realert_resends_to_staff(self):
         report, _ = emergency.report_emergency(volunteer=self.volunteer, help_request=self.task)
-        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(len(mail.outbox), 2)  # one email per recipient (never a shared To: list)
         self.client.login(username="e_curator", password="pass12345")
         self.client.post(reverse("emergency_update", args=[report.pk]), {"action": "realert"})
-        self.assertEqual(len(mail.outbox), 2)
+        self.assertEqual(len(mail.outbox), 4)  # re-alert: one more email per staff member
 
     def test_realert_is_staff_only(self):
         report, _ = emergency.report_emergency(volunteer=self.volunteer, help_request=self.task)
@@ -4301,7 +4302,7 @@ class PetReportPermissionTests(TestCase):
         self.assertEqual(resp.context["form"].initial["region"], "dushanbe")  # pre-filled
         resp = self.client.post(reverse("pet_report_edit", args=[self.report.id]), {
             "report_type": "lost", "pet_name": "Renamed", "species": "dog",
-            "description": "updated details", "region": "sogd", "contact_phone": "+992 111",
+            "description": "updated details", "region": "sogd", "contact_phone": "+992 90 111 22 33",
         })
         self.assertRedirects(resp, reverse("pet_report_detail", args=[self.report.id]))
         self.report.refresh_from_db()
@@ -4546,9 +4547,9 @@ class PetNotificationTests(TestCase):
 
     def test_new_report_notifies_staff_once(self):
         pets.create_pet_report(reporter=self.reporter, report_type="lost", description="x", species="dog", region="dushanbe")
-        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(len(mail.outbox), 2)  # one email per recipient (never a shared To: list)
         self.assertEqual(mail.outbox[0].subject, pets.NEW_REPORT_SUBJECT)
-        self.assertCountEqual(mail.outbox[0].to, [self.admin.email, self.curator.email])
+        self.assertCountEqual([m.to for m in mail.outbox], [[self.admin.email], [self.curator.email]])
 
     def test_new_report_pings_owner_of_a_matching_counterpart(self):
         found = pets.create_pet_report(reporter=self.other, report_type="found", description="grey cat",
@@ -5281,7 +5282,7 @@ class AboutHeroVideoTests(TestCase):
         self.assertNotIn("poster", tag)
         self.assertNotIn("tajikistan/hero.jpg", html)
         # iOS Safari only autoplays inline when muted + playsinline.
-        for attr in ("muted", "loop", "playsinline", "disablepictureinpicture", 'preload="none"'):
+        for attr in ("muted", "loop", "playsinline", "disablepictureinpicture", 'preload="metadata"'):
             with self.subTest(attr=attr):
                 self.assertIn(attr, tag)
         # Not fetched with the page: no autoplay attribute; the script turns on

@@ -92,6 +92,8 @@ fresh checkout boots; replace it with a real key.
 | `DJANGO_CSRF_TRUSTED_ORIGINS` | Full HTTPS origins allowed to POST | empty. Production: `https://khayrkhoh.tj,https://www.khayrkhoh.tj` |
 | `DJANGO_BEHIND_TLS_PROXY` | Trust `X-Forwarded-Proto` from a reverse proxy | `False`. Production (behind nginx): `True` |
 | `DJANGO_DB_NAME` / `DJANGO_DB_USER` / `DJANGO_DB_PASSWORD` / `DJANGO_DB_HOST` / `DJANGO_DB_PORT` | PostgreSQL connection — **required in production**, see "Docker deployment" | SQLite (dev only) |
+| `DJANGO_REDIS_URL` | Redis cache (rate limits, cached sessions, public-page aggregates) | unset. Production: `redis://redis:6379/0`, set by `docker-compose.yml` (wins over `DJANGO_DB_CACHE`) |
+| `CELERY_BROKER_URL` | Celery broker for background email/Telegram delivery | unset → tasks run inline. Production: `redis://redis:6379/1`, set by `docker-compose.yml` |
 | `DJANGO_DB_CACHE` | Use a shared DB cache for rate-limit counters | `False` (per-process LocMemCache). **Required `True` in production** — a multi-worker gunicorn deployment needs the shared cache for the rate limiters to work at all |
 | `DJANGO_LOG_LEVEL` | App logger level | `INFO` |
 | `SMTP_USER`, `SMTP_PASSWORD` | SMTP credentials | emails print to console |
@@ -151,7 +153,7 @@ python manage.py run_telegram_bot
 
 ## Background jobs (production)
 
-There is **no Celery / Redis / task queue** — scheduled work is plain management
+Scheduling has **no Celery beat** — scheduled work is plain management
 commands driven by the system cron. Each command is idempotent and safe to run
 repeatedly.
 
@@ -422,7 +424,7 @@ archiving) is **not** set up and is left to the deploy owner if the RPO requires
 
 ### Known production limitations (intentional)
 
-- **No task queue.** Scheduled work is cron + idempotent management commands, by design.
+- **Celery is for notification delivery only** (email/Telegram, `celery_worker` + `redis` compose services). Scheduled work stays cron + idempotent management commands, by design.
 - **No object storage.** Uploads live on the local `media/` volume; back it up with the DB (above).
 - **No automated backups in-repo.** The `pg_dump` / `rsync` above must be scheduled by the operator.
 - **No WAL archiving / PITR.** Recovery granularity is "last nightly dump".

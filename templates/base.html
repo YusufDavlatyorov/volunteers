@@ -108,7 +108,11 @@
             <button class="lang-btn" data-lang="ru" onclick="setLanguage('ru')">RU</button>
             <button class="lang-btn" data-lang="tj" onclick="setLanguage('tj')">TJ</button>
         </div>
-        <button class="theme-toggle" id="themeToggle" title="Toggle theme">🌙</button>
+        <button class="theme-toggle" id="themeToggle" type="button" title="Toggle theme" aria-label="Toggle theme">
+            {# Both icons are drawn centred in a 24x24 box; CSS shows the one for the current data-theme (no text swap, no layout shift). #}
+            <svg class="theme-toggle__icon theme-toggle__icon--moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20.4 14.6A8.6 8.6 0 0 1 9.4 3.6a8.6 8.6 0 1 0 11 11Z" fill="#f5c542" stroke="#d9a514" stroke-width="1" stroke-linejoin="round"/></svg>
+            <svg class="theme-toggle__icon theme-toggle__icon--sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4.6" fill="#fbbf24"/><g stroke="#f59e0b" stroke-width="2" stroke-linecap="round"><path d="M12 1.8v2.6M12 19.6v2.6M1.8 12h2.6M19.6 12h2.6M4.8 4.8l1.85 1.85M17.35 17.35l1.85 1.85M4.8 19.2l1.85-1.85M17.35 6.65l1.85-1.85"/></g></svg>
+        </button>
         {% if user.is_authenticated %}
             <a class="nav-avatar" href="{% url 'profile' %}" data-i18n-tooltip="nav.profile" data-tooltip="Profile" aria-label="Profile">
                 {% if user.profile.image %}<img src="{{ user.profile.image.url }}" alt="">{% else %}{{ user.username|first|upper }}{% endif %}
@@ -194,15 +198,27 @@
     const toggle = document.getElementById('themeToggle');
     const saved = localStorage.getItem('gc-theme') || 'light';
     html.setAttribute('data-theme', saved);
-    toggle.textContent = saved === 'dark' ? '☀️' : '🌙';
 
     toggle.addEventListener('click', () => {
         const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
         html.setAttribute('data-theme', next);
         localStorage.setItem('gc-theme', next);
-        toggle.textContent = next === 'dark' ? '☀️' : '🌙';
     });
 })();
+
+/* ===== PHONE INPUTS ([data-phone-mask], myapp/forms.py TelInput) =====
+   On blur, a recognizable Tajik number is tidied to "+992 XX XXX XX XX";
+   anything else is left as typed for the server to reject (it validates and
+   stores the normalized +992XXXXXXXXX either way). */
+document.querySelectorAll('input[data-phone-mask="tj"]').forEach((input) => {
+    input.addEventListener('blur', () => {
+        const digits = input.value.replace(/[\s\-().]/g, '');
+        const m = digits.match(/^(?:\+?992)?(\d{9})$/);
+        if (!m) return;
+        const d = m[1];
+        input.value = `+992 ${d.slice(0, 2)} ${d.slice(2, 5)} ${d.slice(5, 7)} ${d.slice(7, 9)}`;
+    });
+});
 
 /* ===== MOBILE MENU ===== */
 document.querySelector('[data-menu-toggle]')?.addEventListener('click', (e) => {

@@ -1,0 +1,2 @@
+{% load assets %}{# Leaflet CSS from unpkg (fast CDN, SRI-pinned); if unpkg fails on this visitor's network, the same file from our own static copy. #}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" onerror="this.onerror=null;this.removeAttribute('integrity');this.href='{% asset 'vendor/leaflet-1.9.4/leaflet.css' %}'">

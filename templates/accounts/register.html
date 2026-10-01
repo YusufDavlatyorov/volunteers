@@ -41,13 +41,13 @@
             <div class="field-group">
                 <label for="{{ form.username.id_for_label }}" data-i18n="field.username">Username</label>
                 {{ form.username }}
-                <span class="field-error">{{ form.username.errors.0 }}</span>
+                <span class="field-error"{% error_i18n_attrs form.username.errors %}>{{ form.username.errors.0 }}</span>
             </div>
 
             <div class="field-group">
                 <label for="{{ form.email.id_for_label }}" data-i18n="field.email">Email</label>
                 {{ form.email }}
-                <span class="field-error">{{ form.email.errors.0 }}</span>
+                <span class="field-error"{% error_i18n_attrs form.email.errors %}>{{ form.email.errors.0 }}</span>
             </div>
 
             <div class="field-group">

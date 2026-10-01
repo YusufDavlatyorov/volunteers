@@ -4,11 +4,14 @@ from datetime import timedelta
 
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.core.exceptions import ValidationError
+from django.core.validators import MaxLengthValidator
 from django.db import models
 from django.utils import timezone
 
 
 MAX_UPLOAD_SIZE_MB = 5
+# Public rating page cache (myapp.views.rating_view); cleared whenever points change.
+RATING_CACHE_KEY = "rating_page:v1"
 MAX_UPLOAD_SIZE_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024
 
 
@@ -77,7 +80,13 @@ class Users(AbstractBaseUser, PermissionsMixin):
     ROLE_VOLUNTEER = "volunteer"
     ROLE_CLIENT = "client"
 
-    username = models.CharField(max_length=150, unique=True)
+    # Display limits (long names broke layouts — horizontal scroll). The DB
+    # columns keep their original size so no existing value is lost; the
+    # validators bite on every validated path (forms, Django admin).
+    USERNAME_MAX_LENGTH = 30
+    FULL_NAME_MAX_LENGTH = 60
+
+    username = models.CharField(max_length=150, unique=True, validators=[MaxLengthValidator(USERNAME_MAX_LENGTH)])
     email = models.EmailField(unique=True)
 
     is_email_verified = models.BooleanField(default=False)
@@ -214,7 +223,7 @@ class Profile(models.Model):
     ]
 
     user = models.OneToOneField(Users, on_delete=models.CASCADE, related_name="profile")
-    full_name = models.CharField(max_length=255, blank=True)
+    full_name = models.CharField(max_length=255, blank=True, validators=[MaxLengthValidator(Users.FULL_NAME_MAX_LENGTH)])
     age = models.PositiveIntegerField(null=True, blank=True)
     image = models.ImageField(upload_to="avatars/", blank=True, validators=[validate_file_size])
     bio = models.TextField(blank=True)
@@ -252,6 +261,9 @@ class Profile(models.Model):
     def add_points(self, points=3):
         self.rating += points
         self.save(update_fields=["rating", "updated_at"])
+        from django.core.cache import cache
+
+        cache.delete(RATING_CACHE_KEY)  # the leaderboard reflects new points at once
 
     def has_skill(self, help_type):
         return help_type in (self.skills or [])

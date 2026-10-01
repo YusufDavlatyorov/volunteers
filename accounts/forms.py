@@ -25,6 +25,10 @@ class RegistrationForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         kwargs.setdefault("label_suffix", "")
         super().__init__(*args, **kwargs)
+        # The display limit, not the (wider, legacy-safe) DB column: also sets
+        # the input's maxlength so the browser stops at 30.
+        self.fields["username"].max_length = Users.USERNAME_MAX_LENGTH
+        self.fields["username"].widget.attrs["maxlength"] = Users.USERNAME_MAX_LENGTH
 
     class Meta:
         model = Users
@@ -32,7 +36,7 @@ class RegistrationForm(forms.ModelForm):
         # the verified code flow in accounts.views.telegram_link_view.
         fields = ["username", "email", "region"]
         widgets = {
-            "username": forms.TextInput(attrs={"placeholder": "username"}),
+            "username": forms.TextInput(attrs={"placeholder": "username", "maxlength": Users.USERNAME_MAX_LENGTH}),
             "email": forms.EmailInput(attrs={"placeholder": "you@example.com"}),
             "region": forms.Select(choices=[("", "Выберите регион")] + REGION_CHOICES),
         }
@@ -153,7 +157,7 @@ class ProfileForm(forms.ModelForm):
             "availability_status": "Статус доступности",
         }
         widgets = {
-            "full_name": forms.TextInput(attrs={"placeholder": "Полное имя"}),
+            "full_name": forms.TextInput(attrs={"placeholder": "Полное имя", "maxlength": Users.FULL_NAME_MAX_LENGTH}),
             "age": forms.NumberInput(attrs={"min": 1, "max": 120}),
             "bio": forms.Textarea(attrs={"rows": 4, "placeholder": "О себе, навыки, удобное время"}),
             "availability_status": forms.Select(attrs={"class": "control"}),
@@ -165,6 +169,7 @@ class ProfileForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         if self.instance and self.instance.pk:
             self.initial.setdefault("skills", self.instance.skills or [])
+        self.fields["full_name"].widget.attrs["maxlength"] = Users.FULL_NAME_MAX_LENGTH
 
     def clean_skills(self):
         return list(self.cleaned_data.get("skills") or [])

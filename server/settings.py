@@ -66,6 +66,12 @@ SECURE_HSTS_PRELOAD = not DEBUG
 SECURE_CONTENT_TYPE_NOSNIFF = True
 SESSION_COOKIE_HTTPONLY = True
 X_FRAME_OPTIONS = 'DENY'
+# Django's default ("same-origin") sends NO Referer on cross-site requests, so
+# the map's OpenStreetMap tile requests went out without one — OSM's tile
+# usage policy requires it and may answer 403 "Access blocked". This sends just
+# the origin (https://khayrkhoh.tj/) cross-site — never the path, so token URLs
+# (reset/confirm links) don't leak — and the full URL same-site.
+SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
 
 # Behind a TLS-terminating reverse proxy (nginx/Caddy), Django only sees plain
 # HTTP on the loopback hop, so request.is_secure() is False and SECURE_SSL_REDIRECT
@@ -176,9 +182,25 @@ if os.getenv('DJANGO_DB_NAME'):
 # Cache — also the backing store for the login / password-reset / AI-assistant /
 # Telegram-link rate limiters. The default LocMemCache is per-process, so those
 # throttles only bite within a single worker: a multi-process (gunicorn) web
-# deployment MUST set DJANGO_DB_CACHE=True (a shared, dependency-free DB cache —
-# run `python manage.py createcachetable` once) or point CACHES at Redis/Memcached.
-if env_bool('DJANGO_DB_CACHE', False):
+# deployment MUST use a shared cache. Production sets DJANGO_REDIS_URL (the
+# `redis` compose service); DJANGO_DB_CACHE=True (DB table, run
+# `createcachetable`) remains as a dependency-free alternative.
+REDIS_URL = os.getenv('DJANGO_REDIS_URL', '').strip()
+if REDIS_URL:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': REDIS_URL,
+            'KEY_PREFIX': 'khayrkhoh',
+            # Every key gets a TTL, so redis' volatile-lru policy can evict
+            # cache entries under memory pressure but never Celery's queue.
+            'TIMEOUT': 300,
+            'OPTIONS': {'socket_connect_timeout': 2, 'socket_timeout': 2},
+        }
+    }
+    # Session reads hit Redis first; the DB row stays the source of truth.
+    SESSION_ENGINE = 'django.contrib.sessions.backends.cached_db'
+elif env_bool('DJANGO_DB_CACHE', False):
     CACHES = {
         'default': {
             'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
@@ -191,6 +213,27 @@ else:
             'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
         }
     }
+
+# Celery — background delivery of email/Telegram notifications
+# (myapp/tasks.py, queued by myapp.notifications.notify_users). Production:
+# CELERY_BROKER_URL=redis://redis:6379/1 and a `celery_worker` compose service.
+# Without a broker (tests, local dev) tasks run inline ("eager"), exactly as the
+# old synchronous sends did; a failing task never raises into the request.
+CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', '').strip()
+CELERY_TASK_ALWAYS_EAGER = not CELERY_BROKER_URL
+CELERY_TASK_EAGER_PROPAGATES = False
+CELERY_TASK_IGNORE_RESULT = True
+CELERY_TASK_ACKS_LATE = True            # a worker crash re-delivers, not drops
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_TASK_SOFT_TIME_LIMIT = 60
+CELERY_TASK_TIME_LIMIT = 90
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_BROKER_TRANSPORT_OPTIONS = {'visibility_timeout': 3600}
+# A request that queues a notification must not hang on a dead broker:
+# fail fast and let notify_users deliver inline instead.
+CELERY_BROKER_CONNECTION_TIMEOUT = 2
+CELERY_TASK_PUBLISH_RETRY = True
+CELERY_TASK_PUBLISH_RETRY_POLICY = {'max_retries': 1, 'interval_start': 0, 'interval_step': 0.5, 'interval_max': 0.5}
 
 
 LOGIN_URL = 'login'

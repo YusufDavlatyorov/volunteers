@@ -16,6 +16,21 @@
    stack we don't touch. */
 .map-page-container { height: 70vh; min-height: 420px; border-radius: 16px; overflow: hidden; box-shadow: var(--shadow); border: 1px solid var(--card-border); }
 .map-picker { height: 320px; border-radius: 12px; overflow: hidden; border: 1px solid var(--card-border); margin-top: var(--space-2); }
+/* Failure state (static/js/map.js showError): fills the map area with a
+   readable, localized message instead of a blank box. */
+.map-error {
+    position: absolute;
+    inset: 0;
+    z-index: 500;
+    display: grid;
+    place-items: center;
+    padding: var(--space-4);
+    background: var(--surface-2, var(--card-bg));
+    color: var(--muted, inherit);
+    font-size: 0.95rem;
+    text-align: center;
+    line-height: 1.45;
+}
 .map-mini { height: 260px; border-radius: 12px; overflow: hidden; border: 1px solid var(--card-border); }
 .map-toolbar { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; margin-bottom: var(--space-3); }
 .map-legend { display: flex; flex-wrap: wrap; gap: var(--space-4); margin-bottom: var(--space-3); font-size: 0.82rem; color: var(--text-2); }

@@ -17,11 +17,29 @@ from .models import (
     STATUS_CHOICES,
 )
 from .services.geo import is_valid_coordinate
+from .validators import PHONE_PLACEHOLDER, normalize_tj_phone
 
 
 FIELD_CLASS = {
     "class": "control",
 }
+
+
+class TelInput(forms.TextInput):
+    """<input type="tel"> with the phone keypad on mobile and the formatting
+    hint; base.html's [data-phone-mask] script tidies the number on blur."""
+
+    input_type = "tel"
+
+    def __init__(self, attrs=None):
+        super().__init__({
+            **FIELD_CLASS,
+            "inputmode": "tel",
+            "autocomplete": "tel",
+            "placeholder": PHONE_PLACEHOLDER,
+            "data-phone-mask": "tj",
+            **(attrs or {}),
+        })
 
 
 class HelpRequestForm(forms.ModelForm):
@@ -49,13 +67,16 @@ class HelpRequestForm(forms.ModelForm):
             "priority": forms.Select(attrs=FIELD_CLASS),
             "description": forms.Textarea(attrs={**FIELD_CLASS, "rows": 5, "placeholder": "Что нужно сделать и когда удобно прийти"}),
             "address": forms.TextInput(attrs={**FIELD_CLASS, "placeholder": "Адрес"}),
-            "phone": forms.TextInput(attrs={**FIELD_CLASS, "placeholder": "+992 ..."}),
+            "phone": TelInput(),
             "latitude": forms.HiddenInput(),
             "longitude": forms.HiddenInput(),
         }
 
     def clean_priority(self):
         return self.cleaned_data.get("priority") or HelpRequest.PRIORITY_NORMAL
+
+    def clean_phone(self):
+        return normalize_tj_phone(self.cleaned_data.get("phone"))
 
     def save(self, commit=True):
         # Keep the legacy boolean in step with the graded field so existing
@@ -182,10 +203,13 @@ class PetReportForm(forms.ModelForm):
             "species": forms.Select(attrs=FIELD_CLASS),
             "breed": forms.TextInput(attrs=FIELD_CLASS),
             "description": forms.Textarea(attrs={**FIELD_CLASS, "rows": 5, "placeholder": "Приметы, где и когда, поведение"}),
-            "contact_phone": forms.TextInput(attrs={**FIELD_CLASS, "placeholder": "+992 ..."}),
+            "contact_phone": TelInput(),
             "latitude": forms.HiddenInput(),
             "longitude": forms.HiddenInput(),
         }
+
+    def clean_contact_phone(self):
+        return normalize_tj_phone(self.cleaned_data.get("contact_phone"))
 
     def clean(self):
         cleaned = super().clean()

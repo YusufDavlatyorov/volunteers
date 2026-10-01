@@ -1,17 +1,25 @@
 # KhayrKhoh (khayrkhoh.tj) — production compose file.
 #
-# Runs ONLY the Django app container. PostgreSQL is NOT started here — this
-# project connects to the pre-existing shared_postgres container over the
-# shared external Docker network named by SHARED_POSTGRES_NETWORK in .env
-# (see .env.example). Do not add a postgres service here.
+# Services: web (gunicorn), telegram_bot (long polling), celery_worker
+# (background email/Telegram delivery) — all the same image — plus redis
+# (shared cache, cached sessions, Celery broker). PostgreSQL is NOT started
+# here — this project connects to the pre-existing shared_postgres container
+# over the shared external Docker network named by SHARED_POSTGRES_NETWORK in
+# .env (see .env.example). Do not add a postgres service here.
 #
 # Static/media are bind-mounted to host directories so an external reverse
-# proxy (nginx, on the host or in its own container attached to the same
-# volumes) can serve them directly — see README → "Docker deployment".
+# proxy (nginx, on the host) can serve them directly — see DEPLOY.md.
 #
-# Migrations, collectstatic and the initial-accounts command are run as
-# separate one-off commands against this same image, not automatically on
-# start — see README for the exact sequence.
+# Migrations and collectstatic run as one-off containers from the new image
+# BEFORE `up -d` (DEPLOY.md "Redeploying") — not automatically on start.
+
+# Settings every app container shares (on top of .env): Redis for the cache and
+# as the Celery broker. These win over anything in .env (DJANGO_DB_CACHE is no
+# longer used in production — the Redis cache replaces the DB cache table).
+x-app-env: &app-env
+  DJANGO_REDIS_URL: "redis://redis:6379/0"
+  CELERY_BROKER_URL: "redis://redis:6379/1"
+  DJANGO_DB_CACHE: "False"
 
 services:
   web:
@@ -24,6 +32,7 @@ services:
     env_file:
       - .env
     environment:
+      <<: *app-env
       # Content-hashed static filenames (ManifestStaticFilesStorage) so nginx
       # can cache /static/ for a year — see server/settings.py STATIC_MANIFEST.
       # Requires collectstatic before web starts (DEPLOY.md "Redeploying").
@@ -32,13 +41,34 @@ services:
       - ./staticfiles:/app/staticfiles
       - ./media:/app/media
     ports:
-      # Loopback-only — an external nginx (host-level, per README) reverse
-      # proxies to this port and terminates TLS for khayrkhoh.tj /
-      # www.khayrkhoh.tj. Remove this mapping instead if nginx runs as a
-      # container on the same shared network and reaches `web:8000` directly.
+      # Loopback-only — the host nginx reverse proxies to this port and
+      # terminates TLS for khayrkhoh.tj / www.khayrkhoh.tj.
       - "127.0.0.1:8000:8000"
+    depends_on:
+      - redis
     networks:
       - shared_postgres_net
+      - internal
+
+  celery_worker:
+    # Delivers queued notifications (myapp/tasks.py) with retries/backoff.
+    # Threads pool: the sends are I/O-bound (SMTP / Telegram HTTP), it is light
+    # on a 1-vCPU host, and Celery's default prefork pool (billiard) crashed
+    # every task with "not enough values to unpack" on Python 3.14 in testing.
+    image: khayrkhoh:latest
+    container_name: khayrkhoh_celery_worker
+    command: ["celery", "-A", "server", "worker", "--pool=threads", "--concurrency=4", "--loglevel=INFO"]
+    restart: unless-stopped
+    mem_limit: 300m
+    env_file:
+      - .env
+    environment:
+      <<: *app-env
+    depends_on:
+      - redis
+    networks:
+      - shared_postgres_net
+      - internal
 
   telegram_bot:
     # Long-polling Telegram bot — a separate process from gunicorn, same
@@ -50,12 +80,40 @@ services:
     mem_limit: 300m
     env_file:
       - .env
+    environment:
+      <<: *app-env
     depends_on:
       - web
+      - redis
     networks:
       - shared_postgres_net
+      - internal
+
+  redis:
+    # Cache + Celery broker. Private network only, no published port.
+    # appendonly: queued notifications survive a restart. volatile-lru: under
+    # memory pressure evict only keys with a TTL (cache entries — every Django
+    # cache key has one), never the Celery queue (no TTL).
+    image: redis:7-alpine
+    container_name: khayrkhoh_redis
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "128mb", "--maxmemory-policy", "volatile-lru", "--save", ""]
+    restart: unless-stopped
+    mem_limit: 192m
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - internal
+
+volumes:
+  redis_data:
 
 networks:
   shared_postgres_net:
     external: true
     name: ${SHARED_POSTGRES_NETWORK:-shared_postgres_net}
+  internal:

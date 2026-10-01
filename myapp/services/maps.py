@@ -43,11 +43,28 @@ __all__ = [
 _NOMINATIM_BASE = "https://nominatim.openstreetmap.org"
 _REGION_LABELS = dict(REGION_CHOICES)
 
+# OSM's tile servers want one host (no a/b/c subdomains since 2024) and a
+# Referer — settings.SECURE_REFERRER_POLICY ("strict-origin-when-cross-origin")
+# sends our origin with cross-site tile requests; "same-origin" sent none,
+# which OSM's usage policy may answer with 403 "Access blocked".
 _OSM_TILE = {
-    "url": "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+    "url": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
     "attribution": '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     "max_zoom": 19,
-    "subdomains": "abc",
+    "subdomains": "",
+}
+
+# Keyless fallback the frontend switches to when the primary provider's tiles
+# keep failing (static/js/map.js tileLayer). CARTO's free raster basemaps (OSM
+# data) — free for non-commercial use like this NGO's; attribution required.
+_CARTO_TILE = {
+    "url": "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+    "attribution": (
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors '
+        '&copy; <a href="https://carto.com/attributions">CARTO</a>'
+    ),
+    "max_zoom": 20,
+    "subdomains": "abcd",
 }
 
 
@@ -60,8 +77,16 @@ def _timeout():
 
 
 def tile_layer():
-    """Leaflet tile-layer config for the current provider. Frontend reads this
-    (see myapp/context_processors.py -> window.GC_MAPS_TILE)."""
+    """Leaflet tile-layer config for the current provider, plus a keyless
+    ``fallback`` config the frontend switches to if the provider's tiles keep
+    failing. Frontend reads this (see myapp/context_processors.py)."""
+    config = _primary_tile_layer()
+    if config.get("url") != _CARTO_TILE["url"]:
+        config["fallback"] = dict(_CARTO_TILE)
+    return config
+
+
+def _primary_tile_layer():
     provider = provider_name()
     if provider == "mapbox":
         key = getattr(settings, "MAPS_API_KEY", "")
@@ -84,6 +109,8 @@ def tile_layer():
             "MAPS_PROVIDER=google is not a Leaflet raster drop-in; it needs the "
             "Maps JS SDK integration (not implemented). Use 'osm' or 'mapbox'."
         )
+    if provider == "carto":
+        return dict(_CARTO_TILE)
     if provider != "osm":
         logger.warning("Unknown MAPS_PROVIDER=%r; falling back to 'osm'.", provider)
     return dict(_OSM_TILE)

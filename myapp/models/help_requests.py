@@ -5,6 +5,8 @@ from django.utils import timezone
 
 from accounts.models import REGION_CHOICES, Users
 
+from ..validators import normalize_tj_phone, validate_tj_phone
+
 
 # Single source of truth for the "task in progress too long" threshold. The
 # overdue sweep (myapp.services.overdue, run by both check_overdue_view and the
@@ -88,7 +90,8 @@ class HelpRequest(models.Model):
     help_type = models.CharField(max_length=50, choices=HELP_TYPE_CHOICES)
     description = models.TextField()
     address = models.CharField(max_length=255)
-    phone = models.CharField(max_length=30)
+    # Tajik number, stored normalized as +992XXXXXXXXX (myapp/validators.py).
+    phone = models.CharField(max_length=30, validators=[validate_tj_phone])
     region = models.CharField(max_length=100, choices=REGION_CHOICES, blank=True)
     latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
@@ -130,6 +133,13 @@ class HelpRequest(models.Model):
 
     def __str__(self):
         return f"{self.get_help_type_display()} для {self.client.username}"
+
+    def clean(self):
+        # Normalize on every full_clean() path (forms, Django admin, shell);
+        # validate_tj_phone already rejected anything that can't normalize.
+        super().clean()
+        if self.phone:
+            self.phone = normalize_tj_phone(self.phone)
 
     def accept(self, volunteer):
         self.volunteer = volunteer

@@ -7,12 +7,13 @@
     Video-only hero (no poster — by design). Sources: smallest-first for phones
     (media query), VP9 WebM before H.264 MP4 (smaller at equal quality). All
     are seamless 4.3 s loops without audio; URLs carry a content hash
-    ({% asset %}) so nginx can cache them as immutable. preload="none" and no
-    autoplay attribute: nothing is fetched until the script below starts it
-    after window "load", so on a slow link the video never competes with the
-    HTML/CSS/fonts for bandwidth (and doesn't hold back the load event).
+    ({% asset %}) so nginx can cache them as immutable. preload="metadata" and
+    no autoplay attribute: only the few-KB header (faststart moov / WebM cues)
+    is fetched with the page, so playback can begin immediately once the
+    script below starts it after window "load" — the frames never compete
+    with the HTML/CSS/fonts for bandwidth or hold back the load event.
     {% endcomment %}
-    <video class="hero-photo" muted loop playsinline preload="none" disablepictureinpicture aria-hidden="true" tabindex="-1">
+    <video class="hero-photo" muted loop playsinline preload="metadata" disablepictureinpicture aria-hidden="true" tabindex="-1">
         <source src="{% asset 'videos/hero-loop-mobile.webm' %}" type='video/webm; codecs="vp9"' media="(max-width: 768px)">
         <source src="{% asset 'videos/hero-loop-mobile.mp4' %}" type="video/mp4" media="(max-width: 768px)">
         <source src="{% asset 'videos/hero-loop-desktop.webm' %}" type='video/webm; codecs="vp9"'>

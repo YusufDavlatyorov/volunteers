@@ -34,12 +34,16 @@ ERROR_I18N_KEYS = {
     "password_entirely_numeric": "err.password_entirely_numeric",
     "password_too_similar": "err.password_too_similar",
     "password_mismatch": "err.password_mismatch",
+    # myapp/validators.py (phone fields)
+    "invalid_phone": "err.invalid_phone",
+    # Django's MaxLengthValidator (username / full_name limits, any too-long field)
+    "max_length": "err.max_length",
 }
 
 # Params passed through to i18n.js placeholders. Anything else (e.g. the
 # similarity validator's English `verbose_name`) is left out — the translated
 # strings don't interpolate it.
-I18N_ARGS = ("min_length",)
+I18N_ARGS = ("min_length", "limit_value", "show_value")
 
 
 def _configured_min_length():

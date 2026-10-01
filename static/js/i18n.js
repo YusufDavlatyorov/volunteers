@@ -314,7 +314,13 @@ const T = {
     "err.password_too_common":"This password is too common.",
     "err.password_entirely_numeric":"This password is entirely numeric.",
     "err.password_too_similar":"The password is too similar to your username, name or email.",
-    "err.password_mismatch":"Passwords do not match."
+    "err.password_mismatch":"Passwords do not match.",
+    // Map failure state (static/js/map.js showError)
+    "map.error_load":"The map could not be loaded. Check your internet connection and reload the page.",
+    // Phone validation (myapp/validators.py)
+    "err.invalid_phone":"Enter a number in the format +992 XX XXX XX XX (9 digits after +992).",
+    // Length limits (username 30, full name 60 — accounts/models.py)
+    "err.max_length":"Must be at most {limit_value} characters (currently {show_value})."
   },
   ru: {
     "nav.about":"О нас","nav.rating":"Рейтинг","nav.profile":"Профиль",
@@ -631,7 +637,13 @@ const T = {
     "err.password_too_common":"Этот пароль слишком распространён.",
     "err.password_entirely_numeric":"Пароль не может состоять только из цифр.",
     "err.password_too_similar":"Пароль слишком похож на ваше имя пользователя, имя или email.",
-    "err.password_mismatch":"Пароли не совпадают."
+    "err.password_mismatch":"Пароли не совпадают.",
+    // Map failure state (static/js/map.js showError)
+    "map.error_load":"Не удалось загрузить карту. Проверьте подключение к интернету и обновите страницу.",
+    // Phone validation (myapp/validators.py)
+    "err.invalid_phone":"Введите номер в формате +992 XX XXX XX XX (9 цифр после +992).",
+    // Length limits (username 30, full name 60 — accounts/models.py)
+    "err.max_length":"Не длиннее {limit_value} символов (сейчас {show_value})."
   },
   tj: {
     "nav.about":"Дар бораи мо","nav.rating":"Рейтинг","nav.profile":"Профил",
@@ -948,7 +960,13 @@ const T = {
     "err.password_too_common":"Ин парол хеле маъмул аст.",
     "err.password_entirely_numeric":"Парол наметавонад танҳо аз рақамҳо иборат бошад.",
     "err.password_too_similar":"Парол ба номи корбар, ном ё email-и шумо хеле монанд аст.",
-    "err.password_mismatch":"Паролҳо мувофиқат намекунанд."
+    "err.password_mismatch":"Паролҳо мувофиқат намекунанд.",
+    // Map failure state (static/js/map.js showError)
+    "map.error_load":"Харитаро бор кардан муяссар нашуд. Пайвасти интернетро санҷед ва саҳифаро аз нав кушоед.",
+    // Phone validation (myapp/validators.py)
+    "err.invalid_phone":"Рақамро дар шакли +992 XX XXX XX XX ворид кунед (9 рақам пас аз +992).",
+    // Length limits (username 30, full name 60 — accounts/models.py)
+    "err.max_length":"На зиёда аз {limit_value} аломат (ҳозир {show_value})."
   }
 };
 

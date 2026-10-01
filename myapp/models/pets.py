@@ -19,6 +19,8 @@ from django.utils import timezone
 
 from accounts.models import REGION_CHOICES, Users, validate_file_size
 
+from ..validators import normalize_tj_phone, validate_tj_phone
+
 
 REPORT_LOST = "lost"
 REPORT_FOUND = "found"
@@ -94,7 +96,8 @@ class PetReport(models.Model):
     longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     # Optional faster channel for staff to reach the reporter. NEVER rendered on
     # the public board or the map JSON — reporter + staff only (services.pets).
-    contact_phone = models.CharField(max_length=30, blank=True)
+    # Tajik number, stored normalized as +992XXXXXXXXX (myapp/validators.py).
+    contact_phone = models.CharField(max_length=30, blank=True, validators=[validate_tj_phone])
     image = models.ImageField(upload_to="pets/", blank=True, validators=[validate_file_size])
     status = models.CharField(
         max_length=20, choices=PET_STATUS_CHOICES, default=STATUS_OPEN, db_index=True
@@ -127,6 +130,9 @@ class PetReport(models.Model):
         bare DecimalField(max_digits=9) would otherwise accept latitude 800."""
         super().clean()
         from ..services.geo import is_valid_coordinate
+
+        if self.contact_phone:
+            self.contact_phone = normalize_tj_phone(self.contact_phone)
 
         lat, lng = self.latitude, self.longitude
         if (lat is None) != (lng is None):

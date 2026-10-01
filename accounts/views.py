@@ -6,7 +6,6 @@ from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
-from django.core.mail import send_mail
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.utils import timezone
@@ -15,7 +14,7 @@ from django.views.decorators.http import require_POST
 from .forms import ForgotPasswordForm, LoginForm, ProfileForm, RegistrationForm, ResetPasswordForm, UserUpdateForm
 from .models import Profile, REGION_CHOICES, Users, hash_token, validate_file_size
 from myapp.models import VolunteerApplication
-from myapp.notifications import notify_users
+from myapp.notifications import notify_users, queue_email
 from myapp.services import dashboard
 
 logger = logging.getLogger(__name__)
@@ -55,12 +54,10 @@ def register_view(request):
         user = form.save()
         token = user.generate_email_verification_token()
         verify_url = request.build_absolute_uri(f"/confirm-email/{token}/")
-        send_mail(
+        queue_email(  # background delivery: registration doesn't wait on SMTP
+            user.email,
             "Подтвердите email - KhayrKhoh",
             f"Здравствуйте, {user.username}!\nПодтвердите email по ссылке:\n{verify_url}",
-            settings.DEFAULT_FROM_EMAIL,
-            [user.email],
-            fail_silently=True,
         )
         if form.cleaned_data["role"] == "volunteer":
             VolunteerApplication.objects.get_or_create(
@@ -168,12 +165,12 @@ def forgot_password_view(request):
         if user:
             token = user.generate_reset_password_token()
             reset_url = request.build_absolute_uri(f"/reset-password/{token}/")
-            send_mail(
+            # Queued, not sent inline: the response no longer takes measurably
+            # longer when the address exists (an account-enumeration side channel).
+            queue_email(
+                user.email,
                 "Сброс пароля - KhayrKhoh",
                 f"Здравствуйте, {user.username}!\nСсылка для сброса пароля:\n{reset_url}",
-                settings.DEFAULT_FROM_EMAIL,
-                [user.email],
-                fail_silently=True,
             )
         messages.success(request, "Если email найден, ссылка отправлена.")
         return redirect("login")
@@ -269,7 +266,12 @@ def update_profile(request):
     # requires the verified code round-trip in telegram_link_view.
     request.user.save()
 
-    profile.full_name = request.POST.get("full_name", profile.full_name)[:255]
+    full_name = request.POST.get("full_name", profile.full_name)
+    if len(full_name) > Users.FULL_NAME_MAX_LENGTH:
+        return JsonResponse(
+            {"success": False, "error": f"Имя не длиннее {Users.FULL_NAME_MAX_LENGTH} символов."}, status=400
+        )
+    profile.full_name = full_name
     raw_age = request.POST.get("age")
     if raw_age:
         try:

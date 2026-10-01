@@ -1,0 +1,3 @@
+{% load assets %}{# Leaflet JS from unpkg (fast CDN, SRI-pinned). If it didn't load (blocked/unreachable for this visitor), fall back synchronously to our own copy so map.js and the inline map code still find L. If both fail, map.js shows a localized message instead of a blank map. #}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script>window.L || document.write('<script src="{% asset 'vendor/leaflet-1.9.4/leaflet.js' %}"><\/script>');</script>

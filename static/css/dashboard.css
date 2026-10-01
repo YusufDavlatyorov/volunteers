@@ -8,7 +8,7 @@
    CRM volunteer detail page, the rating board, task detail and the AI page. */
 
 .dash-greeting { margin-bottom: var(--space-6); }
-.dash-greeting h1 { margin-bottom: 0.3rem; font-size: clamp(1.8rem, 3.6vw, 2.6rem); line-height: 1.12; }
+.dash-greeting h1 { margin-bottom: 0.3rem; font-size: clamp(1.8rem, 3.6vw, 2.6rem); line-height: 1.12; overflow-wrap: anywhere; }
 .dash-greeting p { font-size: 1.02rem; margin: 0; }
 
 /* The dashboard side rail (profile summary + quick actions) stays in view while

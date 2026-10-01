@@ -8,4 +8,8 @@ pillow==12.1.1
 
 # --- Production only (harmless, unused in local SQLite dev) ---
 gunicorn==23.0.0
+# Shared cache + Celery broker (the `redis` compose service) and background
+# notification delivery (`celery_worker`). Without a broker, tasks run inline.
+celery==5.5.3
+redis==6.4.0
 psycopg[binary]==3.2.13

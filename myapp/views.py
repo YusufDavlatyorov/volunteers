@@ -13,7 +13,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
-from accounts.models import Profile, REGION_CHOICES, Users
+from accounts.models import RATING_CACHE_KEY, Profile, REGION_CHOICES, Users
 from .forms import (
     BroadcastForm,
     DonationForm,
@@ -599,10 +599,21 @@ def completed_tasks_view(request):
     return render(request, "myapp/completed_tasks.html", {"page_obj": page_obj})
 
 
+RATING_TTL = 300  # seconds; Profile.add_points() clears it immediately on any rating change
+
+
+def _rating_volunteers():
+    return list(
+        Profile.objects.filter(user__is_volunteer=True, user__is_active=True)
+        .select_related("user")
+        .order_by("-rating", "user__username")[:30]
+    )
+
+
 def rating_view(request):
-    volunteers = Profile.objects.filter(user__is_volunteer=True, user__is_active=True).select_related("user").order_by("-rating", "user__username")[:30]
-    by_region = volunteers.values("user__region").annotate(total=Count("id"))
-    return render(request, "myapp/rating.html", {"volunteers": volunteers, "by_region": by_region})
+    # Public page: the top-30 list comes from the shared cache (Redis in prod).
+    volunteers = cache.get_or_set(RATING_CACHE_KEY, _rating_volunteers, RATING_TTL)
+    return render(request, "myapp/rating.html", {"volunteers": volunteers})
 
 
 # Role-aware starter prompts shown on the empty chat screen. Kept server-side so

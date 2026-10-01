@@ -32,7 +32,7 @@ python manage.py check_stale_requests [--dry-run]       # mirror of the above fo
 python manage.py create_initial_production_accounts    # prod-only bootstrap: exactly 4 accounts (admin/curator/volunteer/client) from INITIAL_<ROLE>_* env vars; idempotent, never seeds business data — see README "Initial production accounts"
 curl -s localhost:8000/health/ ; curl -s localhost:8000/health/ready/   # liveness / readiness (server/health.py) — public, no secrets
 
-python manage.py test                                    # full suite (633 tests, ~160s)
+python manage.py test                                    # full suite (657 tests, ~160s)
 python manage.py test myapp.tests.MatchingAlgorithmTests  # one test class
 python manage.py test myapp.tests.MatchingAlgorithmTests.test_closer_volunteer_ranks_higher  # one test
 python manage.py test accounts                           # one app
@@ -140,10 +140,10 @@ A hardening pass added a cross-cutting layer that is easy to regress — keep it
   persists the hash; every lookup hashes the incoming token before querying.
 - **Cache-based rate limiting.** Login (per-IP **and** per-username counters), password reset
   (per-IP), Telegram-link redemption (per-chat) and the AI assistant (`ai_chat_view`, per-user)
-  throttle via `django.core.cache`. `CACHES` defaults to the process-local `LocMemCache` — fine
-  for the single-process Telegram bot and the dev server. A multi-process (Gunicorn) web
-  deployment **must** set `DJANGO_DB_CACHE=True` (+ `createcachetable`) or point `CACHES` at
-  Redis/Memcached, or the web throttles only bite within one worker.
+  throttle via `django.core.cache`. Production uses **Redis** (`DJANGO_REDIS_URL`, the `redis`
+  compose service; sessions are `cached_db` then) — set in `docker-compose.yml`, overriding
+  `DJANGO_DB_CACHE`, which stays only as a dependency-free fallback. Without either, `CACHES` is
+  the process-local `LocMemCache` (dev/tests), where the web throttles only bite within one worker.
 - **Upload size cap.** `accounts.models.validate_file_size` (`MAX_UPLOAD_SIZE_MB` = 5) guards
   every `ImageField` (avatars, photo reports). `update_profile` calls it explicitly because
   `Model.save()` skips field validators. `update_profile` also validates `region` against
@@ -181,6 +181,17 @@ A hardening pass added a cross-cutting layer that is easy to regress — keep it
   `(help_request, volunteer)` for the open statuses — the LocMemCache cooldown alone can't span
   Gunicorn workers, and a duplicate SOS row / duplicate staff alert is a real failure. The
   service catches the resulting `IntegrityError` and returns the existing report.
+- **Tajik phone numbers** (`myapp/validators.py`): `normalize_tj_phone` accepts `+992`/`992` + 9
+  digits or 9 bare digits (spaces, dashes, dots, parentheses ignored) and stores `+992XXXXXXXXX`;
+  `validate_tj_phone` is on `HelpRequest.phone` / `PetReport.contact_phone`, and both models'
+  `clean()` normalize (so the Django admin is covered), forms' `clean_<field>` too. Error code
+  `invalid_phone` → `err.invalid_phone` (EN/RU/TJ). Inputs use `forms.TelInput`
+  (`type=tel`, `inputmode=tel`, `+992 XX XXX XX XX` placeholder, blur mask in `base.html`).
+- **Name limits**: `Users.USERNAME_MAX_LENGTH` = 30, `FULL_NAME_MAX_LENGTH` = 60, enforced by model
+  `MaxLengthValidator`s (+ form `maxlength`, + `update_profile`); the **DB columns keep their old
+  size** (150 / 255) so existing longer values survive. Long names never widen a page: list rows
+  ellipsis (`.row-rank h3`), headings/detail wrap (`overflow-wrap: anywhere`), flex/grid items
+  `min-width: 0`, `.request-row` uses `minmax(0, 1fr)`.
 - **`_can_view_task`** (`myapp/views.py`) gates task-detail access: a volunteer sees only their
   own assigned tasks plus pending tasks that would show up in their region-filtered
   `task_list` — not every `status="pending"` row.
@@ -198,9 +209,16 @@ Business logic that needs to be unit-testable without the ORM or network lives h
 - **`maps.py`** — provider-agnostic facade over everything the product needs from a "maps API":
   `tile_layer()` (Leaflet config), `route()` (delegates to `geo.get_route`), `geocode(query,
   region=)` → `(lat, lng)|None`, `reverse_geocode()`, `provider_name()`. Switching providers is
-  one `.env` change (`MAPS_PROVIDER`: `osm` default/keyless, `mapbox` raster + `MAPS_API_KEY`,
-  `google` raises — needs the JS SDK). Same discipline as `geo.py`: pure I/O, never raises for an
-  expected failure. **New map/route/geocode code calls `maps.*`, not `geo.*` directly.**
+  one `.env` change (`MAPS_PROVIDER`: `osm` default/keyless, `carto` keyless, `mapbox` raster +
+  `MAPS_API_KEY`, `google` raises — needs the JS SDK). Same discipline as `geo.py`: pure I/O, never
+  raises for an expected failure. **New map/route/geocode code calls `maps.*`, not `geo.*` directly.**
+  `tile_layer()` also returns a keyless CARTO `fallback`: `static/js/map.js` `tileLayer()` switches
+  to it after repeated tile errors (e.g. OSM's 403 "Access blocked"), then shows a localized
+  `.map-error` (`map.error_load`) if that fails too. OSM is the single host
+  `tile.openstreetmap.org` and **needs a Referer** — hence `SECURE_REFERRER_POLICY =
+  "strict-origin-when-cross-origin"` (Django's default `same-origin` sent none). Leaflet loads via
+  `partials/_leaflet_css.html` / `_leaflet_js.html`: unpkg (SRI) first, then the identical
+  `static/vendor/leaflet-1.9.4/` copy only if unpkg fails for that visitor.
 - **`matching.py`** — two directions, one algorithm. `recommend_volunteers(task)`: deterministic,
   explainable 0–100 scoring (distance/availability/workload/region/**skills**/freshness, urgent
   tasks weight distance higher) for admin/curator dispatch. `recommend_tasks(volunteer)`: the
@@ -311,7 +329,8 @@ reintroduce a second magic number for it. `STALE_PENDING_THRESHOLD` (48 hours), 
 module, is its pending-side counterpart (`HelpRequest.is_stale_pending`, `services/stale.py`,
 the analytics stale count) — same rule, don't duplicate it. Automated monitoring is the
 `check_overdue_tasks` (~15-min cron) and `check_stale_requests` (hourly cron) management commands
-(README → **Background jobs**), **not** Celery — there is no task queue in this project.
+(README → **Background jobs**) — still plain cron, deliberately; Celery is used only for notification
+*delivery* (see **Notifications**), not for scheduling.
 
 ### Notifications
 
@@ -322,10 +341,20 @@ unset) and Telegram (`send_telegram_message`, silently no-ops without a bot toke
 the shared recipient querysets — reuse them rather than re-deriving the role filter.
 `myapp/signals.py` is **intentionally empty** — notification sends live in views, not signals, to
 avoid duplicate sends on every model `.save()`. Don't move notification logic into signals.
-Email is sent **synchronously inside the request** (no queue) — `EMAIL_TIMEOUT` (default 10s,
-`server/settings.py`) is what stops a hung SMTP server from pinning a Gunicorn worker; every
-other outbound call (`geo.get_route`, `maps._nominatim`, `ai_chat_view` → Groq,
-`send_telegram_message`) already has a finite `requests` timeout and a graceful fallback.
+**Delivery is background (Celery + Redis broker).** `notify_users` queues one
+`myapp/tasks.py::send_email_task` per email address and one `send_telegram_task` per linked chat
+(so recipients never share a `To:` line and a failure retries only that delivery — 5 retries,
+exponential backoff + jitter; final failure → one `ERROR` log with task id only). Its return value
+is now "deliveries **queued**" — still 0 when nobody is reachable, so the overdue / stale /
+emergency zero-recipient `ERROR` safety nets are unchanged; the idempotency claims (conditional
+UPDATEs, `notified_at`) happen before queuing, as before. `queue_email()` does the same for the
+transactional mails (verification, password reset, welcome signal in `accounts/signals.py`).
+Without `CELERY_BROKER_URL` (tests, dev) tasks run **eagerly inline**; if the broker is down at
+queue time `_dispatch` delivers inline instead of losing it. The worker uses `--pool=threads`
+(Celery's prefork pool crashed every task on Python 3.14). `EMAIL_TIMEOUT` (default 10s) still
+bounds an inline send; every other outbound call (`geo.get_route`, `maps._nominatim`,
+`ai_chat_view` → Groq, `send_telegram_message`) has a finite `requests` timeout and a graceful
+fallback.
 
 ### Health checks & operational logging
 
@@ -443,7 +472,7 @@ concrete reason, it would duplicate the existing mechanism. The About Us hero vi
 `hero-loop-{mobile,desktop}.{webm,mp4}` (VP9 before H.264; mobile 480×264 via
 `<source media="(max-width: 768px)">`, desktop 640×352 = the native source resolution, **don't
 upscale**; MP4s faststart, keyframe every 2 s) — served via `{% asset %}` so nginx can cache
-`/static/videos/` as immutable. The `<video>` is `preload="none"` with **no `autoplay` attribute**:
+`/static/videos/` as immutable. The `<video>` is `preload="metadata"` (only the few-KB header) with **no `autoplay` attribute**:
 the inline script after it enables preload + muted autoplay on `window` `load`, so the video never
 competes with the page's own resources on the slow uplink. The same script pauses it
 off-screen / in hidden tabs, honours `prefers-reduced-motion` (aborts the download, hides it) and
@@ -547,6 +576,10 @@ Stage 9 polish conventions (in `style.css`):
 - **`.clamp-text`** (line-clamp, `--clamp` default 3) + `.card__more` (a "View full →" link,
   i18n key `common.view_full`) replace `|truncatechars` so a long description can't stretch a
   card.
+- **Theme toggle** (`.theme-toggle` in `base.html`): two inline SVG icons (no emoji — their
+  glyph boxes sit off-centre per OS font), chosen by `[data-theme]` in CSS; `min-height: 0` +
+  `padding: 0` + `aspect-ratio: 1` keep it a true 2.3rem circle (the global `button` rule's
+  2.7rem min-height made it an oval).
 - The navbar link row is one horizontal scroller (`.nav-links`, `overflow-x: auto`, edge-fade
   mask kept in sync by `base.html` JS) that never wraps; below 960px it collapses to the
   tap-to-open `.menu-button` dropdown.

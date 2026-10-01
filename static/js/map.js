@@ -11,10 +11,16 @@ const GCMap = {
        fallback if that element is absent or the provider was misconfigured. */
     tileConfig() {
         const OSM = {
-            url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+            url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
             max_zoom: 19,
-            subdomains: 'abc',
+            subdomains: '',
+            fallback: {
+                url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+                max_zoom: 20,
+                subdomains: 'abcd',
+            },
         };
         try {
             const el = document.getElementById('gc-maps-tile');
@@ -25,14 +31,58 @@ const GCMap = {
         }
     },
 
+    /* Adds the provider's tile layer. If its tiles keep failing before any
+       load (provider blocking this visitor — e.g. OSM's 403 "Access blocked" —
+       or unreachable from their network), it switches once to cfg.fallback
+       (CARTO); if that fails too, a localized message replaces the blank area. */
+    TILE_FAILURES_BEFORE_SWITCH: 4,
+
     tileLayer(map) {
         const cfg = this.tileConfig();
-        L.tileLayer(cfg.url, {
-            maxZoom: cfg.max_zoom || 19,
-            attribution: cfg.attribution || '',
-            subdomains: cfg.subdomains || 'abc',
-        }).addTo(map);
+        const make = (c) => L.tileLayer(c.url, {
+            maxZoom: c.max_zoom || 19,
+            attribution: c.attribution || '',
+            subdomains: c.subdomains || 'abc',
+        });
+        let notice = null;
+        const watch = (layer, canFallBack) => {
+            let loaded = 0;
+            let failed = 0;
+            layer.on('tileload', () => {
+                loaded += 1;
+                if (notice) { notice.remove(); notice = null; }
+            });
+            layer.on('tileerror', () => {
+                failed += 1;
+                if (failed < this.TILE_FAILURES_BEFORE_SWITCH || loaded > 1) return;
+                if (canFallBack && cfg.fallback) {
+                    canFallBack = false;
+                    map.removeLayer(layer);
+                    watch(make(cfg.fallback).addTo(map), false);
+                } else if (!notice) {
+                    notice = this.showError(map.getContainer(), 'map.error_load');
+                }
+            });
+        };
+        watch(make(cfg).addTo(map), true);
         return map;
+    },
+
+    /* A localized, non-blank failure state for a map container. Text comes from
+       i18n.js (window.T) in the visitor's current language. */
+    showError(container, key) {
+        if (!container) return null;
+        let lang = 'ru';
+        try { lang = localStorage.getItem('gc-lang') || 'ru'; } catch (e) { /* storage blocked */ }
+        const table = (window.T && (window.T[lang] || window.T.ru)) || {};
+        if (getComputedStyle(container).position === 'static') container.style.position = 'relative';
+        const el = document.createElement('div');
+        el.className = 'map-error';
+        el.setAttribute('role', 'status');
+        el.setAttribute('data-i18n', key);
+        el.textContent = table[key] || 'The map could not be loaded.';
+        container.appendChild(el);
+        return el;
     },
 
     /* Resolves a --css-variable to its current computed color so it can be
@@ -282,3 +332,12 @@ const GCMap = {
         };
     },
 };
+
+/* If Leaflet itself never loaded (its CDN and the local fallback both blocked
+   on this visitor's network), every map container would stay blank — show the
+   localized message instead. */
+document.addEventListener('DOMContentLoaded', () => {
+    if (typeof L !== 'undefined') return;
+    document.querySelectorAll('.ops-map__canvas, .map-mini:not([hidden]), .map-picker')
+        .forEach((el) => GCMap.showError(el, 'map.error_load'));
+});

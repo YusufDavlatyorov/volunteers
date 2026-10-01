@@ -68,7 +68,9 @@ Fill in at minimum (see `.env.example` for the full annotated list):
 - `DJANGO_ALLOWED_HOSTS=khayrkhoh.tj,www.khayrkhoh.tj`
 - `DJANGO_CSRF_TRUSTED_ORIGINS=https://khayrkhoh.tj,https://www.khayrkhoh.tj`
 - `DJANGO_BEHIND_TLS_PROXY=True` (nginx terminates TLS — see step 10)
-- `DJANGO_DB_CACHE=True`
+- (no cache setting needed: `docker-compose.yml` points every app container at
+  the `redis` service — `DJANGO_REDIS_URL`, `CELERY_BROKER_URL` — and forces
+  `DJANGO_DB_CACHE=False`)
 - `DJANGO_DB_NAME`, `DJANGO_DB_USER`, `DJANGO_DB_PASSWORD` — pick real values,
   used again in step 4 below
 - `DJANGO_DB_HOST=shared_postgres` (must match the container name in step 4)
@@ -109,15 +111,24 @@ The container name (`$DJANGO_DB_HOST`) is what Docker's embedded DNS
 resolves inside that network, which is why `DJANGO_DB_HOST` in `.env` must
 match it exactly.
 
-## 5. Build and start the app + bot containers
+## 5. Build and start the containers
 
 ```bash
 docker compose up -d --build
 ```
 
-This starts `web` (gunicorn, 3 workers, 60s timeout) bound to
-`127.0.0.1:8000` only, and `telegram_bot` (step 12), both on the same
-`$SHARED_POSTGRES_NETWORK` as the database. `mem_limit: 700m`, `cpus: 1.0`, `restart: unless-stopped` are
+This starts:
+- `web` (gunicorn, 3 workers, 60s timeout) bound to `127.0.0.1:8000` only;
+- `celery_worker` — delivers queued email/Telegram notifications in the
+  background (threads pool, retries with backoff; CLAUDE.md → Notifications);
+- `telegram_bot` (step 12);
+- `redis` — cache (rate limits, cached sessions, public-page aggregates) and
+  the Celery broker; private `internal` network only, no published port,
+  append-only file on the `redis_data` volume so queued notifications survive
+  a restart.
+
+The app containers are on both `$SHARED_POSTGRES_NETWORK` (database) and
+`internal` (redis). `mem_limit: 700m`, `cpus: 1.0`, `restart: unless-stopped` are
 already set there.
 
 ## 6. Migrate
@@ -126,15 +137,14 @@ already set there.
 docker compose exec -T web python manage.py migrate
 ```
 
-## 7. Create the shared DB cache table
+## 7. (Optional) DB cache table
+
+Not needed with the `redis` service (the default). Only if you ever run
+without Redis and set `DJANGO_DB_CACHE=True` instead:
 
 ```bash
 docker compose exec -T web python manage.py createcachetable
 ```
-
-Required because `DJANGO_DB_CACHE=True` — without this the login /
-password-reset / AI-assistant / Telegram-link rate limiters only throttle
-within a single gunicorn worker.
 
 ## 8. Collect static files
 
@@ -324,6 +334,18 @@ request cycle (see CLAUDE.md → "Telegram account linking"). It runs as the
 docker compose logs -f telegram_bot   # should show polling, no tracebacks
 docker compose restart telegram_bot   # after a code update / .env change
 ```
+
+### Background notifications (celery_worker + redis)
+
+```bash
+docker compose logs -f celery_worker          # "ready", then "Task notifications.send_email[…] succeeded"
+docker compose exec -T redis redis-cli ping   # PONG
+docker compose exec -T redis redis-cli -n 1 llen celery   # queued deliveries waiting (normally 0)
+```
+
+If the worker is down, notifications wait in Redis and go out when it comes
+back; if Redis itself is down, `notify_users` delivers inline (slower requests,
+nothing lost) and logs a WARNING.
 
 ## 13. Cron: overdue + stale request sweeps
 
