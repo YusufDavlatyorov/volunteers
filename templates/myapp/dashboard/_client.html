@@ -49,7 +49,7 @@
         {% for req in client_completed %}
             <a class="mini-list-item mini-list-item--link" href="{% url 'task_detail' req.id %}">
                 <h4>{% include "myapp/_task_status_tag.html" with status=req.status status_display=req.get_status_display %} {{ req.get_help_type_display }}</h4>
-                <p>{{ req.completed_at|date:"d M Y" }}</p>
+                <p>{% if req.status == "cancelled" %}{{ req.cancelled_at|default:req.created_at|date:"d M Y" }}{% else %}{{ req.completed_at|date:"d M Y" }}{% endif %}</p>
             </a>
         {% endfor %}
     </div>

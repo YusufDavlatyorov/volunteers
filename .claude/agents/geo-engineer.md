@@ -40,8 +40,9 @@ base.html, style.css, i18n.js, requirements).
   `geo.is_valid_coordinate`; drop implausible jumps. Delete the trail when the task ends;
   never keep any trail longer than 24 h. Never put phone/email in any payload.
 - Availability stays a stored field so matching keeps working; offline volunteers stay
-  excluded from matching. Nobody sets it manually after this change. Do **not** add a
-  "do not disturb" switch unless the owner approved it (see FEATURES_PLAN §9).
+  excluded from matching. Nobody sets it manually after this change. The owner approved a
+  "do not disturb / on vacation" switch (FEATURES_PLAN §9.3): it excludes the volunteer
+  from matching and new-task notifications only, with an optional auto-off end date.
 - Do not change matching weights without owner approval.
 - Measure the RAM of any new container (OSRM) with `docker stats` and report it.
 - Keep `seed_demo` usable locally; never run it in production.

@@ -18,7 +18,13 @@ import logging
 
 from ...forms import HelpRequestForm
 from ...models import HelpRequest
-from ...notifications import notify_users, staff_recipients, volunteer_queryset_for_region
+from django.urls import reverse
+
+from ...notifications import staff_recipients, volunteer_queryset_for_region
+from ...realtime import publish
+from .. import presence
+from ..notify import notify
+from ..notify_texts import CHANNEL_TEXTS
 from accounts.models import Users
 
 logger = logging.getLogger(__name__)
@@ -40,9 +46,11 @@ def _err(error: str, **extra) -> dict:
 # shared services (also called by myapp/views.py)
 # --------------------------------------------------------------------------- #
 
+# Stages that notify the client (RU subjects kept for reference/tests; the
+# texts live in services/notify_texts.py, type ``task_stage_changed``).
 STAGE_CLIENT_NOTIFY = {
-    HelpRequest.WORK_STAGE_EN_ROUTE: "Волонтёр выехал к вам",
-    HelpRequest.WORK_STAGE_ARRIVED: "Волонтёр на месте",
+    stage: CHANNEL_TEXTS["task_stage_changed"]["maps"]["stage_subject"][1]["ru"][stage]
+    for stage in (HelpRequest.WORK_STAGE_EN_ROUTE, HelpRequest.WORK_STAGE_ARRIVED)
 }
 
 
@@ -52,15 +60,17 @@ def advance_work_stage_for(actor, task: HelpRequest, target: str) -> HelpRequest
     ``task_advance_stage_view`` and the ``advance_work_stage`` AI action."""
     task.advance_work_stage(target)  # model method owns the transition rules
     if task.work_stage in STAGE_CLIENT_NOTIFY:
-        notify_users(
-            [task.client],
-            STAGE_CLIENT_NOTIFY[task.work_stage],
-            f"Запрос #{task.id}: {task.get_work_stage_display().lower()}.",
+        notify(
+            [task.client], "task_stage_changed", variant=task.work_stage,
+            params={"task_id": task.id, "work_stage": task.work_stage},
+            link=reverse("task_detail", args=[task.id]),
+            dedupe_key=f"stage:{task.id}:{task.work_stage}:{task.volunteer_id or 0}",
         )
     logger.info(
         "work stage of task #%s set to %s by user #%s",
         task.id, task.work_stage, getattr(actor, "pk", None),
     )
+    publish.task_changed(task)
     return task
 
 
@@ -68,13 +78,13 @@ def notify_volunteer_recommendation(actor, task: HelpRequest, volunteer) -> int:
     """Send one volunteer a recommendation for a still-pending task (NOT an
     assignment — the task stays pending). Shared by ``task_notify_volunteer_view``
     and the ``notify_volunteer_about_task`` AI action. Returns delivered count."""
-    subject = "Рекомендованный запрос помощи"
-    message = (
-        f"Куратор рекомендует вам запрос #{task.id} ({task.get_help_type_display()}) "
-        f"в регионе {task.get_region_display() or '—'}.\n"
-        f"Это рекомендация, а не назначение — запрос остаётся свободным, пока вы сами его не примете."
+    delivered = notify(
+        [volunteer], "volunteer_pinged",
+        params={"task_id": task.id, "region": task.region, "help_type": task.help_type},
+        link=reverse("task_detail", args=[task.id]),
+        extra={"help_type_name": task.get_help_type_display(),
+               "region_name": task.get_region_display() or None},
     )
-    delivered = notify_users([volunteer], subject, message)
     logger.info(
         "task #%s recommended to volunteer #%s by user #%s",
         task.id, volunteer.pk, getattr(actor, "pk", None),
@@ -88,16 +98,21 @@ def request_staff_review(actor, task: HelpRequest, note: str) -> int:
     ``*_at`` / ``*_by`` fields already on the row plus this INFO log are the
     audit trail. Returns delivered count."""
     note = (note or "").strip()[:1000]
-    body = (
-        f"Запрос #{task.id} ({task.get_help_type_display()}) требует внимания координатора.\n"
-        f"Статус: {task.get_status_display()}\n"
-        f"Регион: {task.get_region_display() or '—'}\n"
-        f"Клиент: {task.client.username}\n"
-        f"Волонтёр: {task.volunteer.username if task.volunteer_id else '—'}\n"
-        f"Эскалацию инициировал: {actor.username} ({actor.role_display})\n"
-        f"Комментарий: {note or '—'}"
+    delivered = notify(
+        staff_recipients(), "task_escalated",
+        params={"task_id": task.id, "status": task.status, "region": task.region, "help_type": task.help_type},
+        link=reverse("task_detail", args=[task.id]),
+        extra={
+            "help_type_name": task.get_help_type_display(),
+            "status_name": task.get_status_display(),
+            "region_name": task.get_region_display() or None,
+            "client_name": task.client.username,
+            "volunteer_name": task.volunteer.username if task.volunteer_id else None,
+            "actor_name": actor.username,
+            "actor_role": actor.role_display,
+            "note": note or None,
+        },
     )
-    delivered = notify_users(list(staff_recipients()), "Запрос передан на рассмотрение", body)
     logger.info(
         "task #%s escalated to staff by user #%s (delivered=%s)",
         task.id, getattr(actor, "pk", None), delivered,
@@ -151,10 +166,14 @@ def execute_create_help_request(ctx, **clean_args) -> dict:
     obj.client = ctx.user
     obj.region = region
     obj.save()
-    delivered = notify_users(
-        volunteer_queryset_for_region(region),
-        "Новый запрос помощи",
-        f"Новый запрос в регионе {obj.get_region_display() or '—'}: {obj.description[:180]}",
+    # Do-not-disturb volunteers are skipped for new-task pings (owner decision).
+    delivered = notify(
+        volunteer_queryset_for_region(region).filter(presence.not_away_q()),
+        "task_new_in_region",
+        params={"task_id": obj.id, "region": obj.region, "help_type": obj.help_type},
+        link=reverse("task_detail", args=[obj.id]),
+        dedupe_key=f"task_new:{obj.id}",
+        extra={"region_name": obj.get_region_display() or None, "description": obj.description[:180]},
     )
     logger.info("ai: help request #%s created for client #%s", obj.id, ctx.user_id)
     return _ok(request_id=obj.id, status=obj.status, volunteers_notified=delivered)

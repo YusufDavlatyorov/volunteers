@@ -2,6 +2,8 @@
 One bound form field rendered on the shared design system:
   .field-group > <label> + widget + optional .field-hint + optional .field-error
 Checkboxes get the inline .checkbox-row layout instead of a stacked label.
+Optional i18n: a form field may carry `i18n_label` / `i18n_help` attributes
+(set in the form's __init__) — rendered as data-i18n keys for i18n.js.
 Usage: {% include "partials/_field.html" with field=field %}
 {% endcomment %}
 {% load form_i18n %}{% if field.is_hidden %}{{ field }}{% else %}
@@ -9,13 +11,13 @@ Usage: {% include "partials/_field.html" with field=field %}
     {% if field.widget_type == "checkbox" %}
         <label class="checkbox-row" for="{{ field.id_for_label }}">
             {{ field }}
-            <span>{{ field.label }}</span>
+            <span{% if field.field.i18n_label %} data-i18n="{{ field.field.i18n_label }}"{% endif %}>{{ field.label }}</span>
         </label>
     {% else %}
-        <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+        <label for="{{ field.id_for_label }}"{% if field.field.i18n_label %} data-i18n="{{ field.field.i18n_label }}"{% endif %}>{{ field.label }}</label>
         {{ field }}
     {% endif %}
-    {% if field.help_text %}<span class="field-hint">{{ field.help_text }}</span>{% endif %}
+    {% if field.help_text %}<span class="field-hint"{% if field.field.i18n_help %} data-i18n="{{ field.field.i18n_help }}"{% endif %}>{{ field.help_text }}</span>{% endif %}
     {% if field.errors %}<span class="field-error" role="alert"{% error_i18n_attrs field.errors %}>{{ field.errors.0 }}</span>{% endif %}
 </div>
 {% endif %}

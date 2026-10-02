@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Notification settings - KhayrKhoh{% endblock %}
+{% block content %}
+<section class="section">
+    {% url 'notifications' as list_url %}
+    {% include "partials/_page_header.html" with title="Notification settings" title_i18n="ntf.preferences" lede="Choose where each kind of notification reaches you. Notifications on the site are always on." lede_i18n="ntf.prefs_lede" action_url=list_url action_label="All notifications" action_i18n="ntf.back_to_list" action_class="ghost" %}
+
+    <form method="post" class="card">
+        {% csrf_token %}
+        <p class="field-hint" data-i18n="ntf.prefs_hint">Ticked = this notification reaches you there.</p>
+        <div class="table-scroll">
+            <table class="data-table prefs-matrix notification-prefs">
+                <thead>
+                    <tr>
+                        <th scope="col" data-i18n="ntf.col_type">Notification</th>
+                        {% for channel in channels %}<th scope="col" data-i18n="ntf.channel.{{ channel }}">{{ channel }}</th>{% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in matrix %}
+                    <tr>
+                        <td data-label="Notification">
+                            <span class="cell-title" id="pref-{{ row.type }}" data-i18n="ntf.type.{{ row.type }}">{{ row.label }}</span>
+                            {% for cell in row.cells %}{% if cell.locked and cell.channel != "in_app" %}{% ifchanged row.type %}<span class="pref-required" data-i18n="ntf.prefs_required">Required for safety — can't be turned off.</span>{% endifchanged %}{% endif %}{% endfor %}
+                        </td>
+                        {% for cell in row.cells %}
+                        <td data-label="{{ cell.channel }}">
+                            <label class="pref-cell">
+                                <input type="checkbox" name="pref" value="{{ row.type }}:{{ cell.channel }}"
+                                       {% if cell.enabled %}checked{% endif %} {% if cell.locked %}disabled{% endif %}
+                                       aria-labelledby="pref-{{ row.type }} pref-ch-{{ row.type }}-{{ cell.channel }}">
+                                <span class="visually-hidden" id="pref-ch-{{ row.type }}-{{ cell.channel }}" data-i18n="ntf.channel.{{ cell.channel }}">{{ cell.channel }}</span>
+                                {% if cell.locked %}
+                                <span class="pref-lock">
+                                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>
+                                    <span data-i18n="ntf.prefs_locked">Always on</span>
+                                </span>
+                                {% endif %}
+                            </label>
+                        </td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div class="form-actions">
+            <button class="button primary" type="submit" data-i18n="ntf.prefs_save">Save settings</button>
+        </div>
+    </form>
+</section>
+{% endblock %}

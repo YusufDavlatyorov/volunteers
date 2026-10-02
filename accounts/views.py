@@ -8,13 +8,15 @@ from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from .forms import ForgotPasswordForm, LoginForm, ProfileForm, RegistrationForm, ResetPasswordForm, UserUpdateForm
 from .models import Profile, REGION_CHOICES, Users, hash_token, validate_file_size
 from myapp.models import VolunteerApplication
-from myapp.notifications import notify_users, queue_email
+from myapp.notifications import queue_email
+from myapp.services.notify import notify
 from myapp.services import dashboard
 
 logger = logging.getLogger(__name__)
@@ -60,7 +62,7 @@ def register_view(request):
             f"Здравствуйте, {user.username}!\nПодтвердите email по ссылке:\n{verify_url}",
         )
         if form.cleaned_data["role"] == "volunteer":
-            VolunteerApplication.objects.get_or_create(
+            application, _ = VolunteerApplication.objects.get_or_create(
                 user=user,
                 defaults={
                     "region": user.region,
@@ -68,10 +70,13 @@ def register_view(request):
                 },
             )
             admins = Users.objects.filter(is_superuser=True, is_active=True)
-            notify_users(
-                admins,
-                "Новая заявка волонтера",
-                f"Пользователь {user.username} подал заявку на волонтерство в регионе {user.get_region_display() or '—'}.",
+            notify(
+                admins, "application_submitted",
+                params={"application_id": application.pk, "username": user.username,
+                        "kind": "new", "region": user.region},
+                link=reverse("volunteer_application_detail", args=[application.pk]),
+                dedupe_key=f"application_new:{application.pk}",
+                extra={"region_name": user.get_region_display() or None},
             )
             messages.success(request, "Аккаунт создан. Заявка на волонтерство отправлена на рассмотрение администратору.")
         else:
@@ -285,3 +290,18 @@ def update_profile(request):
         profile.image = request.FILES["image"]
     profile.save()
     return JsonResponse({"success": True})
+
+
+@login_required
+@require_POST
+def set_language_view(request):
+    """Store the UI language the user picked in the i18n.js switcher
+    (Profile.language), so server-rendered email/Telegram notifications use it.
+    Called by the frontend with ``language=ru|tj|en``; JSON response."""
+    language = (request.POST.get("language") or "").strip().lower()
+    if language not in {code for code, _ in Profile.LANGUAGE_CHOICES}:
+        return JsonResponse({"success": False, "error": "invalid_language"}, status=400)
+    profile, _ = Profile.objects.get_or_create(user=request.user)
+    if profile.language != language:
+        Profile.objects.filter(pk=profile.pk).update(language=language)
+    return JsonResponse({"success": True, "language": language})

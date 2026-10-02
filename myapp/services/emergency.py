@@ -8,9 +8,9 @@ the state transitions. This module owns the cross-cutting parts:
     statuses that catches a cross-worker race, and an ``IntegrityError`` handler
     that turns the loser of that race into "return the existing row"
   * location resolution — reuses ``services.geo.is_valid_coordinate``
-  * notification fan-out — through the shared ``notify_users`` /
-    ``staff_recipients`` infrastructure (email + Telegram), idempotent for the
-    initial staff alert via ``EmergencyReport.notified_at``
+  * notification fan-out — typed ``services.notify.notify`` (in-app + WS +
+    email/Telegram) to ``staff_recipients``, idempotent for the initial staff
+    alert via ``EmergencyReport.notified_at`` (+ the ``sos:<id>`` dedupe key)
 
 Views stay thin: parse the request, call one function here, redirect.
 """
@@ -18,16 +18,19 @@ Views stay thin: parse the request, call one function here, redirect.
 import logging
 
 from django.db import IntegrityError, transaction
+from django.urls import reverse
 from django.utils import timezone
 
 from ..models import EmergencyReport
-from ..notifications import notify_users, staff_recipients
+from ..notifications import staff_recipients
+from .notify import notify
+from .notify_texts import CHANNEL_TEXTS
 from .geo import is_valid_coordinate
 
 logger = logging.getLogger(__name__)
 
-NEW_SUBJECT = "⚠️ SOS: волонтёр сообщил об опасности"
-UPDATE_SUBJECT = "Сигнал опасности: обновление"
+NEW_SUBJECT = CHANNEL_TEXTS["sos_new"]["ru"][0]        # "⚠️ SOS: волонтёр сообщил об опасности"
+UPDATE_SUBJECT = CHANNEL_TEXTS["sos_update"]["ru"][0]  # "Сигнал опасности: обновление"
 
 
 def _resolve_location(help_request, volunteer, latitude, longitude):
@@ -44,18 +47,28 @@ def _resolve_location(help_request, volunteer, latitude, longitude):
     return None, None
 
 
-def _new_body(report):
+def _notify_new(recipients, report, *, force=False):
+    """The staff SOS alert (``sos_new``). In-app params carry ids + the
+    volunteer's display name only; client phone/address/reason/location are
+    channel-only (email/Telegram). The manual re-alert (``force``) skips the
+    dedupe key so it really sends again."""
     hr = report.help_request
-    location = f"{report.latitude}, {report.longitude}" if report.has_location else "не указано"
-    return (
-        f"Волонтёр {report.volunteer.username} сообщил об опасности во время работы.\n\n"
-        f"Запрос #{hr.id} — {hr.get_help_type_display()}\n"
-        f"Клиент: {hr.client.username}, телефон: {hr.phone}\n"
-        f"Регион: {report.get_region_display() or '—'}\n"
-        f"Адрес: {hr.address}\n"
-        f"Местоположение сигнала: {location}\n"
-        f"Причина: {report.reason or '—'}\n"
-        f"Время: {timezone.localtime(report.created_at):%d.%m.%Y %H:%M}\n"
+    return notify(
+        recipients, "sos_new",
+        params={"report_id": report.pk, "task_id": hr.id, "volunteer_name": report.volunteer.username,
+                "region": report.region, "help_type": hr.help_type},
+        link=reverse("emergency_detail", args=[report.pk]),
+        dedupe_key=None if force else f"sos:{report.pk}",
+        extra={
+            "help_type_name": hr.get_help_type_display(),
+            "client_name": hr.client.username,
+            "phone": hr.phone,
+            "region_name": report.get_region_display() or None,
+            "address": hr.address,
+            "location": f"{report.latitude}, {report.longitude}" if report.has_location else None,
+            "reason": report.reason or None,
+            "time": f"{timezone.localtime(report.created_at):%d.%m.%Y %H:%M}",
+        },
     )
 
 
@@ -107,7 +120,7 @@ def notify_staff(report, *, force=False):
     concurrent call sends at most one message. ``force=True`` is the manual
     "re-alert staff" path (used when the first delivery failed).
 
-    ``notify_users`` never raises (email is ``fail_silently``; Telegram errors
+    ``notify`` never raises (email is ``fail_silently``; Telegram errors
     are caught) — it returns a delivered count. A zero count is logged as an
     error, but the report itself stays ``open`` and visible in the CRM and on
     the dashboard, so a failed push never hides the emergency.
@@ -122,7 +135,7 @@ def notify_staff(report, *, force=False):
             return False
 
     recipients = list(staff_recipients())
-    delivered = notify_users(recipients, NEW_SUBJECT, _new_body(report))
+    delivered = _notify_new(recipients, report, force=force)
     if recipients and not delivered:
         logger.error(
             "emergency #%s: staff SOS notification reached 0 of %d recipient(s) "
@@ -144,11 +157,12 @@ def realert_staff(report):
     return notify_staff(report, force=True)
 
 
-def _notify_reporter(report, phrase):
-    notify_users(
-        [report.volunteer],
-        UPDATE_SUBJECT,
-        f"Ваш сигнал по запросу #{report.help_request_id} {phrase}.",
+def _notify_reporter(report, action):
+    notify(
+        [report.volunteer], "sos_update", variant=action,
+        params={"report_id": report.pk, "task_id": report.help_request_id, "action": action},
+        link=reverse("emergency_detail", args=[report.pk]),
+        dedupe_key=f"sos_update:{report.pk}:{action}",
     )
 
 
@@ -162,21 +176,21 @@ def _log_transition(report, action, actor):
 def acknowledge(report, *, actor):
     report.acknowledge(actor)
     _log_transition(report, "acknowledged", actor)
-    _notify_reporter(report, "принят координатором")
+    _notify_reporter(report, "acknowledged")
     return report
 
 
 def resolve(report, *, actor, note=""):
     report.resolve(actor, note=note)
     _log_transition(report, "resolved", actor)
-    _notify_reporter(report, "закрыт координатором")
+    _notify_reporter(report, "resolved")
     return report
 
 
 def cancel(report, *, actor, note=""):
     report.cancel(actor, note=note)
     _log_transition(report, "cancelled", actor)
-    _notify_reporter(report, "отменён координатором")
+    _notify_reporter(report, "cancelled")
     return report
 
 

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load realtime_ui %}
 {% block title %}{{ profile.full_name|default:volunteer.username }} - KhayrKhoh{% endblock %}
 {% block content %}
 <section class="section">
@@ -10,7 +11,12 @@
                 <div class="avatar avatar-fallback">{{ profile.full_name|default:volunteer.username|first|upper }}</div>
             {% endif %}
             <div>
-                <span class="tag {% if profile.availability_status == 'available' %}success{% else %}muted{% endif %}">{{ profile.get_availability_status_display }}</span>
+                <span data-availability-user="{{ volunteer.pk }}">
+                    <span class="tag {% if profile.availability_status == 'available' %}success{% else %}muted{% endif %}" data-availability-status="{{ profile.availability_status }}" data-i18n="availability.{{ profile.availability_status }}">{{ profile.get_availability_status_display }}</span>
+                    {% with last_day=profile.away_until|away_last_day %}
+                    <span class="tag away" data-availability-away{% if not profile.is_away_now %} hidden{% endif %}><span data-i18n="availability.away">Не беспокоить</span>{% if last_day and profile.is_away_now %} <span data-i18n="availability.away_until" data-i18n-args='{"date": "{{ last_day|date:"d.m.Y" }}"}'>до {{ last_day|date:"d.m.Y" }}</span>{% endif %}</span>
+                    {% endwith %}
+                </span>
                 <h1>{{ profile.full_name|default:volunteer.username }}</h1>
                 <p>@{{ volunteer.username }} · {{ volunteer.get_region_display|default:"—" }}</p>
             </div>

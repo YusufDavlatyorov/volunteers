@@ -101,4 +101,6 @@ class QueryCountDoesNotGrowTests(TestCase):
         self.assertEqual(self._queries(reverse("photo_reports")), before)
 
     def test_volunteer_applications_counts_are_one_query(self):
-        self.assertLessEqual(self._queries(reverse("volunteer_applications")), 5)
+        # 6 = the page's own queries + 1 constant COUNT for the navbar
+        # notification badge (base.html, every signed-in page; not per row).
+        self.assertLessEqual(self._queries(reverse("volunteer_applications")), 6)

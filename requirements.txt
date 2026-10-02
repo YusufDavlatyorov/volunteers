@@ -13,3 +13,8 @@ gunicorn==23.0.0
 celery==5.5.3
 redis==6.4.0
 psycopg[binary]==3.2.13
+# WebSockets (Feature Pack v2): Django Channels on the `ws` service (uvicorn,
+# server/asgi.py); channel layer on the same Redis (DB 2). HTTP stays on gunicorn.
+channels==4.3.2
+channels-redis==4.3.0
+uvicorn[standard]==0.54.0

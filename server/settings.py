@@ -103,7 +103,8 @@ INSTALLED_APPS = [
     'django_filters',
     'crispy_forms',
     'crispy_bootstrap5',
-    
+    'channels',  # WebSockets (server/asgi.py, myapp/realtime/) — served by the `ws` service
+
     # Local apps
     'accounts.apps.AccountsConfig',  # 👈 только так!
     'myapp.apps.MyappConfig',        # 👈 только так!
@@ -121,6 +122,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'myapp.middleware.PresenceMiddleware',  # availability "seen" (myapp/services/presence.py); throttled, never raises
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -145,6 +147,9 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'server.wsgi.application'
+# HTTP stays on WSGI gunicorn (`web`); the `ws` compose service runs this ASGI
+# app under uvicorn for /ws/ only (nginx routes it). See myapp/realtime/.
+ASGI_APPLICATION = 'server.asgi.application'
 
 
 # Database
@@ -235,6 +240,33 @@ CELERY_BROKER_CONNECTION_TIMEOUT = 2
 CELERY_TASK_PUBLISH_RETRY = True
 CELERY_TASK_PUBLISH_RETRY_POLICY = {'max_retries': 1, 'interval_start': 0, 'interval_step': 0.5, 'interval_max': 0.5}
 
+
+# Channels layer (WebSocket fan-out). Production: DJANGO_CHANNEL_REDIS_URL
+# (redis://redis:6379/2, set in docker-compose.yml). Without it — tests, local
+# dev — an in-process layer: realtime events reach sockets of this process only,
+# and publishing from sync code is still safe (myapp/realtime/publish.py).
+CHANNEL_REDIS_URL = os.getenv('DJANGO_CHANNEL_REDIS_URL', '').strip()
+if CHANNEL_REDIS_URL:
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels_redis.core.RedisChannelLayer',
+            'CONFIG': {
+                'hosts': [CHANNEL_REDIS_URL],
+                'prefix': 'khayrkhoh:ws',
+                'expiry': 60,
+                'capacity': 200,
+            },
+        }
+    }
+else:
+    CHANNEL_LAYERS = {'default': {'BACKEND': 'channels.layers.InMemoryChannelLayer'}}
+
+# Feature Pack v2 defaults (owner-approved 2026-10-02).
+# Volunteer availability is system-computed (myapp/services/presence.py):
+# not seen for this many minutes → offline.
+AVAILABILITY_IDLE_MINUTES = int(os.getenv('AVAILABILITY_IDLE_MINUTES', '30'))
+# In-app notifications older than this are deleted by `prune_notifications`.
+NOTIFICATION_RETENTION_DAYS = int(os.getenv('NOTIFICATION_RETENTION_DAYS', '90'))
 
 LOGIN_URL = 'login'
 # Password validation

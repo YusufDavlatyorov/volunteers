@@ -216,8 +216,15 @@ const GCMap = {
             const titleHtml = point.url
                 ? `<a href="${point.url}">${point.title}</a>`
                 : `<strong>${point.title}</strong>`;
+            // Volunteer marker with do-not-disturb on (staff map payload `away`).
+            let awayHtml = '';
+            if (point.away) {
+                const lang = document.documentElement.getAttribute('lang') || 'ru';
+                const label = (window.T && window.T[lang] && window.T[lang]['availability.away']) || 'Do not disturb';
+                awayHtml = `<br><span class="tag away">${label}</span>`;
+            }
             marker.bindPopup(
-                `<div class="gc-popup">${titleHtml}${point.subtitle ? `<br><span class="gc-popup-sub">${point.subtitle}</span>` : ''}</div>`,
+                `<div class="gc-popup">${titleHtml}${point.subtitle ? `<br><span class="gc-popup-sub">${point.subtitle}</span>` : ''}${awayHtml}</div>`,
             );
             bounds.push([point.lat, point.lng]);
         });

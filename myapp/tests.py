@@ -3318,7 +3318,7 @@ class EmergencyNotificationFailureTests(TestCase):
         mail.outbox.clear()
 
     def test_zero_delivery_is_logged_and_report_stays_visible(self):
-        with mock.patch("myapp.services.emergency.notify_users", return_value=0) as nu:
+        with mock.patch("myapp.services.emergency.notify", return_value=0) as nu:
             with self.assertLogs("myapp.services.emergency", level="ERROR") as logs:
                 report, created = emergency.report_emergency(volunteer=self.volunteer, help_request=self.task)
         nu.assert_called_once()

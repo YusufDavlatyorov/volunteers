@@ -1,4 +1,4 @@
-{% load static assets %}
+{% load static assets realtime_ui %}
 <!doctype html>
 <html lang="ru" data-theme="light">
 <head>
@@ -58,7 +58,7 @@
     <link rel="stylesheet" href="{% asset 'css/style.css' %}">
     {% block extra_css %}{% endblock %}
 </head>
-<body>
+<body{% if user.is_authenticated %} data-language-url="{% url 'profile_language' %}"{% endif %}>
 <a class="skip-link" href="#main-content" data-i18n="a11y.skip">Skip to content</a>
 <nav class="topbar">
     <a class="brand" href="{% url 'about' %}">
@@ -114,6 +114,29 @@
             <svg class="theme-toggle__icon theme-toggle__icon--sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4.6" fill="#fbbf24"/><g stroke="#f59e0b" stroke-width="2" stroke-linecap="round"><path d="M12 1.8v2.6M12 19.6v2.6M1.8 12h2.6M19.6 12h2.6M4.8 4.8l1.85 1.85M17.35 17.35l1.85 1.85M4.8 19.2l1.85-1.85M17.35 6.65l1.85-1.85"/></g></svg>
         </button>
         {% if user.is_authenticated %}
+            {% unread_notifications_count as bell_unread %}
+            {# Notification bell (static/js/live-ui.js). Lives in the toolbar, outside the collapsing .nav-links menu, so it stays visible at phone width. #}
+            <div class="bell" data-bell data-unread="{{ bell_unread }}" data-bell-url="{% url 'notifications_bell' %}" data-read-url="{% url 'notification_read' 0 %}">
+                <button class="bell__button" type="button" data-bell-button aria-haspopup="true" aria-expanded="false" aria-controls="bellPanel" aria-label="Notifications" title="Notifications">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"></path><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"></path></svg>
+                    <span class="bell__badge" data-bell-badge aria-hidden="true"{% if not bell_unread %} hidden{% endif %}>{% if bell_unread > 9 %}9+{% else %}{{ bell_unread }}{% endif %}</span>
+                </button>
+                <div class="bell__panel" id="bellPanel" data-bell-panel hidden>
+                    <div class="bell__head">
+                        <strong data-i18n="bell.label">Notifications</strong>
+                        <form method="post" action="{% url 'notifications_read_all' %}" data-bell-read-all{% if not bell_unread %} hidden{% endif %}>
+                            {% csrf_token %}
+                            <button class="bell__link" type="submit" data-i18n="ntf.mark_all_read">Mark all as read</button>
+                        </form>
+                    </div>
+                    <p class="bell__status" data-bell-status role="status" hidden></p>
+                    <ul class="bell__list" data-bell-list></ul>
+                    <div class="bell__foot">
+                        <a href="{% url 'notifications' %}" data-i18n="ntf.back_to_list">All notifications</a>
+                        <a href="{% url 'notification_preferences' %}" data-i18n="ntf.preferences">Notification settings</a>
+                    </div>
+                </div>
+            </div>
             <a class="nav-avatar" href="{% url 'profile' %}" data-i18n-tooltip="nav.profile" data-tooltip="Profile" aria-label="Profile">
                 {% if user.profile.image %}<img src="{{ user.profile.image.url }}" alt="">{% else %}{{ user.username|first|upper }}{% endif %}
             </a>
@@ -191,7 +214,23 @@
 </footer>
 
 <script src="{% asset 'js/i18n.js' %}"></script>
+{% if user.is_authenticated %}
+<script src="{% asset 'js/realtime.js' %}" defer data-poll-url="{% url 'realtime_poll' %}" data-ws-path="/ws/"></script>
+<script src="{% asset 'js/live-ui.js' %}" defer></script>
+{% endif %}
 <script>
+/* ===== LANGUAGE CHANGE EVENT =====
+   Re-dispatch every setLanguage() call as a `gc:language` event so
+   dynamically rendered UI (bell, toasts) can re-translate itself. */
+(function () {
+    const original = window.setLanguage;
+    if (typeof original !== 'function') return;
+    window.setLanguage = function (lang) {
+        original(lang);
+        document.dispatchEvent(new CustomEvent('gc:language', { detail: { lang: document.documentElement.getAttribute('lang') } }));
+    };
+})();
+
 /* ===== THEME TOGGLE ===== */
 (function() {
     const html = document.documentElement;

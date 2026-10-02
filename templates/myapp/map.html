@@ -133,7 +133,9 @@
         }
         if (point.kind !== 'task') {
             panel.hidden = false;
-            panel.innerHTML = `<h3 class="ops-panel__title">${point.title}</h3><p class="ops-panel__sub">${point.subtitle || ''}</p>`;
+            const away = point.kind === 'volunteer' && point.away
+                ? `<div class="ops-panel__badges"><span class="tag away">${((window.T || {})[document.documentElement.getAttribute('lang')] || {})['availability.away'] || I('availability.away', 'Do not disturb')}</span></div>` : '';
+            panel.innerHTML = `<h3 class="ops-panel__title">${point.title}</h3><p class="ops-panel__sub">${point.subtitle || ''}</p>${away}`;
             maybeScroll();
             return;
         }

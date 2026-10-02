@@ -21,11 +21,15 @@ from django.db.models import Q
 from django.utils import timezone
 
 from ..models import STALE_PENDING_THRESHOLD, HelpRequest
-from ..notifications import notify_users, staff_recipients
+from django.urls import reverse
+
+from ..notifications import staff_recipients
+from .notify import notify
+from .notify_texts import CHANNEL_TEXTS
 
 logger = logging.getLogger(__name__)
 
-STALE_SUBJECT = "Запрос долго ждёт волонтёра"
+STALE_SUBJECT = CHANNEL_TEXTS["task_stale"]["ru"][0]  # "Запрос долго ждёт волонтёра"
 
 
 def currently_stale_pending_q():
@@ -36,12 +40,19 @@ def currently_stale_pending_q():
     return Q(status="pending", created_at__lt=timezone.now() - STALE_PENDING_THRESHOLD)
 
 
-def _stale_message(task):
+def _notify_stale(recipients, task):
+    """One typed ``task_stale`` notification to staff; returns recipients
+    reached (0 = nobody). The client's phone is channel-only (email/Telegram),
+    never stored on the in-app row or sent over the WebSocket."""
     waited_hours = int((timezone.now() - task.created_at).total_seconds() // 3600)
-    return (
-        f"Запрос #{task.id} ({task.get_help_type_display()}) в регионе "
-        f"{task.get_region_display() or '—'} ждёт волонтёра уже {waited_hours} ч. "
-        f"и до сих пор не принят. Клиент: {task.client.username}, телефон: {task.phone}."
+    return notify(
+        recipients, "task_stale",
+        params={"task_id": task.id, "hours": waited_hours, "region": task.region, "help_type": task.help_type},
+        link=reverse("task_detail", args=[task.id]),
+        dedupe_key=f"stale:{task.id}",
+        extra={"region_name": task.get_region_display() or None,
+               "help_type_name": task.get_help_type_display(),
+               "client_name": task.client.username, "phone": task.phone},
     )
 
 
@@ -94,9 +105,9 @@ def sweep_stale_pending():
         if not claimed:
             continue  # another concurrent sweep already took this one
 
-        delivered = notify_users(recipients, STALE_SUBJECT, _stale_message(task))
+        delivered = _notify_stale(recipients, task)
         if not delivered:
-            # notify_users never raises (email is fail_silently, Telegram
+            # notify never raises (email is fail_silently, Telegram
             # errors are caught) — a return of 0 is the only failure signal we
             # get. stale_alert_sent stayed True for the whole window above, so
             # no concurrent sweep could have claimed this row meanwhile; it's

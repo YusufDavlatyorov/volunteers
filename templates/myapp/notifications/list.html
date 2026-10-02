@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Notifications - KhayrKhoh{% endblock %}
+{% block content %}
+<section class="section section-xl">
+    {% url 'notification_preferences' as prefs_url %}
+    {% include "partials/_page_header.html" with title="Notifications" title_i18n="ntf.page_title" lede="Everything the platform told you, newest first." lede_i18n="ntf.page_lede" action_url=prefs_url action_label="Notification settings" action_i18n="ntf.preferences" action_class="ghost" %}
+
+    <div class="notifications-toolbar">
+        <nav class="tab-bar" aria-label="Filter">
+            <a href="?{% if type_filter %}type={{ type_filter }}{% endif %}"{% if not unread_only %} aria-current="page"{% endif %}><span data-i18n="ntf.tab_all">All</span></a>
+            <a href="?unread=1{% if type_filter %}&amp;type={{ type_filter }}{% endif %}"{% if unread_only %} aria-current="page"{% endif %}><span data-i18n="ntf.tab_unread">Unread</span> <span class="tab-count" data-unread-count="{{ unread_count }}">{{ unread_count }}</span></a>
+        </nav>
+        <form method="get" class="notif-filter">
+            {% if unread_only %}<input type="hidden" name="unread" value="1">{% endif %}
+            <label for="ntfType" class="visually-hidden" data-i18n="ntf.filter_type">Type</label>
+            <select id="ntfType" name="type" class="control" onchange="this.form.submit()">
+                <option value="" data-i18n="ntf.filter_all_types">All types</option>
+                {% for code, label in type_choices %}<option value="{{ code }}" data-i18n="ntf.type.{{ code }}" {% if type_filter == code %}selected{% endif %}>{{ label }}</option>{% endfor %}
+            </select>
+            <noscript><button class="button ghost" type="submit" data-i18n="task.filter">Filter</button></noscript>
+        </form>
+    </div>
+
+    {% if rows %}
+        {% if unread_count %}
+        <div class="notif-bulk">
+            <form method="post" action="{% url 'notifications_read_all' %}">
+                {% csrf_token %}
+                <button class="button ghost" type="submit" data-i18n="ntf.mark_all_read">Mark all as read</button>
+            </form>
+        </div>
+        {% endif %}
+        <div class="table-scroll">
+            <table class="data-table notifications-table">
+                <thead>
+                    <tr>
+                        <th data-i18n="ntf.col_type">Notification</th>
+                        <th data-i18n="tbl.created">Created</th>
+                        <th><span class="visually-hidden">—</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in rows %}
+                    {% with n=row.n %}
+                    <tr data-notification-id="{{ n.id }}" class="{% if not n.read_at %}is-unread{% endif %}">
+                        <td data-label="Notification">
+                            <span class="cell-title" data-i18n="{{ n.title_key }}" data-i18n-args="{{ row.args }}">{{ row.title }}</span>
+                            {% if not n.read_at %} <span class="tag info" data-i18n="ntf.new_badge">New</span>{% endif %}
+                            <p class="notif-body" data-i18n="{{ n.body_key }}" data-i18n-args="{{ row.args }}">{{ row.body }}</p>
+                        </td>
+                        <td data-label="Created" class="col-num col-date"><time datetime="{{ n.created_at|date:'c' }}">{{ n.created_at|date:"d.m.Y H:i" }}</time></td>
+                        <td data-label="">
+                            <div class="notif-actions">
+                                {% if n.link %}
+                                <form method="post" action="{% url 'notification_read' n.id %}">
+                                    {% csrf_token %}<input type="hidden" name="open" value="1">
+                                    <button class="button {% if n.read_at %}ghost{% else %}primary{% endif %}" type="submit" data-i18n="ntf.open">Open</button>
+                                </form>
+                                {% endif %}
+                                {% if not n.read_at %}
+                                <form method="post" action="{% url 'notification_read' n.id %}">
+                                    {% csrf_token %}
+                                    <button class="button ghost" type="submit" data-i18n="ntf.mark_read">Mark as read</button>
+                                </form>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endwith %}
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% include "myapp/_pagination.html" %}
+    {% else %}
+        <div class="empty-state">
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"></path><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"></path></svg>
+            <strong data-i18n="ntf.empty_title">No notifications</strong>
+            <p data-i18n="ntf.empty_text">When something needs your attention, it will appear here.</p>
+        </div>
+    {% endif %}
+</section>
+{% endblock %}

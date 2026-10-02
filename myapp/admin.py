@@ -1,4 +1,5 @@
 from django.contrib import admin, messages
+from django.urls import reverse
 
 from .models import (
     Broadcast,
@@ -11,7 +12,7 @@ from .models import (
     Product,
     VolunteerApplication,
 )
-from .notifications import notify_users
+from .services.notify import notify
 
 
 @admin.register(EmergencyReport)
@@ -140,11 +141,7 @@ class VolunteerApplicationAdmin(admin.ModelAdmin):
         approved = 0
         for application in queryset.exclude(status=VolunteerApplication.STATUS_APPROVED).select_related("user"):
             application.approve(request.user)
-            notify_users(
-                [application.user],
-                "Заявка на волонтерство одобрена",
-                "Поздравляем! Ваша заявка на волонтерство одобрена. Теперь вам доступен список запросов.",
-            )
+            notify([application.user], "application_approved", link=reverse("task_list"))
             approved += 1
         self.message_user(request, f"Одобрено заявок: {approved}.")
 
@@ -156,10 +153,6 @@ class VolunteerApplicationAdmin(admin.ModelAdmin):
         rejected = 0
         for application in queryset.exclude(status=VolunteerApplication.STATUS_REJECTED).select_related("user"):
             application.reject(request.user)
-            notify_users(
-                [application.user],
-                "Заявка на волонтерство отклонена",
-                "Ваша заявка на волонтерство отклонена администратором.",
-            )
+            notify([application.user], "application_rejected", link=reverse("volunteer_application"))
             rejected += 1
         self.message_user(request, f"Отклонено заявок: {rejected}.")

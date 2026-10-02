@@ -1,4 +1,17 @@
 {% comment %}Volunteer dashboard — "what do I need to do right now?". Context from services.dashboard._volunteer.{% endcomment %}
+{% load realtime_ui %}
+{% if profile.is_away_now %}
+    {% with last_day=profile.away_until|away_last_day %}
+    <div class="away-banner reveal" role="status">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"></path></svg>
+        <div class="away-banner__text">
+            <strong><span data-i18n="availability.away">Не беспокоить</span>{% if last_day %} <span data-i18n="availability.away_until" data-i18n-args='{"date": "{{ last_day|date:"d.m.Y" }}"}'>до {{ last_day|date:"d.m.Y" }}</span>{% endif %}</strong>
+            <p data-i18n="profile.away_on_text">You won't be offered new tasks or notified about them.</p>
+        </div>
+        <a class="button ghost" href="{% url 'edit_profile' %}" data-i18n="profile.away_change">Change</a>
+    </div>
+    {% endwith %}
+{% endif %}
 <div class="kpi-row reveal">
     <div class="card stat-card"><span class="metric">{{ vol_completed }}</span><p data-i18n="dash.tasks_completed">Tasks completed</p></div>
     <div class="card stat-card"><span class="metric">{{ vol_completed_month }}</span><p data-i18n="dash.this_month">This month</p></div>

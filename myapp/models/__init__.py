@@ -26,6 +26,7 @@ from .emergency import (
     OPEN_STATUSES as EMERGENCY_OPEN_STATUSES,
 )
 from .events import EVENT_REGION_CHOICES, Broadcast, Event
+from .notifications import Notification, NotificationPreference
 from .help_requests import (
     HELP_TYPE_CHOICES,
     OVERDUE_THRESHOLD,
@@ -103,4 +104,7 @@ __all__ = [
     "DONATION_DONOR_TYPE_CHOICES",
     "DONATION_FULFILMENT_CHOICES",
     "MAX_DONATION_QUANTITY",
+    # notifications (Feature Pack v2, feature 11)
+    "Notification",
+    "NotificationPreference",
 ]

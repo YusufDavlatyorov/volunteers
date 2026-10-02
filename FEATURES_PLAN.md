@@ -394,7 +394,72 @@ Each milestone ends with: full suite green, new tests, memory numbers, Russian r
 
 ---
 
-## 9. Open questions for the owner (summary)
+## 9. Owner decisions (answered 2026-10-02)
+
+1. **Separate `ws` service** (uvicorn, 1 worker); regular pages stay on gunicorn. ✅
+2. **python-telegram-bot** for both bots. ✅
+3. **Do not disturb / on vacation** — yes: excludes the volunteer from matching and from
+   new-task notifications only; shown clearly in their profile and to staff; optional end
+   date after which it switches off automatically (`Profile.is_away` + `away_until`,
+   predicate `Profile.is_away_now` / `presence.not_away_q()`).
+4. **Request cancellation** — yes: client while `pending` (reason optional), staff any open
+   state (reason required). Notify the other parties, stop tracking, close chat, ID-only
+   log, tests. Built in milestone 1 (`myapp/services/cancellation.py`); tracking/chat hooks
+   are filled in by milestones 2/3.
+5. **No Web Push** for now — in-app + email + Telegram. The channel registry stays
+   extensible so a `webpush` channel can be added later without touching call sites.
+6. **Self-hosted OSRM** — milestone 2: build the Tajikistan data (car + foot) locally on the
+   owner's Mac, copy the prepared files to the server, which only runs `osrm-routed`.
+   Measure RAM. Haversine fallback stays.
+7. Reviews are **display-only** (no matching weight). ✅
+8. Defaults accepted: offline after 30 min, chat archive 30 days, review edit 24 h,
+   trail ≤ 24 h, notifications pruned after 90 days.
+- Chart.js self-hosted on staff pages only. ✅
+
+---
+
+## 10. Milestone 1 contracts (shared APIs — agents code against these)
+
+Already in place (orchestrator): `channels`, `channels-redis`, `uvicorn[standard]` pinned
+and smoke-tested on Python 3.14; `INSTALLED_APPS += channels`; `ASGI_APPLICATION`;
+`CHANNEL_LAYERS` (Redis DB 2 via `DJANGO_CHANNEL_REDIS_URL`, else in-memory);
+`AVAILABILITY_IDLE_MINUTES`, `NOTIFICATION_RETENTION_DAYS` settings; compose `ws` service;
+migrations `accounts 0008` (`Profile.last_seen_at`, `is_away`, `away_until`, `language`)
+and `myapp 0016` (`HelpRequest.cancelled_at/_by`, `cancel_reason`).
+
+**`myapp/realtime/publish.py`** (sync, never raises, returns bool):
+`send_to_user(user|id, type, payload)`, `send_to_task(task|id, …)`, `send_to_staff(…)`,
+`send_to_map_staff(…)`, `send_to_group(group, …)`; groups `user_<id>`, `task_<id>`,
+`staff`, `map_staff`; channel message `{"type": "realtime.event", "event": <envelope>}`.
+Not for use inside the consumer's event loop (use `await channel_layer.group_send`).
+
+**`myapp/services/presence.py`** (geo-engineer):
+- `not_away_q(prefix="profile__")` — exists.
+- `compute_status(*, is_volunteer, has_active_task, last_seen_at, now)` → `busy|available|offline` (pure).
+- `recompute(user) -> str|None` — saves only on change; on change publishes
+  `availability.changed {user_id, status}` to `staff`. No-op (None) for non-volunteers.
+- `mark_seen(user, *, source)` — `source` ∈ `web|ws|telegram`; writes `last_seen_at`
+  at most once per 60 s per user (cache), then `recompute` if the status could change.
+- `on_task_change(task)` — recompute the task's volunteer (accept/assign/complete/cancel).
+- `set_away(user, away, until=None)`, `sweep() -> int` (+ `sweep_availability` command:
+  idle → offline, expired `away_until` → off).
+
+**`myapp/services/notify.py`** (realtime-engineer):
+`notify(recipients, type, *, params=None, link="", dedupe_key=None, subject=None,
+message=None) -> int` — recipients = users / queryset / iterable; in-app row + WS
+`notification.new` always; email/Telegram per `NotificationPreference` and the type's
+defaults; returns deliveries on any channel (0 when nobody reachable → callers'
+zero-recipient `ERROR` logs keep working). `subject`/`message` override the template
+(free-text broadcasts). Channel registry is extensible (Web Push later).
+
+**`myapp/services/cancellation.py`** (orchestrator): `cancel_request(task, actor,
+reason="") -> CancelOutcome(ok, code)`; conditional `UPDATE … WHERE status IN (…)`;
+calls `presence.on_task_change`, `notify(type="task_cancelled")`, publishes
+`task.updated`; tracking/chat hooks added in milestones 2/3.
+
+---
+
+## 11. Original open questions (kept for history)
 
 1. ASGI: separate `ws` service (recommended) vs. switching `web` to uvicorn workers?
 2. Telegram bots on `python-telegram-bot` (recommended) vs. extending the raw-HTTP bot?

@@ -10,6 +10,12 @@
 {% endblock %}
 {% block content %}
 <section class="section">
+    {# Live update (static/js/realtime.js): shown when task.updated reports a new status/stage. Never auto-reloads. #}
+    <div class="live-notice" id="taskLiveNotice" role="status" hidden data-task-id="{{ task.id }}" data-status="{{ task.status }}" data-work-stage="{{ task.work_stage }}">
+        <p data-i18n="rt.task_updated">This request was updated.</p>
+        <button type="button" class="button primary" data-live-reload data-i18n="rt.reload">Reload</button>
+        <button type="button" class="button ghost" data-live-dismiss data-i18n="rt.dismiss">Dismiss</button>
+    </div>
     <div class="opportunity-card detail-card">
         <div class="opportunity-media opportunity-media--lg media-{{ task.help_type }}">
             {% include "myapp/_help_type_icon.html" with help_type=task.help_type %}
@@ -66,6 +72,24 @@
                     {% endif %}
                 </div>
                 {% endif %}
+            {% endif %}
+            {% if task.status == "cancelled" %}
+                <div class="cancel-note" role="status">
+                    <strong data-i18n="cancel.cancelled_title">This request was cancelled</strong>
+                    {% if task.cancelled_at %}<span class="muted">{{ task.cancelled_at|date:"d M Y, H:i" }}</span>{% endif %}
+                    {% if task.cancel_reason %}<p><span class="meta-label" data-i18n="cancel.reason_label">Reason</span> {{ task.cancel_reason }}</p>{% endif %}
+                </div>
+            {% elif can_cancel %}
+                <details class="cancel-box">
+                    <summary class="button secondary" data-i18n="cancel.open">Cancel request</summary>
+                    <form method="post" action="{% url 'task_cancel' task.id %}" class="cancel-box__form">
+                        {% csrf_token %}
+                        <label for="cancel-reason" class="meta-label" data-i18n="{% if cancel_reason_required %}cancel.reason_required_label{% else %}cancel.reason_optional_label{% endif %}">Reason</label>
+                        <textarea id="cancel-reason" name="reason" rows="2" maxlength="500"{% if cancel_reason_required %} required{% endif %}></textarea>
+                        <p class="muted" data-i18n="{% if task.volunteer %}cancel.hint_parties{% else %}cancel.hint{% endif %}">The other parties will be notified.</p>
+                        <button type="submit" class="button danger" data-i18n="cancel.confirm">Confirm cancellation</button>
+                    </form>
+                </details>
             {% endif %}
         </div>
     </div>
@@ -179,6 +203,25 @@
 </section>
 {% endblock %}
 {% block extra_js %}
+<script>
+/* Live task updates: subscribe to task_<id>; on task.updated with a different
+   status / work stage, show the non-blocking "updated" notice. realtime.js is
+   deferred, so wait for DOMContentLoaded (deferred scripts have run by then). */
+document.addEventListener('DOMContentLoaded', () => {
+    const notice = document.getElementById('taskLiveNotice');
+    if (!notice || !window.GCRealtime) return;
+    const taskId = parseInt(notice.dataset.taskId, 10);
+    window.GCRealtime.subscribeTask(taskId);
+    window.GCRealtime.on('task.updated', (p) => {
+        if (!p || parseInt(p.task_id, 10) !== taskId) return;
+        const changed = (p.status && p.status !== notice.dataset.status)
+            || (p.work_stage && p.work_stage !== notice.dataset.workStage);
+        if (changed) notice.hidden = false;
+    });
+    notice.querySelector('[data-live-reload]').addEventListener('click', () => window.location.reload());
+    notice.querySelector('[data-live-dismiss]').addEventListener('click', () => { notice.hidden = true; });
+});
+</script>
 <script>
 /* SOS: best-effort fill of the hidden coords from the volunteer's live location
    just before the report is sent. Falls back silently to the task's own

@@ -91,7 +91,9 @@ def _client(user):
         user.client_requests.select_related("volunteer", "volunteer__profile").order_by("-created_at")
     )
     active = [r for r in requests if r.status in ("pending", "active")]
-    completed = [r for r in requests if r.status == "completed"]
+    # History = finished requests, incl. cancelled ones (so a cancelled request
+    # doesn't silently vanish from the client's dashboard).
+    completed = [r for r in requests if r.status in ("completed", "cancelled")]
     current = next((r for r in active if r.status == "active"), None) or (active[0] if active else None)
 
     return {

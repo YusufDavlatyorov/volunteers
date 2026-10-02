@@ -60,6 +60,10 @@
             <span class="metric">{{ stats.volunteers_offline }}</span>
             <p data-i18n="crm.kpi_offline">Offline</p>
         </a>
+        <a class="card stat-card reveal" href="{% url 'people_list' 'volunteer' %}?availability=away">
+            <span class="metric">{{ stats.volunteers_away }}</span>
+            <p data-i18n="crm.kpi_away">Do not disturb</p>
+        </a>
         <a class="card stat-card reveal" href="{% url 'people_list' 'client' %}">
             <span class="metric">{{ total_clients }}</span>
             <p data-i18n="admin.stat_clients">Clients</p>

@@ -18,6 +18,7 @@ from django.utils import timezone
 from accounts.models import Profile, Users
 from ..models import HelpRequest
 from .geo import haversine_km
+from .presence import not_away_q
 
 # How much each signal contributes to the final 0-100 score. Urgent tasks
 # lean harder on distance ("fastest/closest suitable volunteer") and lighter
@@ -127,8 +128,9 @@ def recommend_volunteers(task, limit=5):
       volunteer, distance_km, estimated_minutes, score (0-100), availability,
       active_task_count, same_region, location_freshness, reasons (list[str]).
 
-    Excluded entirely (not merely scored low): offline volunteers, and
-    volunteers with no saved location — a distance-based recommendation is
+    Excluded entirely (not merely scored low): offline volunteers, volunteers
+    with do-not-disturb in effect (presence.not_away_q), and volunteers with no
+    saved location — a distance-based recommendation is
     meaningless without one. Returns [] if the task itself has no location.
     """
     if not task.has_location:
@@ -140,6 +142,8 @@ def recommend_volunteers(task, limit=5):
     candidates = (
         Users.objects.filter(is_volunteer=True, is_active=True)
         .exclude(profile__availability_status=Profile.AVAILABILITY_OFFLINE)
+        # Do-not-disturb / on vacation: excluded entirely, like offline.
+        .filter(not_away_q())
         .filter(profile__latitude__isnull=False, profile__longitude__isnull=False)
         .select_related("profile")
         .annotate(

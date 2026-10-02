@@ -34,6 +34,20 @@ def volunteer_availability_breakdown():
     return breakdown
 
 
+def volunteer_away_count():
+    """Active volunteers with do-not-disturb in effect right now — a separate
+    figure, NOT a fourth availability status (an away volunteer is still
+    available/busy/offline underneath), so it never changes the totals above.
+    Uses the one predicate, ``presence.not_away_q`` (negated)."""
+    from .presence import not_away_q
+
+    return (
+        Users.objects.filter(is_volunteer=True, is_active=True)
+        .exclude(not_away_q())
+        .count()
+    )
+
+
 def task_status_breakdown():
     """Counts of tasks per lifecycle bucket, plus overdue/urgent. Overdue and
     stale are derived (not their own status value), so they reuse the one
@@ -76,6 +90,7 @@ def dashboard_stats():
         "volunteers_available": availability.get(Profile.AVAILABILITY_AVAILABLE, 0),
         "volunteers_busy": availability.get(Profile.AVAILABILITY_BUSY, 0),
         "volunteers_offline": availability.get(Profile.AVAILABILITY_OFFLINE, 0),
+        "volunteers_away": volunteer_away_count(),
         "clients_total": Users.objects.filter(is_client=True, is_active=True).count(),
         "tasks_pending": tasks["pending"],
         "tasks_active": tasks["active"],

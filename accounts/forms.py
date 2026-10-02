@@ -145,22 +145,40 @@ class ProfileForm(forms.ModelForm):
         widget=forms.CheckboxSelectMultiple,
         help_text="Влияет на подбор задач в CRM.",
     )
+    # Do-not-disturb (volunteers only). `availability_status` is NOT on this
+    # form anymore — it is system-computed (myapp/services/presence.py).
+    is_away = forms.BooleanField(
+        label="Не беспокоить / в отпуске",
+        required=False,
+        help_text="Пока включено, вам не предлагают новые задачи и не присылают о них уведомления.",
+    )
+    # A calendar date — "away through that whole day"; stored as the start of
+    # the next local day (presence._away_until_from_date).
+    away_until = forms.DateField(
+        label="До какой даты (включительно)",
+        required=False,
+        widget=forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
+        help_text="Необязательно. После этой даты режим выключится сам.",
+    )
+    # data-i18n keys picked up by partials/_field.html.
+    I18N = {
+        "is_away": ("profile.away_label", "profile.away_help"),
+        "away_until": ("profile.away_until_label", "profile.away_until_help"),
+    }
 
     class Meta:
         model = Profile
-        fields = ["full_name", "age", "image", "bio", "availability_status", "skills", "latitude", "longitude"]
+        fields = ["full_name", "age", "image", "bio", "skills", "is_away", "away_until", "latitude", "longitude"]
         labels = {
             "full_name": "Полное имя",
             "age": "Возраст",
             "image": "Фото профиля",
             "bio": "О себе",
-            "availability_status": "Статус доступности",
         }
         widgets = {
             "full_name": forms.TextInput(attrs={"placeholder": "Полное имя", "maxlength": Users.FULL_NAME_MAX_LENGTH}),
             "age": forms.NumberInput(attrs={"min": 1, "max": 120}),
             "bio": forms.Textarea(attrs={"rows": 4, "placeholder": "О себе, навыки, удобное время"}),
-            "availability_status": forms.Select(attrs={"class": "control"}),
             "latitude": forms.HiddenInput(),
             "longitude": forms.HiddenInput(),
         }
@@ -170,9 +188,40 @@ class ProfileForm(forms.ModelForm):
         if self.instance and self.instance.pk:
             self.initial.setdefault("skills", self.instance.skills or [])
         self.fields["full_name"].widget.attrs["maxlength"] = Users.FULL_NAME_MAX_LENGTH
+        self._original_away = (self.instance.is_away, self.instance.away_until)
+        if not self._is_volunteer():
+            # Do-not-disturb only means something for volunteers (it removes
+            # them from matching); for anyone else the fields are neither shown
+            # nor accepted.
+            del self.fields["is_away"]
+            del self.fields["away_until"]
+        else:
+            if self.instance.away_until:
+                # Stored as "start of the day after" → show the inclusive last day.
+                last_day = timezone.localtime(self.instance.away_until) - timezone.timedelta(microseconds=1)
+                self.initial["away_until"] = last_day.date()
+            self.fields["away_until"].widget.attrs["min"] = timezone.localdate().isoformat()
+            for name, (label_key, help_key) in self.I18N.items():
+                self.fields[name].i18n_label = label_key
+                self.fields[name].i18n_help = help_key
+
+    def _is_volunteer(self):
+        user_id = getattr(self.instance, "user_id", None)
+        return bool(user_id) and bool(getattr(self.instance.user, "is_volunteer", False))
 
     def clean_skills(self):
         return list(self.cleaned_data.get("skills") or [])
+
+    def clean_away_until(self):
+        from myapp.services.presence import _away_until_from_date
+
+        value = self.cleaned_data.get("away_until")
+        if value is None or not self.cleaned_data.get("is_away"):
+            return None  # no end date, or switching do-not-disturb off resets it
+        until = _away_until_from_date(value)
+        if until <= timezone.now() or value < timezone.localdate():
+            raise forms.ValidationError("Дата не может быть в прошлом.", code="away_until_past")
+        return until
 
     def clean(self):
         # DecimalField(max_digits=9) alone allows any value up to ~1000,
@@ -184,6 +233,8 @@ class ProfileForm(forms.ModelForm):
             raise forms.ValidationError("Укажите широту и долготу вместе или не указывайте вовсе.")
         if lat is not None and lng is not None and not (-90 <= lat <= 90 and -180 <= lng <= 180):
             raise forms.ValidationError("Некорректные координаты.")
+        if "is_away" in self.fields and not cleaned.get("is_away"):
+            cleaned["away_until"] = None  # switching it off resets the end date
         return cleaned
 
     def save(self, commit=True):
@@ -192,6 +243,11 @@ class ProfileForm(forms.ModelForm):
             profile.location_updated_at = timezone.now()
         if commit:
             profile.save()
+            if "is_away" in self.fields and (profile.is_away, profile.away_until) != self._original_away:
+                from myapp.services import presence
+
+                # Staff see the do-not-disturb flag live (availability.changed).
+                presence.publish_availability(profile)
         return profile
 
 

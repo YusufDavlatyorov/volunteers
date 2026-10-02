@@ -119,6 +119,14 @@ class HelpRequest(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     accepted_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
+    # Cancellation (myapp/services/cancellation.py — the one cancel path): the
+    # client while pending (reason optional), staff from any open state (reason
+    # required). `cancel_reason` is free text shown to the parties, never logged.
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    cancelled_by = models.ForeignKey(
+        Users, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    cancel_reason = models.CharField(max_length=500, blank=True)
 
     class Meta:
         verbose_name = "Запрос помощи"

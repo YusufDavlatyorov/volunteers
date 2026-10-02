@@ -11,8 +11,8 @@ own the state transitions; this module owns the cross-cutting parts:
     animal" list (opposite type, same species, nearby or same region). It reuses
     ``geo.haversine_km``; it is NOT a second matching engine and never writes.
 
-Notifications go through the shared ``notify_users`` / ``staff_recipients``
-helpers, the same as every other domain here.
+Notifications go through the typed ``services.notify.notify`` +
+``staff_recipients``, the same as every other domain here.
 """
 
 import logging
@@ -21,7 +21,9 @@ from django.db import transaction
 from django.urls import reverse
 
 from ..models import PET_OPEN_STATUSES, PetReport
-from ..notifications import notify_users, staff_recipients
+from ..notifications import staff_recipients
+from .notify import notify
+from .notify_texts import CHANNEL_TEXTS
 from .geo import haversine_km, is_valid_coordinate
 
 logger = logging.getLogger(__name__)
@@ -38,17 +40,10 @@ MATCH_NOTIFY_CAP = 3
 # a bound on result size, not a permission check (the board is already open-only).
 MAP_POINT_CAP = 500
 
-NEW_REPORT_SUBJECT = "Новое объявление о животном"
-MATCH_HINT_SUBJECT = "Возможное совпадение по вашему объявлению"
-STATUS_SUBJECT = "Статус вашего объявления обновлён"
-
-_TYPE_WORD = {PetReport.REPORT_LOST: "потерянном", PetReport.REPORT_FOUND: "найденном"}
-_STATUS_PHRASE = {
-    PetReport.STATUS_OPEN: "снова открыто",
-    PetReport.STATUS_MATCHED: "отмечено как возможное совпадение",
-    PetReport.STATUS_RESOLVED: "закрыто: питомец воссоединён с хозяином",
-    PetReport.STATUS_CLOSED: "закрыто",
-}
+# RU subjects (the email/Telegram texts live in services/notify_texts.py).
+NEW_REPORT_SUBJECT = CHANNEL_TEXTS["pet_new"]["ru"][0]       # "Новое объявление о животном"
+MATCH_HINT_SUBJECT = CHANNEL_TEXTS["pet_match"]["ru"][0]     # "Возможное совпадение по вашему объявлению"
+STATUS_SUBJECT = CHANNEL_TEXTS["pet_status"]["ru"][0]        # "Статус вашего объявления обновлён"
 
 
 # --------------------------------------------------------------------------
@@ -89,14 +84,21 @@ def create_pet_report(*, reporter, report_type, description, species="other",
 
 def _notify_staff_new(report):
     recipients = list(staff_recipients())
-    body = (
-        f"{report.get_report_type_display()}: {report.display_name}"
-        f"{f' ({report.breed})' if report.breed else ''}.\n"
-        f"Регион: {report.get_region_display() or '—'}\n"
-        f"Описание: {report.description[:300]}\n"
-        f"Автор: {report.reporter.username}"
+    delivered = notify(
+        recipients, "pet_new",
+        params={"pet_id": report.pk, "report_type": report.report_type, "species": report.species,
+                "region": report.region},
+        link=reverse("pet_report_detail", args=[report.pk]),
+        dedupe_key=f"pet_new:{report.pk}",
+        extra={
+            "type_name": report.get_report_type_display(),
+            "display_name": report.display_name,
+            "breed_part": f" ({report.breed})" if report.breed else "",
+            "region_name": report.get_region_display() or None,
+            "description": report.description[:300],
+            "author_name": report.reporter.username,
+        },
     )
-    delivered = notify_users(recipients, NEW_REPORT_SUBJECT, body)
     logger.info("pet report #%s created by user %s (notified %d staff)", report.pk, report.reporter_id, delivered)
 
 
@@ -107,15 +109,14 @@ def _notify_possible_match_owners(report):
         if other.reporter_id == report.reporter_id or other.reporter_id in seen:
             continue
         seen.add(other.reporter_id)
-        notify_users(
-            [other.reporter],
-            MATCH_HINT_SUBJECT,
-            (
-                f"По вашему объявлению #{other.pk} появилось новое объявление о "
-                f"{_TYPE_WORD.get(report.report_type, '')} животном (#{report.pk}, "
-                f"{report.get_species_display()}, {report.get_region_display() or 'регион не указан'}). "
-                f"Проверьте, не совпадают ли они."
-            ),
+        notify(
+            [other.reporter], "pet_match",
+            params={"pet_id": report.pk, "other_id": other.pk, "report_type": report.report_type,
+                    "species": report.species, "region": report.region},
+            link=reverse("pet_report_detail", args=[report.pk]),
+            dedupe_key=f"pet_match:{other.pk}:{report.pk}",
+            extra={"species_name": report.get_species_display(),
+                   "region_name": report.get_region_display() or None},
         )
 
 
@@ -143,10 +144,11 @@ def apply_action(report, action, *, actor, notify_reporter=True):
         report.pk, action, getattr(actor, "pk", None), report.status,
     )
     if notify_reporter and actor != report.reporter:
-        notify_users(
-            [report.reporter],
-            STATUS_SUBJECT,
-            f"Ваше объявление #{report.pk} ({report.display_name}) {_STATUS_PHRASE.get(report.status, report.status)}.",
+        notify(
+            [report.reporter], "pet_status", variant=report.status,
+            params={"pet_id": report.pk, "status": report.status},
+            link=reverse("pet_report_detail", args=[report.pk]),
+            extra={"display_name": report.display_name, "phrase": report.status},
         )
     return report
 

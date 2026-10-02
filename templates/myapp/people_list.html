@@ -36,6 +36,7 @@
                 {% for value, label in region_choices %}
                     <option value="{{ value }}" {% if region_filter == value %}selected{% endif %}>{{ label }}</option>
                 {% endfor %}
+                <option value="away" data-i18n="availability.away" {% if availability_filter == "away" %}selected{% endif %}>Не беспокоить</option>
             </select>
         </div>
         {% if role == "volunteer" %}
@@ -44,7 +45,7 @@
             <select id="peopleAvailability" name="availability" class="control">
                 <option value="" data-i18n="crm.all_availability">Any availability</option>
                 {% for value, label in availability_choices %}
-                    <option value="{{ value }}" {% if availability_filter == value %}selected{% endif %}>{{ label }}</option>
+                    <option value="{{ value }}" data-i18n="availability.{{ value }}" {% if availability_filter == value %}selected{% endif %}>{{ label }}</option>
                 {% endfor %}
             </select>
         </div>
@@ -87,8 +88,9 @@
                         </td>
                         <td data-label="Region">{{ person.get_region_display|default:"—" }}</td>
                         {% if role == "volunteer" %}
-                            <td data-label="Availability">
-                                <span class="tag {% if person.profile.availability_status == 'available' %}success{% elif person.profile.availability_status == 'busy' %}muted{% else %}muted{% endif %}">{{ person.profile.get_availability_status_display }}</span>
+                            <td data-label="Availability" data-availability-user="{{ person.pk }}">
+                                <span class="tag {% if person.profile.availability_status == 'available' %}success{% else %}muted{% endif %}" data-availability-status="{{ person.profile.availability_status }}" data-i18n="availability.{{ person.profile.availability_status }}">{{ person.profile.get_availability_status_display }}</span>
+                                <span class="tag away" data-availability-away data-i18n="availability.away"{% if not person.profile.is_away_now %} hidden{% endif %}>Не беспокоить</span>
                             </td>
                             <td data-label="Activity">{{ person.completed_task_count }} <span data-i18n="crm.completed_tasks_short">completed</span> · {{ person.active_task_count }} <span data-i18n="crm.active_tasks_short">active</span></td>
                             <td data-label="Rating" class="col-num">{{ person.profile.rating|default:0 }}</td>

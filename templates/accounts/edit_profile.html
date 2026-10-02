@@ -36,5 +36,14 @@
 <script src="{% asset 'js/map.js' %}"></script>
 <script>
 GCMap.initPicker('locationPicker', 'id_latitude', 'id_longitude', { locateButtonId: 'locateMeBtn' });
+// Do-not-disturb: the end date only applies while the switch is on.
+(function () {
+    const away = document.getElementById('id_is_away');
+    const until = document.getElementById('id_away_until');
+    if (!away || !until) return;
+    const sync = () => { until.disabled = !away.checked; };
+    away.addEventListener('change', sync);
+    sync();
+})();
 </script>
 {% endblock %}

@@ -1,8 +1,9 @@
 # KhayrKhoh (khayrkhoh.tj) — production compose file.
 #
-# Services: web (gunicorn), telegram_bot (long polling), celery_worker
-# (background email/Telegram delivery) — all the same image — plus redis
-# (shared cache, cached sessions, Celery broker). PostgreSQL is NOT started
+# Services: web (gunicorn, HTTP), ws (uvicorn, WebSockets only — /ws/),
+# telegram_bot (long polling), celery_worker (background email/Telegram
+# delivery) — all the same image — plus redis (shared cache, cached sessions,
+# Celery broker, Channels layer). PostgreSQL is NOT started
 # here — this project connects to the pre-existing shared_postgres container
 # over the shared external Docker network named by SHARED_POSTGRES_NETWORK in
 # .env (see .env.example). Do not add a postgres service here.
@@ -19,6 +20,7 @@
 x-app-env: &app-env
   DJANGO_REDIS_URL: "redis://redis:6379/0"
   CELERY_BROKER_URL: "redis://redis:6379/1"
+  DJANGO_CHANNEL_REDIS_URL: "redis://redis:6379/2"
   DJANGO_DB_CACHE: "False"
 
 services:
@@ -44,6 +46,32 @@ services:
       # Loopback-only — the host nginx reverse proxies to this port and
       # terminates TLS for khayrkhoh.tj / www.khayrkhoh.tj.
       - "127.0.0.1:8000:8000"
+    depends_on:
+      - redis
+    networks:
+      - shared_postgres_net
+      - internal
+
+  ws:
+    # WebSockets (Django Channels, server/asgi.py) under uvicorn, one worker.
+    # nginx routes /ws/ here and everything else to `web`, so the HTTP stack
+    # stays the tuned sync gunicorn. Same static setup as `web` so the ASGI
+    # app could also take HTTP later without surprises.
+    image: khayrkhoh:latest
+    container_name: khayrkhoh_ws
+    command: ["uvicorn", "server.asgi:application", "--host", "0.0.0.0", "--port", "8001", "--workers", "1", "--proxy-headers", "--forwarded-allow-ips", "*", "--ws-max-size", "16384", "--no-access-log"]
+    restart: unless-stopped
+    mem_limit: 256m
+    env_file:
+      - .env
+    environment:
+      <<: *app-env
+      DJANGO_STATIC_MANIFEST: "True"
+    volumes:
+      - ./staticfiles:/app/staticfiles
+    ports:
+      # Loopback-only — host nginx proxies /ws/ (Upgrade/Connection) here.
+      - "127.0.0.1:8001:8001"
     depends_on:
       - redis
     networks:

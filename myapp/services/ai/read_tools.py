@@ -31,7 +31,7 @@ from ...models import (
     PetReport,
     VolunteerApplication,
 )
-from .. import analytics, maps, matching, overdue, stale
+from .. import analytics, maps, matching, overdue, presence, stale
 from . import access
 
 DEFAULT_LIMIT = 20
@@ -145,6 +145,7 @@ def _volunteer_brief(u: Users) -> dict:
         "availability_display": (
             profile.get_availability_status_display() if profile else None
         ),
+        "do_not_disturb": bool(profile and profile.is_away_now),
         "rating": getattr(profile, "rating", 0),
         "active_task_count": getattr(u, "active_task_count", None),
         "has_location": bool(profile and profile.has_location),
@@ -513,8 +514,10 @@ def list_volunteers(ctx, *, region=None, availability=None, limit=DEFAULT_LIMIT,
 
 
 def list_available_volunteers(ctx, *, region=None, limit=DEFAULT_LIMIT, offset=0) -> dict:
+    # A dispatch question: do-not-disturb volunteers are not "available" for
+    # new work even when online (same rule as matching.recommend_volunteers).
     return _page(
-        _volunteer_queryset(region, Profile.AVAILABILITY_AVAILABLE),
+        _volunteer_queryset(region, Profile.AVAILABILITY_AVAILABLE).filter(presence.not_away_q()),
         limit, offset, _volunteer_brief,
     )
 

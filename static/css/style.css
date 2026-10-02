@@ -1025,6 +1025,8 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
 .media-other { background: linear-gradient(135deg, #6b7280, #33404f); }
 .opportunity-body { padding: var(--space-4); display: flex; flex-direction: column; gap: 0.55rem; flex: 1; }
 .opportunity-body h3 { margin: 0.1rem 0 0; }
+/* Status pills keep their natural width (the column would stretch them). */
+.opportunity-body > .tag { align-self: flex-start; }
 /* Detail view reuses the same card with an <h1> in place of the listing <h3>. */
 .opportunity-body h1 { margin: 0.1rem 0 0; font-size: clamp(1.5rem, 3vw, 2rem); }
 .opportunity-body .detail-meta { margin-top: 0.4rem; }
@@ -1360,6 +1362,19 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
 .emergency-confirm textarea { width: 100%; }
 
 .emergency-card { border-left: 3px solid var(--danger); }
+
+/* Request cancellation (task_detail): a collapsed control, then a short form. */
+.cancel-box { margin-top: var(--space-4); }
+.cancel-box > summary { list-style: none; display: inline-flex; cursor: pointer; }
+.cancel-box > summary::-webkit-details-marker { display: none; }
+/* Destructive but not primary: danger-outlined, so it never reads as the main action. */
+.cancel-box > summary.button { background: transparent; color: var(--danger); border: 1px solid var(--danger); box-shadow: none; }
+.cancel-box > summary.button:hover { background: var(--danger-glow); }
+.cancel-box__form { margin-top: var(--space-3); max-width: 28rem; display: flex; flex-direction: column; gap: var(--space-2); }
+.cancel-box__form textarea { width: 100%; }
+.cancel-box__form .button { align-self: flex-start; }
+.cancel-note { margin-top: var(--space-4); padding: var(--space-3) var(--space-4); border-left: 3px solid var(--danger); background: var(--danger-glow); border-radius: 0 12px 12px 0; overflow-wrap: anywhere; }
+.cancel-note p { margin: var(--space-1) 0 0; }
 .emergency-notice {
     display: flex;
     flex-wrap: wrap;
@@ -1404,3 +1419,245 @@ a.emergency-banner--link:hover { background: var(--surface-2); }
 .data-table tr.row-alert td:first-child { box-shadow: inset 3px 0 0 var(--danger); }
 .mini-list-item--link { display: block; text-decoration: none; color: inherit; }
 .mini-list-item--link:hover { background: var(--surface-2); }
+
+/* ===== NOTIFICATION BELL (base.html toolbar, static/js/live-ui.js) =====
+   Sits in the toolbar, outside the collapsing .nav-links menu, so it stays
+   visible at every width. Same 2.3rem circle as the theme toggle. */
+.bell { position: relative; flex: 0 0 auto; }
+.bell__button {
+    position: relative;
+    box-sizing: border-box;
+    width: 2.3rem;
+    height: 2.3rem;
+    min-width: 0;
+    min-height: 0;
+    padding: 0;
+    border-radius: 50%;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    color: var(--text);
+    line-height: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.bell__button:hover { border-color: var(--primary); color: var(--primary); }
+.bell.is-open .bell__button { border-color: var(--primary); color: var(--primary); }
+.bell__button svg { width: 1.15rem; height: 1.15rem; }
+.bell__badge {
+    position: absolute;
+    top: -0.3rem;
+    right: -0.35rem;
+    min-width: 1.15rem;
+    height: 1.15rem;
+    padding: 0 0.3rem;
+    border-radius: 999px;
+    background: var(--danger);
+    color: #fff;
+    font-size: 0.66rem;
+    font-weight: 800;
+    line-height: 1.15rem;
+    text-align: center;
+    box-shadow: 0 0 0 2px var(--nav-bg-solid);
+    font-variant-numeric: tabular-nums;
+}
+.bell__badge[hidden] { display: none; }
+.bell__panel {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 0.6rem);
+    width: min(23rem, calc(100vw - 2rem));
+    max-height: min(70vh, 32rem);
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    box-shadow: var(--shadow-hover);
+    z-index: 120;
+    overflow: hidden;
+}
+.bell__panel[hidden] { display: none; }
+.bell__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--line);
+}
+.bell__head form[hidden] { display: none; }
+.bell__link, .bell__link:hover {
+    min-height: 0;
+    padding: 0.2rem 0.4rem;
+    border: none;
+    background: transparent;
+    color: var(--primary);
+    font-size: 0.8rem;
+    font-weight: 700;
+    transform: none;
+    box-shadow: none;
+}
+.bell__link:hover { text-decoration: underline; }
+.bell__status { margin: 0; padding: var(--space-4); color: var(--muted); font-size: 0.88rem; }
+.bell__status[hidden] { display: none; }
+.bell__list { list-style: none; margin: 0; padding: 0; overflow-y: auto; overscroll-behavior: contain; }
+.bell__list li + li { border-top: 1px solid var(--line); }
+.bell__list form { display: block; }
+.bell__item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.1rem;
+    width: 100%;
+    min-height: 0;
+    padding: var(--space-3) var(--space-4) var(--space-3) calc(var(--space-4) + 0.25rem);
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    color: var(--text-2);
+    text-align: left;
+    font-weight: 500;
+    font-size: 0.86rem;
+    line-height: 1.4;
+    position: relative;
+    transform: none;
+}
+.bell__item:hover, .bell__item:focus-visible { background: var(--surface-2); transform: none; box-shadow: none; }
+.bell__item.is-unread { background: var(--primary-glow); }
+.bell__item.is-unread::before {
+    content: "";
+    position: absolute;
+    left: 0.55rem;
+    top: 1.05rem;
+    width: 0.45rem;
+    height: 0.45rem;
+    border-radius: 50%;
+    background: var(--primary);
+}
+.bell__item-title { font-weight: 700; color: var(--text); overflow-wrap: anywhere; }
+.bell__item-body { overflow-wrap: anywhere; }
+.bell__item-time { font-size: 0.74rem; color: var(--muted); }
+.bell__foot {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    padding: var(--space-3) var(--space-4);
+    border-top: 1px solid var(--line);
+    font-size: 0.84rem;
+    font-weight: 700;
+}
+.bell__foot a { color: var(--primary); }
+.bell__foot a:hover { text-decoration: underline; }
+/* Phone: the panel spans the viewport under the topbar instead of hanging
+   off the bell (which may sit near the middle of a narrow toolbar). */
+@media (max-width: 600px) {
+    .bell { position: static; }
+    .bell__panel {
+        position: fixed;
+        left: var(--space-4);
+        right: var(--space-4);
+        top: calc(var(--nav-h) + 0.4rem);
+        width: auto;
+    }
+}
+
+/* Live toasts (notification.new) — the existing .toast look plus a title,
+   a body line and a close button; never wider than the viewport. */
+.toast-stack { max-width: min(24rem, calc(100vw - 2rem)); }
+.toast--live { position: relative; padding-right: 2.4rem; overflow-wrap: anywhere; transition: opacity 0.4s ease, transform 0.4s ease; }
+.toast--live strong { display: block; color: var(--text); font-size: 0.92rem; }
+.toast--live p { margin: 0.15rem 0 0; color: var(--text-2); font-size: 0.85rem; }
+.toast__close {
+    position: absolute;
+    top: 0.45rem;
+    right: 0.45rem;
+    width: 1.7rem;
+    height: 1.7rem;
+    min-height: 0;
+    padding: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--muted);
+}
+.toast__close:hover { background: var(--surface-2); color: var(--text); transform: none; box-shadow: none; }
+
+/* "This request was updated" (task_detail live update) — sticks under the
+   topbar so it's seen without covering the page. */
+.live-notice {
+    position: sticky;
+    top: calc(var(--nav-h) + var(--space-2));
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    margin-bottom: var(--space-4);
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--info);
+    border-radius: 12px;
+    background: var(--surface);
+    box-shadow: var(--shadow);
+}
+.live-notice[hidden] { display: none; }
+.live-notice p { margin: 0; flex: 1 1 12rem; font-weight: 600; color: var(--text); }
+.live-notice .button { min-height: 2.3rem; padding: 0.45rem 1.1rem; }
+
+/* Do-not-disturb (volunteer away) — the tag, and the banner on the
+   volunteer's own dashboard. */
+.tag.away { background: var(--accent-glow); color: var(--accent); }
+.tag.away[hidden] { display: none; }
+.away-banner {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--accent);
+    border-left-width: 4px;
+    border-radius: 12px;
+    background: var(--accent-glow);
+}
+.away-banner svg { color: var(--accent); flex: 0 0 auto; }
+.away-banner__text { flex: 1 1 12rem; min-width: 0; }
+.away-banner__text strong { display: block; color: var(--text); }
+.away-banner__text p { margin: 0.1rem 0 0; font-size: 0.86rem; color: var(--text-2); }
+.away-banner .button { min-height: 2.3rem; padding: 0.45rem 1.1rem; }
+
+/* Notifications page */
+.notifications-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-4); }
+.notifications-toolbar .tab-bar { margin: 0; }
+.notifications-toolbar form { margin: 0; }
+.notif-filter { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-2); }
+.notif-filter .control { min-width: 0; max-width: 100%; }
+.notifications-table tr.is-unread td:first-child { box-shadow: inset 3px 0 0 var(--primary); }
+.notifications-table tr.is-unread .cell-title { color: var(--primary); }
+.notifications-table .notif-body { margin: 0.15rem 0 0; color: var(--text-2); font-size: 0.88rem; overflow-wrap: anywhere; }
+.notifications-table td:first-child { min-width: 0; overflow-wrap: anywhere; }
+.notif-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: flex-end; }
+.notif-actions form { display: inline-flex; margin: 0; }
+.notifications-table .col-date { white-space: nowrap; color: var(--muted); font-size: 0.84rem; }
+@media (max-width: 860px) {
+    .notif-actions { justify-content: flex-start; }
+}
+
+/* Notification preferences: type × channel matrix. On phones (data-table
+   stacked mode) each type becomes a card with one labelled row per channel. */
+.prefs-matrix th:not(:first-child), .prefs-matrix td:not(:first-child) { text-align: center; width: 8.5rem; }
+.prefs-matrix .pref-cell { display: inline-flex; align-items: center; gap: 0.4rem; justify-content: center; }
+.prefs-matrix .pref-cell input { width: 1.15rem; height: 1.15rem; accent-color: var(--primary); }
+.prefs-matrix .pref-lock { display: inline-flex; align-items: center; gap: 0.25rem; color: var(--muted); font-size: 0.76rem; font-weight: 600; }
+.prefs-matrix .pref-required { display: block; margin-top: 0.15rem; font-size: 0.78rem; color: var(--danger); font-weight: 600; }
+@media (max-width: 860px) {
+    .prefs-matrix th:not(:first-child), .prefs-matrix td:not(:first-child) { text-align: left; width: auto; }
+    .prefs-matrix .pref-cell { justify-content: flex-start; }
+}
+.notif-bulk { display: flex; justify-content: flex-end; margin-bottom: var(--space-3); }
+@media (max-width: 860px) {
+    /* Phone: one compact card per type — title row, then the channels side by side. */
+    .prefs-matrix tbody tr { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: var(--space-2); }
+    .prefs-matrix tbody td:first-child { grid-column: 1 / -1; }
+    .prefs-matrix tbody td:first-child::before { content: none; }
+    .prefs-matrix tbody td:not(:first-child) { border-bottom: none; }
+    .prefs-matrix .pref-cell { flex-wrap: wrap; }
+}

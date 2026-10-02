@@ -176,6 +176,10 @@ class Command(BaseCommand):
             profile.availability_status = _AVAILABILITY_CYCLE[
                 sum(ord(c) for c in username) % len(_AVAILABILITY_CYCLE)
             ]
+            # Availability is system-computed now (services/presence.py): give
+            # the online ones a recent "last seen" so a sweep keeps them online
+            # until the idle threshold passes.
+            profile.last_seen_at = None if profile.availability_status == "offline" else timezone.now()
             # A deterministic 2-3 skill spread so the CRM matching shows real
             # skill fit rather than everyone being "no info".
             h = sum(ord(c) for c in username)

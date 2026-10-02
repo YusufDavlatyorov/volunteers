@@ -42,8 +42,11 @@ from .models import (
     WORK_STAGE_CHOICES,
 )
 from .models.emergency import STATUS_CHOICES as EMERGENCY_STATUS_CHOICES
-from .notifications import notify_users, staff_recipients, volunteer_queryset_for_region
-from .services import analytics, donations, emergency, maps, overdue, pets, stale
+from .notifications import staff_recipients, volunteer_queryset_for_region
+from .realtime import publish
+from .services import cancellation, presence
+from .services.notify import notify
+from .services import access, analytics, donations, emergency, maps, overdue, pets, stale
 from .services.ai import build_user_context, confirm_action, run_conversation
 from .services.ai import actions as ai_actions
 from .services.ai.prompts import detect_lang
@@ -194,7 +197,10 @@ def people_list_view(request, role):
         people = people.filter(Q(username__icontains=search_query) | Q(email__icontains=search_query))
 
     if role == "volunteer":
-        if availability_filter:
+        if availability_filter == "away":
+            # Do-not-disturb in effect right now (an expired end date counts as off).
+            people = people.exclude(presence.not_away_q())
+        elif availability_filter:
             people = people.filter(profile__availability_status=availability_filter)
         # Per-row task counts via annotation, not a query per row (avoids N+1).
         people = people.annotate(
@@ -377,28 +383,10 @@ def _route_permission(user, task):
 
 
 def _can_view_task(user, task):
-    """Who may open a task's detail page.
-
-    Staff (admin/curator) always can. A client only ever sees their own
-    requests. A volunteer sees a task they are already assigned to, or a
-    still-pending task that would actually appear in their task_list (same
-    region, or no region filter set) — never an arbitrary other client's
-    pending request just because its status happens to be "pending", and
-    never another volunteer's already-accepted task.
-    """
-    if user.is_superuser or user.is_curator:
-        return True
-    if user.is_client:
-        return task.client_id == user.id
-    if user.is_volunteer:
-        if task.volunteer_id == user.id:
-            return True
-        if task.status == "pending":
-            if not user.region:
-                return True
-            return not task.region or task.region == user.region
-        return False
-    return False
+    """Who may open a task's detail page — delegates to the shared rule in
+    ``myapp/services/access.py::can_view_task`` (also used by the WebSocket
+    ``task_<id>`` subscribe and the AI tools), so HTTP and WS can't drift."""
+    return access.can_view_task(user, task)
 
 
 @login_required
@@ -453,8 +441,34 @@ def task_detail_view(request, pk):
             "can_advance_stage": task.status == "active" and (user == task.volunteer or is_crm_staff),
             "can_report_emergency": user == task.volunteer and task.status == "active",
             "active_emergency": active_emergency,
+            "can_cancel": cancellation.can_cancel(user, task),
+            "cancel_reason_required": is_crm_staff,
         },
     )
+
+
+CANCEL_MESSAGES = {
+    cancellation.FORBIDDEN: "Вы не можете отменить этот запрос.",
+    cancellation.NOT_OPEN: "Запрос уже закрыт или принят волонтёром.",
+    cancellation.REASON_REQUIRED: "Укажите причину отмены.",
+}
+
+
+@login_required
+@require_POST
+def task_cancel_view(request, pk):
+    """Cancel a help request: the client while pending (reason optional), staff
+    from any open state (reason required). Rules + side effects live in
+    services/cancellation.py — the one cancel path."""
+    task = get_object_or_404(HelpRequest.objects.select_related("client", "volunteer"), pk=pk)
+    if not access.can_view_task(request.user, task):
+        raise Http404
+    outcome = cancellation.cancel_request(task, request.user, request.POST.get("reason", ""))
+    if outcome.ok:
+        messages.success(request, "Запрос отменён. Участники получили уведомление.")
+    else:
+        messages.error(request, CANCEL_MESSAGES[outcome.code])
+    return redirect("task_detail", pk=task.pk)
 
 
 # accept_task_view's per-volunteer critical section. A HelpRequest-level DB
@@ -506,14 +520,15 @@ def accept_task_view(request, pk):
 
     task.refresh_from_db()
     logger.info("task #%s self-accepted by volunteer #%s", task.id, request.user.pk)
-    subject = "Запрос принят волонтером"
-    message = (
-        f"Запрос #{task.id} принят.\n"
-        f"Клиент: {task.client.username}, телефон: {task.phone}\n"
-        f"Волонтер: {request.user.username}\n"
-        f"Адрес: {task.address}"
+    presence.on_task_change(task)
+    publish.task_changed(task)
+    notify(
+        [task.client, request.user], "task_accepted",
+        params={"task_id": task.id, "volunteer_name": request.user.username},
+        link=reverse("task_detail", args=[task.id]),
+        dedupe_key=f"task_accepted:{task.id}:{request.user.pk}",
+        extra={"client_name": task.client.username, "phone": task.phone, "address": task.address},
     )
-    notify_users([task.client, request.user], subject, message)
     messages.success(request, "Вы приняли запрос. Клиент получил уведомление на email/Telegram.")
     return redirect("task_list")
 
@@ -535,9 +550,14 @@ def complete_task_view(request, pk):
 
     task.refresh_from_db()
     logger.info("task #%s completed by volunteer #%s", task.id, request.user.pk)
+    presence.on_task_change(task)
+    publish.task_changed(task)
     profile, _ = Profile.objects.get_or_create(user=request.user)
     profile.add_points(5 if task.is_urgent else 3)
-    notify_users([task.client], "Запрос выполнен", f"Ваш запрос #{task.id} отмечен как выполненный. Спасибо!")
+    notify(
+        [task.client], "task_completed", params={"task_id": task.id},
+        link=reverse("task_detail", args=[task.id]), dedupe_key=f"task_completed:{task.id}",
+    )
     messages.success(request, "Запрос завершен, рейтинг обновлен.")
     return redirect("task_list")
 
@@ -581,8 +601,17 @@ def create_request_view(request):
                 if coords:
                     help_request.latitude, help_request.longitude = coords
             help_request.save()
-            volunteers = volunteer_queryset_for_region(request.user.region)
-            notify_users(volunteers, "Новый запрос помощи", f"Новый запрос в регионе {request.user.get_region_display()}: {help_request.description[:180]}")
+            # Do-not-disturb (owner decision): volunteers who are "away" don't
+            # get new-task pings — only this type; their own task updates,
+            # broadcasts and events still reach them.
+            volunteers = volunteer_queryset_for_region(request.user.region).filter(presence.not_away_q())
+            notify(
+                volunteers, "task_new_in_region",
+                params={"task_id": help_request.id, "region": help_request.region, "help_type": help_request.help_type},
+                link=reverse("task_detail", args=[help_request.id]),
+                dedupe_key=f"task_new:{help_request.id}",
+                extra={"region_name": request.user.get_region_display(), "description": help_request.description[:180]},
+            )
             messages.success(request, "Запрос создан. Волонтеры вашего региона получили уведомление.")
             return redirect("profile")
     else:
@@ -706,7 +735,15 @@ def create_event_view(request):
             event.curator = request.user
             event.save()
             volunteers = volunteer_queryset_for_region(event.region)
-            sent = notify_users(volunteers, f"Акция: {event.title}", f"{event.description}\nДата: {event.date:%d.%m.%Y %H:%M}")
+            local_date = timezone.localtime(event.date) if timezone.is_aware(event.date) else event.date
+            sent = notify(
+                volunteers, "event_new",
+                params={"event_id": event.pk, "title": event.title,
+                        "date": f"{local_date:%d.%m.%Y}", "time": f"{local_date:%H:%M}"},
+                link=reverse("event_list"),
+                dedupe_key=f"event:{event.pk}",
+                extra={"description": event.description, "date": f"{event.date:%d.%m.%Y %H:%M}"},
+            )
             Event.objects.filter(pk=event.pk).update(notifications_sent=True)
             messages.success(request, f"Акция создана. Уведомлений отправлено: {sent}.")
             return redirect("admin_panel")
@@ -723,7 +760,12 @@ def broadcast_view(request):
             broadcast = form.save(commit=False)
             broadcast.sender = request.user
             volunteers = volunteer_queryset_for_region(broadcast.region)
-            broadcast.sent_count = notify_users(volunteers, broadcast.subject, broadcast.message)
+            broadcast.sent_count = notify(
+                volunteers, "broadcast",
+                params={"subject": broadcast.subject, "message": broadcast.message[:300]},
+                link=reverse("broadcast_list"),
+                subject=broadcast.subject, message=broadcast.message,
+            )
             broadcast.save()
             messages.success(request, f"Сообщение отправлено. Получателей: {broadcast.sent_count}.")
             return redirect("admin_panel")
@@ -767,7 +809,11 @@ def volunteer_application_view(request):
             return redirect("volunteer_application")
         application.reapply()
         admins = Users.objects.filter(is_superuser=True, is_active=True)
-        notify_users(admins, "Повторная заявка волонтера", f"Пользователь {request.user.username} подал заявку на волонтерство повторно.")
+        notify(
+            admins, "application_submitted", variant="again",
+            params={"application_id": application.pk, "username": request.user.username, "kind": "again"},
+            link=reverse("volunteer_application_detail", args=[application.pk]),
+        )
         messages.success(request, "Заявка отправлена повторно.")
         return redirect("volunteer_application")
     return render(request, "myapp/volunteer_application.html", {"application": application})
@@ -832,11 +878,7 @@ def volunteer_application_approve_view(request, pk):
         "volunteer application #%s approved by user #%s (applicant #%s)",
         application.pk, request.user.pk, application.user_id,
     )
-    notify_users(
-        [application.user],
-        "Заявка на волонтерство одобрена",
-        "Поздравляем! Ваша заявка на волонтерство одобрена. Теперь вам доступен список запросов.",
-    )
+    notify([application.user], "application_approved", link=reverse("task_list"))
     messages.success(request, f"Заявка пользователя {application.user.username} одобрена.")
     return redirect("volunteer_applications")
 
@@ -853,11 +895,7 @@ def volunteer_application_reject_view(request, pk):
         "volunteer application #%s rejected by user #%s (applicant #%s)",
         application.pk, request.user.pk, application.user_id,
     )
-    notify_users(
-        [application.user],
-        "Заявка на волонтерство отклонена",
-        "Ваша заявка на волонтерство отклонена администратором.",
-    )
+    notify([application.user], "application_rejected", link=reverse("volunteer_application"))
     messages.success(request, f"Заявка пользователя {application.user.username} отклонена.")
     return redirect("volunteer_applications")
 
@@ -965,6 +1003,8 @@ def map_data_view(request):
                 "region": volunteer.region,
                 "color": availability_colors.get(profile.availability_status, "--muted"),
                 "glyph": "V",
+                # Do-not-disturb flag for the popup (staff-only branch; no dates/contacts).
+                "away": profile.is_away_now,
             })
 
         emergencies = (
@@ -1163,11 +1203,17 @@ def task_assign_volunteer_view(request, pk, volunteer_id):
         "task #%s assigned to volunteer #%s by user #%s (direct dispatch)",
         task.id, volunteer.pk, request.user.pk,
     )
-    message = (
-        f"Куратор назначил вам запрос #{task.id} ({task.get_help_type_display()}).\n"
-        f"Клиент: {task.client.username}, телефон: {task.phone}\nАдрес: {task.address}"
+    task.refresh_from_db()  # fetched before the UPDATE — volunteer/status are stale
+    presence.on_task_change(task)
+    publish.task_changed(task)
+    notify(
+        [volunteer, task.client], "task_assigned",
+        params={"task_id": task.id, "help_type": task.help_type},
+        link=reverse("task_detail", args=[task.id]),
+        dedupe_key=f"task_assigned:{task.id}:{volunteer.pk}",
+        extra={"help_type_name": task.get_help_type_display(), "client_name": task.client.username,
+               "phone": task.phone, "address": task.address},
     )
-    notify_users([volunteer, task.client], "Вам назначен запрос помощи", message)
     return JsonResponse({"success": True})
 
 
@@ -1179,8 +1225,9 @@ EMERGENCY_REPORT_LOCK_SECONDS = 30
 
 
 def _can_view_emergency(user, report):
-    """Staff see every report; a volunteer sees only their own."""
-    return user.is_superuser or user.is_curator or report.volunteer_id == user.id
+    """Staff see every report; a volunteer sees only their own (shared rule:
+    ``services/access.py::can_view_emergency``)."""
+    return access.can_view_emergency(user, report)
 
 
 @role_required("volunteer")
@@ -1381,11 +1428,12 @@ def donate_view(request):
             except ValidationError as exc:
                 form.add_error(None, exc)
             else:
-                notify_users(
-                    list(staff_recipients()),
-                    "Новое предложение помощи",
-                    f"Предложение #{offer.id}: {offer.item_label} ×{offer.quantity} "
-                    f"от {offer.donor_label}. Ожидает проверки координатора.",
+                notify(
+                    staff_recipients(), "donation_new",
+                    params={"donation_id": offer.id, "item_label": offer.item_label,
+                            "quantity": offer.quantity, "donor_label": offer.donor_label},
+                    link=reverse("donation_detail", args=[offer.id]),
+                    dedupe_key=f"donation_new:{offer.id}",
                 )
                 messages.success(
                     request,
@@ -1513,11 +1561,10 @@ def donation_update_view(request, pk):
             messages.warning(request, "Сейчас нельзя назначить волонтёра для этого предложения.")
             return redirect("donation_detail", pk=pk)
         if volunteer:
-            notify_users(
-                [volunteer],
-                "Вам назначено предложение помощи",
-                f"Предложение #{offer.id}: {offer.item_label} ×{offer.quantity}. "
-                f"Откройте детали, чтобы согласовать передачу.",
+            notify(
+                [volunteer], "donation_assigned",
+                params={"donation_id": offer.id, "item_label": offer.item_label, "quantity": offer.quantity},
+                link=reverse("donation_detail", args=[offer.id]),
             )
         messages.success(request, "Волонтёр обновлён.")
         return redirect("donation_detail", pk=pk)
@@ -1533,10 +1580,11 @@ def donation_update_view(request, pk):
         return redirect("donation_detail", pk=pk)
 
     if offer.donor_id:
-        notify_users(
-            [offer.donor],
-            "Статус предложения обновлён",
-            f"Ваше предложение #{offer.id} теперь: {offer.get_status_display()}.",
+        notify(
+            [offer.donor], "donation_status", variant=offer.status,
+            params={"donation_id": offer.id, "status": offer.status},
+            link=reverse("donation_detail", args=[offer.id]),
+            extra={"status_name": offer.get_status_display()},
         )
     messages.success(request, "Статус предложения обновлён.")
     return redirect("donation_detail", pk=pk)

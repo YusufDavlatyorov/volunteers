@@ -38,6 +38,8 @@ ERROR_I18N_KEYS = {
     "invalid_phone": "err.invalid_phone",
     # Django's MaxLengthValidator (username / full_name limits, any too-long field)
     "max_length": "err.max_length",
+    # accounts/forms.py ProfileForm.clean_away_until (do-not-disturb end date)
+    "away_until_past": "err.away_until_past",
 }
 
 # Params passed through to i18n.js placeholders. Anything else (e.g. the

@@ -5,8 +5,8 @@ Design: `FEATURES_PLAN.md`. Brief: `FEATURES_SPEC.md`.
 
 | Milestone | Scope | Status |
 |---|---|---|
-| 0 | Plan, agent files | ✅ done 2026-10-02 — waiting for owner OK + answers to FEATURES_PLAN §9 |
-| 1 | Realtime (12) + notifications (11) + availability (3) | ⏸ not started |
+| 0 | Plan, agent files | ✅ done 2026-10-02 (`2cfaf54`); owner answers in FEATURES_PLAN §9 |
+| 1 | Realtime (12) + notifications (11) + availability (3) + DND + cancellation | ✅ done 2026-10-02 — waiting for owner OK |
 | 2 | Tracking (7) + routes/navigation (2) | ⏸ |
 | 3 | Chat (8) + feedback (9) | ⏸ |
 | 4 | Achievements (6) + CRM charts (10) | ⏸ |
@@ -20,3 +20,18 @@ Baseline: 657 tests green at `2467bc5` (main).
 - 2026-10-02 — milestone 0: branch created; `FEATURES_PLAN.md` written; agents created in
   `.claude/agents/` (realtime-engineer, geo-engineer, telegram-engineer,
   engagement-engineer, frontend-qa). Open questions: FEATURES_PLAN §9.
+- 2026-10-02 — milestone 1 started after owner OK. Orchestrator: channels/uvicorn smoke-tested
+  on Py 3.14 and pinned; settings (ASGI, channel layer DB 2, defaults); compose `ws`; migrations
+  accounts 0008 + myapp 0016; cancellation service/view/tests. realtime-engineer: `/ws/`
+  consumer, publish helpers, `access.py`, Notification models (0017), `notify()` + typed
+  migration of all `notify_users` call sites, bell/page/preferences endpoints, poll fallback,
+  `prune_notifications`. geo-engineer: presence service, middleware, `sweep_availability`,
+  DND fields in ProfileForm, matching excludes DND. Backend suite: 792 OK.
+  frontend-qa: realtime.js (WS + backoff + poll fallback), bell/toasts/language sync,
+  notifications + preferences pages, DND/availability UI, cancel UI, +165 i18n keys/lang,
+  Playwright matrix (5 roles × 390/1280 × light/dark: no h-scroll, no console errors),
+  WS live + polling verified in a browser. Perf budget for one page +1 query (bell count).
+  Result: 805 tests OK. `ws` process RSS ≈ 69 MB idle / 73 MB with 50 sockets (local).
+  Cron to add at deploy: `sweep_availability` every 5 min, `prune_notifications` daily.
+  Follow-up for milestone 2: re-check `task_<id>` subscriptions on `task.updated` before
+  publishing live location.

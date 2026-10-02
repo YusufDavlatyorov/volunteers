@@ -247,6 +247,21 @@ class Profile(models.Model):
     # info", treated neutrally by the scorer, never as a penalty.
     skills = models.JSONField(default=list, blank=True)
 
+    # Feature Pack v2. `availability_status` above is now system-computed from
+    # these (myapp/services/presence.py) — nobody sets it by hand anymore.
+    # Last sign of life: WS connect/heartbeat, an authenticated page view
+    # (throttled), or a Telegram bot interaction.
+    last_seen_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    # Volunteer "do not disturb / on vacation": excludes them from matching and
+    # from new-task notifications only. `away_until` (optional) switches it off
+    # automatically; `is_away_now` is the one predicate to read.
+    is_away = models.BooleanField(default=False)
+    away_until = models.DateTimeField(null=True, blank=True)
+    # UI language (mirrors the i18n.js switcher) — server-rendered email and
+    # Telegram notification text uses it.
+    LANGUAGE_CHOICES = [("ru", "Русский"), ("tj", "Тоҷикӣ"), ("en", "English")]
+    language = models.CharField(max_length=2, choices=LANGUAGE_CHOICES, default="ru")
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -267,6 +282,11 @@ class Profile(models.Model):
 
     def has_skill(self, help_type):
         return help_type in (self.skills or [])
+
+    @property
+    def is_away_now(self):
+        """Do-not-disturb in effect right now (an expired `away_until` counts as off)."""
+        return self.is_away and (self.away_until is None or self.away_until > timezone.now())
 
     @property
     def has_location(self):

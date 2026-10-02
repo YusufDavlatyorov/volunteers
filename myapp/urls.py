@@ -1,4 +1,12 @@
 from django.urls import path
+from .views_notifications import (
+    notification_preferences_view,
+    notification_read_view,
+    notifications_bell_view,
+    notifications_list_view,
+    notifications_read_all_view,
+    realtime_poll_view,
+)
 from .views import (
     admin_panel_view,
     task_list_view,
@@ -45,6 +53,7 @@ from .views import (
     task_notify_volunteer_view,
     task_recommendations_view,
     task_route_view,
+    task_cancel_view,
     update_location_view,
     volunteer_application_view,
     volunteer_applications_view,
@@ -62,6 +71,7 @@ urlpatterns = [
     path('tasks/<int:pk>/complete/', complete_task_view, name='complete_task'),
     path('tasks/<int:pk>/stage/', task_advance_stage_view, name='task_advance_stage'),
     path('tasks/<int:pk>/route/', task_route_view, name='task_route'),
+    path('tasks/<int:pk>/cancel/', task_cancel_view, name='task_cancel'),
     path('tasks/<int:pk>/recommendations/', task_recommendations_view, name='task_recommendations'),
     path('tasks/<int:pk>/recommendations/notify/<int:volunteer_id>/', task_notify_volunteer_view, name='task_notify_volunteer'),
     path('tasks/<int:pk>/recommendations/assign/<int:volunteer_id>/', task_assign_volunteer_view, name='task_assign_volunteer'),
@@ -132,4 +142,12 @@ urlpatterns = [
     path('donations/manage/', donations_admin_view, name='donations_admin'),
     path('donations/<int:pk>/', donation_detail_view, name='donation_detail'),
     path('donations/<int:pk>/update/', donation_update_view, name='donation_update'),
+
+    # Notifications (Feature Pack v2, feature 11) + realtime polling fallback (12)
+    path('notifications/', notifications_list_view, name='notifications'),
+    path('notifications/bell/', notifications_bell_view, name='notifications_bell'),
+    path('notifications/read-all/', notifications_read_all_view, name='notifications_read_all'),
+    path('notifications/preferences/', notification_preferences_view, name='notification_preferences'),
+    path('notifications/<int:pk>/read/', notification_read_view, name='notification_read'),
+    path('realtime/poll/', realtime_poll_view, name='realtime_poll'),
 ]

@@ -28,6 +28,9 @@
     <a class="card stat-card" href="{% url 'people_list' 'volunteer' %}?availability=available">
         <span class="metric">{{ stats.volunteers_available }}</span><p data-i18n="crm.kpi_available">Available</p>
     </a>
+    <a class="card stat-card" href="{% url 'people_list' 'volunteer' %}?availability=away">
+        <span class="metric">{{ stats.volunteers_away }}</span><p data-i18n="crm.kpi_away">Do not disturb</p>
+    </a>
     <a class="card stat-card" href="{% url 'pet_list' %}">
         <span class="metric">{{ pets_open_count }}</span><p data-i18n="pet.kpi_open">Lost &amp; Found</p>
     </a>

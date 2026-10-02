@@ -10,7 +10,8 @@ from .views import (
     confirm_email_view,
     telegram_link_view,
     telegram_unlink_view,
-    update_profile
+    update_profile,
+    set_language_view,
 )
 
 urlpatterns = [
@@ -22,6 +23,7 @@ urlpatterns = [
     path('profile/edit/', edit_profile_view, name='edit_profile'),
     path('profile/telegram/', telegram_link_view, name='telegram_link'),
     path('profile/telegram/unlink/', telegram_unlink_view, name='telegram_unlink'),
+    path('profile/language/', set_language_view, name='profile_language'),
 
     path('forgot-password/', forgot_password_view, name='forgot_password'),
     path('reset-password/<str:token>/', reset_password_confirm_view, name='reset_password'),

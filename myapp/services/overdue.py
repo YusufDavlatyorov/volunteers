@@ -17,13 +17,17 @@ from django.db.models import Q
 from django.utils import timezone
 
 from ..models import OVERDUE_THRESHOLD, HelpRequest
-from ..notifications import notify_users, staff_recipients
+from django.urls import reverse
+
+from ..notifications import staff_recipients
+from .notify import notify
+from .notify_texts import CHANNEL_TEXTS
 
 logger = logging.getLogger(__name__)
 
 # Identical to the message the manual admin button has always sent, so routing
 # that button through this service is not an observable change.
-OVERDUE_SUBJECT = "Просроченный запрос"
+OVERDUE_SUBJECT = CHANNEL_TEXTS["task_overdue"]["ru"][0]  # "Просроченный запрос"
 
 
 def currently_overdue_q():
@@ -34,8 +38,16 @@ def currently_overdue_q():
     return Q(status="active", accepted_at__lt=timezone.now() - OVERDUE_THRESHOLD)
 
 
-def _overdue_message(task):
-    return f"Запрос #{task.id} в работе больше 3 часов. Волонтер: {task.volunteer}"
+def _notify_overdue(recipients, task):
+    """One typed ``task_overdue`` notification to staff; returns recipients
+    reached (0 = nobody). dedupe_key makes a retried claim harmless."""
+    return notify(
+        recipients, "task_overdue",
+        params={"task_id": task.id},
+        link=reverse("task_detail", args=[task.id]),
+        dedupe_key=f"overdue:{task.id}:{int(task.accepted_at.timestamp()) if task.accepted_at else 0}",
+        extra={"volunteer_str": str(task.volunteer)},
+    )
 
 
 def find_overdue_tasks():
@@ -82,9 +94,9 @@ def sweep_overdue_tasks():
         if not claimed:
             continue  # another concurrent sweep already took this one
 
-        delivered = notify_users(recipients, OVERDUE_SUBJECT, _overdue_message(task))
+        delivered = _notify_overdue(recipients, task)
         if not delivered:
-            # notify_users never raises (email is fail_silently, Telegram
+            # notify never raises (email is fail_silently, Telegram
             # errors are caught) — a return of 0 is the only failure signal we
             # get. alarm_sent stayed True for the whole window above, so no
             # concurrent sweep could have claimed this row meanwhile; it's
