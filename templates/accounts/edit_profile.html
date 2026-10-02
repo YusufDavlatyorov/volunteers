@@ -28,6 +28,22 @@
         <p class="field-hint">
             <a href="{% url 'telegram_link' %}" data-i18n="tg.edit_link">Link Telegram for notifications</a>
         </p>
+        {% if user.is_volunteer %}
+        <div class="field-group tracking-consent-setting" id="trackingConsentSetting">
+            <label data-i18n="track.setting_title">Sharing my location during requests</label>
+            {% if user.profile.tracking_consent_at %}
+            <p class="field-hint" data-i18n="track.setting_on">On: while you have an active request, its client and the curators see where you are. It stops by itself when the request ends.</p>
+            <form method="post" action="{% url 'tracking_consent' %}">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="revoke">
+                <input type="hidden" name="next" value="{{ request.path }}">
+                <button type="submit" class="button secondary" data-i18n="track.setting_revoke">Withdraw permission</button>
+            </form>
+            {% else %}
+            <p class="field-hint" data-i18n="track.setting_off">Off. You will be asked when you have an active request.</p>
+            {% endif %}
+        </div>
+        {% endif %}
     </div>
 </section>
 {% endblock %}

@@ -117,6 +117,37 @@ services:
       - shared_postgres_net
       - internal
 
+  # Self-hosted routing (optional, `docker compose --profile osrm up -d`).
+  # Data is prepared OFF the server with scripts/osrm_build.sh (preprocessing
+  # peaks ~1.1 GB) and copied to ./osrm-data/{car,foot}/; these only serve it.
+  # The image tag must match the build script (OSRM data is versioned).
+  # Measured 2026-10-02 after 300 routes each: car ≈ 223 MiB, foot ≈ 261 MiB,
+  # p50 8–10 ms. App containers reach them as http://osrm_car:5000 and
+  # http://osrm_foot:5000 (OSRM_BASE_URL / OSRM_FOOT_BASE_URL in .env).
+  osrm_car:
+    image: ghcr.io/project-osrm/osrm-backend:v6.0.0
+    container_name: khayrkhoh_osrm_car
+    profiles: ["osrm"]
+    command: ["osrm-routed", "--algorithm", "mld", "--max-table-size", "100", "/data/tajikistan-latest.osrm"]
+    restart: unless-stopped
+    mem_limit: 400m
+    volumes:
+      - ./osrm-data/car:/data:ro
+    networks:
+      - internal
+
+  osrm_foot:
+    image: ghcr.io/project-osrm/osrm-backend:v6.0.0
+    container_name: khayrkhoh_osrm_foot
+    profiles: ["osrm"]
+    command: ["osrm-routed", "--algorithm", "mld", "--max-table-size", "100", "/data/tajikistan-latest.osrm"]
+    restart: unless-stopped
+    mem_limit: 400m
+    volumes:
+      - ./osrm-data/foot:/data:ro
+    networks:
+      - internal
+
   redis:
     # Cache + Celery broker. Private network only, no published port.
     # appendonly: queued notifications survive a restart. volatile-lru: under

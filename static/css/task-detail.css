@@ -63,3 +63,200 @@
     .stepper__step:not(:last-child)::after { top: 14px; left: 6px; width: 2px; height: 100%; }
     .stepper__label { font-size: 0.85rem; }
 }
+
+/* ===== LIVE TRACKING BANNER (feature 7) =====
+   Volunteer: "your location is visible to the client and the curator" + Stop /
+   Share again — first thing on the page, sticky under the topbar while sharing
+   is on so it is never out of sight. Client/staff (.track-banner--watch, inside
+   the route card): live / "updated N min ago" / "not sharing".
+   data-state drives the colour; the dot pulses only while live (static under
+   prefers-reduced-motion). */
+.track-banner {
+    --track-color: var(--muted);
+    --track-bg: var(--surface-2);
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-3);
+    margin-bottom: var(--space-4);
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--track-color);
+    border-radius: 12px;
+    background: var(--track-bg);
+}
+.track-banner[data-state="on"],
+.track-banner--watch[data-state="live"] { --track-color: var(--ok); --track-bg: var(--ok-glow); }
+.track-banner[data-state="stopped"],
+.track-banner[data-state="denied"],
+.track-banner--watch.is-stale { --track-color: var(--accent); --track-bg: var(--accent-glow); }
+.track-banner[data-state="on"] {
+    position: sticky;
+    top: calc(var(--nav-h) + var(--space-2));
+    z-index: 40;
+    background: var(--surface);
+    background-image: linear-gradient(var(--track-bg), var(--track-bg));
+    box-shadow: var(--shadow);
+}
+.track-banner__dot {
+    position: relative;
+    flex: 0 0 auto;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--track-color);
+}
+.track-banner[data-state="on"] .track-banner__dot::after,
+.track-banner--watch[data-state="live"]:not(.is-stale) .track-banner__dot::after {
+    content: "";
+    position: absolute;
+    inset: -4px;
+    border-radius: 50%;
+    border: 2px solid var(--track-color);
+    animation: trackPulse 1.8s ease-out infinite;
+}
+@keyframes trackPulse {
+    0% { transform: scale(0.7); opacity: 0.8; }
+    100% { transform: scale(1.6); opacity: 0; }
+}
+.track-banner__text { flex: 1 1 14rem; min-width: 0; }
+.track-banner__text strong { display: block; color: var(--text); font-size: 0.98rem; line-height: 1.3; }
+.track-banner__text p { margin: 0.15rem 0 0; font-size: 0.86rem; color: var(--text-2); }
+.track-banner__text p[hidden] { display: none; }
+.track-banner__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.track-banner__actions .button { min-height: 2.5rem; padding: 0.5rem 1.2rem; }
+.track-banner__actions .button[hidden] { display: none; }
+.route-card .track-banner--watch { margin: 0 0 var(--space-3); }
+@media (max-width: 560px) {
+    .track-banner { padding: var(--space-3); }
+    .track-banner__actions { flex: 1 1 100%; }
+    .track-banner__actions .button { flex: 1 1 auto; }
+}
+
+/* ===== ROUTE + NAVIGATION (feature 2) ===== */
+/* Driving / walking: a two-option segmented control (aria-pressed buttons). */
+.seg-toggle {
+    display: inline-flex;
+    max-width: 100%;
+    padding: 3px;
+    margin-bottom: var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface-2);
+}
+.seg-toggle__btn {
+    min-height: 2.4rem;
+    padding: 0.45rem 1.15rem;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text-2);
+    font-size: 0.88rem;
+    white-space: nowrap;
+}
+.seg-toggle__btn:hover { color: var(--primary); }
+.seg-toggle__btn[aria-pressed="true"] { background: var(--surface); color: var(--primary); box-shadow: var(--shadow); }
+.route-approx { font-size: 0.8rem; color: var(--muted); font-weight: 600; }
+.route-approx[hidden] { display: none; }
+
+/* The next maneuver, large enough to read at arm's length. */
+.nav-next {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: baseline;
+    gap: 0.15rem var(--space-3);
+    margin: 0 0 var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border-radius: 12px;
+    background: var(--primary-glow);
+    border: 1px solid var(--line);
+}
+.nav-next[hidden] { display: none; }
+.nav-next .meta-label { grid-column: 1 / -1; margin: 0; }
+.nav-next__text { margin: 0; font-size: 1.1rem; font-weight: 700; color: var(--text); overflow-wrap: anywhere; }
+.nav-next__dist { font-size: 1.05rem; color: var(--primary); white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* "Open in" navigator apps. */
+.nav-apps { margin-top: var(--space-4); }
+.nav-apps__row { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-1); }
+.nav-apps__row .button { min-height: 2.5rem; padding: 0.5rem 1.1rem; }
+@media (max-width: 560px) {
+    .nav-apps__row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .nav-apps__row .button { padding: 0.5rem 0.6rem; }
+}
+
+/* Turn-by-turn step list (li.nav-step built by GCMap.createRouteNav). */
+.nav-steps-wrap { margin-top: var(--space-4); }
+.nav-steps-wrap[hidden] { display: none; }
+.nav-steps-wrap > summary { cursor: pointer; font-weight: 700; color: var(--text); padding: var(--space-1) 0; }
+.nav-steps {
+    list-style: none;
+    margin: var(--space-2) 0 0;
+    padding: 0;
+    max-height: 18rem;
+    overflow-y: auto;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    counter-reset: navstep;
+    position: relative;
+}
+.nav-step {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: 0.6rem var(--space-4) 0.6rem 2.6rem;
+    border-bottom: 1px solid var(--line);
+    position: relative;
+    counter-increment: navstep;
+}
+.nav-step:last-child { border-bottom: none; }
+.nav-step::before {
+    content: counter(navstep);
+    position: absolute;
+    left: var(--space-3);
+    top: 0.62rem;
+    width: 1.4rem;
+    height: 1.4rem;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font-size: 0.72rem;
+    font-weight: 700;
+    background: var(--surface-2);
+    color: var(--muted);
+}
+.nav-step__text { min-width: 0; overflow-wrap: anywhere; color: var(--text); }
+.nav-step__street { color: var(--text-2); }
+.nav-step__dist { flex: 0 0 auto; color: var(--muted); font-size: 0.82rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.nav-step.is-done { opacity: 0.55; }
+.nav-step.is-current { background: var(--primary-glow); box-shadow: inset 3px 0 0 var(--primary); }
+.nav-step.is-current .nav-step__text { font-weight: 700; }
+.nav-step.is-current::before { background: var(--primary); color: var(--surface); }
+
+@media (prefers-reduced-motion: reduce) {
+    .track-banner__dot::after { animation: none !important; opacity: 0.5; transform: scale(1.3); }
+}
+
+/* `hidden` must win over component display rules (.field-hint is block,
+   .empty-state is flex) — the route and dispatch cards toggle both. */
+.route-card [hidden],
+.recommend-card [hidden] { display: none !important; }
+
+/* Route metrics: numbers keep the display style; the origin label is words,
+   so it uses the body face at a readable size and wraps on phones. */
+.route-card .map-route-meta { gap: var(--space-3) var(--space-5); }
+.route-card .map-route-meta .metric { font-size: 1.6rem; min-width: 0; }
+.route-card .map-route-meta .metric--text strong {
+    display: block;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 1rem;
+    line-height: 1.35;
+    padding-top: 0.35rem;
+    color: var(--text);
+    overflow-wrap: anywhere;
+}
+@media (max-width: 560px) {
+    .route-card .map-route-meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .route-card .map-route-meta .metric { min-width: 0; font-size: 1.4rem; }
+    .route-card .map-route-meta .metric--text { grid-column: 1 / -1; }
+}

@@ -471,3 +471,57 @@ calls `presence.on_task_change`, `notify(type="task_cancelled")`, publishes
 7. Feedback as a matching signal — keep it display-only for now?
 8. Defaults OK? Availability idle 30 min, chat archive 30 days, review edit 24 h,
    tracking trail ≤ 24 h, notifications pruned after 90 days.
+
+---
+
+## 12. Milestone 2 contracts (tracking + routes + navigation)
+
+Owner notes (2026-10-02): manual assign of a do-not-disturb volunteer stays allowed but
+needs a clear warning ("Волонтёр в режиме «не беспокоить» до …") + explicit confirmation,
+an ID-only log line and an "urgent manual assignment" notice to the volunteer
+(orchestrator). Permission re-check before every location delivery (and chat in
+milestone 3). OSRM data (car + foot) is prepared on the owner's Mac with Docker; the
+server only runs `osrm-routed`; RAM measured.
+
+Already in place (orchestrator): `Profile.tracking_consent_at` (accounts 0009);
+`HelpRequest.volunteer_last_lat/lng/at`, `tracking_stopped_at` and
+`TaskLocationPoint` (myapp 0018, `myapp/models/tracking.py`);
+`access.can_see_location(user, task)` (staff / client / assigned volunteer, active task
+only) and `access.can_view_route(user, task)`.
+
+**`myapp/services/tracking.py`** (geo-engineer) — never raises for expected failures:
+- `give_consent(user)` / `revoke_consent(user)`; `has_consent(user)`.
+- `can_share(user, task)` — assigned volunteer, `status == "active"`, consent given.
+- `accept_point(volunteer, task_id, lat, lng, *, accuracy=None, speed=None, heading=None,
+  source="web", recorded_at=None) -> PointOutcome(ok, code, payload)` — codes `ok`,
+  `forbidden`, `invalid`, `inaccurate` (> 200 m), `jump` (> 150 km/h implied), `too_soon`
+  (< 5 s since last accepted, also protects the Telegram path). On ok: writes
+  `volunteer_last_*`, appends a trail row, clears `tracking_stopped_at`, publishes
+  `location.updated {task_id, lat, lng, ts, accuracy}` to `task_<id>` and
+  `map.marker {kind:"volunteer_live", task_id, lat, lng, ts}` to `map_staff`, calls
+  `presence.mark_seen(volunteer, source=...)`.
+- `stop(volunteer, task, reason="volunteer")` — sets `tracking_stopped_at`, deletes the
+  trail, publishes `tracking.stopped {task_id, reason}`, notifies staff
+  (`notify(type="tracking_stopped")`, in-app only by default).
+- `end(task)` — task completed/cancelled: delete trail, clear `volunteer_last_*`,
+  publish `tracking.stopped {task_id, reason:"task_ended"}`. Called from
+  `complete_task_view` and `cancellation._after_cancel` (orchestrator wires).
+- `latest(task)` → `{lat, lng, ts}` or None; `trail(task, limit=500)`.
+- `purge(max_age=24h) -> int` + `purge_tracking` command (hourly cron).
+
+**`myapp/services/routing.py`** (geo-engineer): `route(origin, dest, *, profile="driving"|"walking",
+steps=True) -> dict` on top of `maps.route()` (geo.py import surface unchanged), never
+raises, Redis/cache 2 min keyed by (origin rounded 3 dp, dest, profile). Result adds
+`steps: [{maneuver, modifier, name, distance_m, duration_s, location:[lat,lng]}]`
+(maneuver/modifier are OSRM codes → client-side `nav.*` i18n keys), `profile`,
+`deep_links {google, yandex_maps, yandex_navi, dgis}`. `OSRM_BASE_URL` (car) and
+`OSRM_FOOT_BASE_URL` (foot; unset → walking uses the haversine fallback with a
+walking-speed ETA).
+`task_route_view` uses it (`?profile=`), permissions via `access.can_view_route`.
+
+**WS (realtime-engineer)**: inbound `location.update {task_id, lat, lng, accuracy,
+speed?, heading?}` → `tracking.accept_point`; `tracking.stop {task_id}` →
+`tracking.stop`. Outbound `location.updated` / `tracking.stopped` / `map.marker` are
+delivered to a socket only if `access.can_see_location` holds for that socket's user
+*now* (per-socket cache, invalidated on every `task.updated` for that task; a socket
+that lost task visibility is unsubscribed with `unsubscribed {reason:"forbidden"}`).

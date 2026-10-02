@@ -100,14 +100,14 @@ def cancel_request(task, actor, reason=""):
 def _after_cancel(task, actor):
     from myapp.notifications import staff_recipients
     from myapp.realtime import publish
-    from myapp.services import presence
+    from myapp.services import presence, tracking
     from myapp.services.notify import notify
 
     # The volunteer of an active task is free again.
     if task.volunteer_id:
         presence.on_task_change(task)
 
-    # Milestone 2: tracking.end(task) — stop live location, delete the trail.
+    tracking.end(task)  # stop live location, delete the trail
     # Milestone 3: chat.close(task) — the task chat becomes read-only.
 
     publish.task_changed(task)

@@ -7,6 +7,11 @@ from .views_notifications import (
     notifications_read_all_view,
     realtime_poll_view,
 )
+from .views_tracking import (
+    task_location_view,
+    tracking_consent_view,
+    tracking_stop_view,
+)
 from .views import (
     admin_panel_view,
     task_list_view,
@@ -71,6 +76,9 @@ urlpatterns = [
     path('tasks/<int:pk>/complete/', complete_task_view, name='complete_task'),
     path('tasks/<int:pk>/stage/', task_advance_stage_view, name='task_advance_stage'),
     path('tasks/<int:pk>/route/', task_route_view, name='task_route'),
+    path('tasks/<int:pk>/location/', task_location_view, name='task_location'),
+    path('tasks/<int:pk>/tracking/stop/', tracking_stop_view, name='tracking_stop'),
+    path('tracking/consent/', tracking_consent_view, name='tracking_consent'),
     path('tasks/<int:pk>/cancel/', task_cancel_view, name='task_cancel'),
     path('tasks/<int:pk>/recommendations/', task_recommendations_view, name='task_recommendations'),
     path('tasks/<int:pk>/recommendations/notify/<int:volunteer_id>/', task_notify_volunteer_view, name='task_notify_volunteer'),

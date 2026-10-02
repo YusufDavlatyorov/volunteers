@@ -405,6 +405,10 @@ MAPS_PROVIDER = os.getenv('MAPS_PROVIDER', 'osm').strip().lower()
 MAPS_API_KEY = os.getenv('MAPS_API_KEY', '')
 GEOCODING_TIMEOUT_SECONDS = 5
 OSRM_BASE_URL = os.getenv('OSRM_BASE_URL', 'https://router.project-osrm.org').rstrip('/')
+# Walking routes (myapp/services/routing.py): a self-hosted OSRM built with the
+# foot profile (compose profile `osrm`, http://osrm_foot:5000). Empty = walking
+# ETA is a straight-line estimate at 4.5 km/h.
+OSRM_FOOT_BASE_URL = os.getenv('OSRM_FOOT_BASE_URL', '').rstrip('/')
 NOMINATIM_USER_AGENT = os.getenv('NOMINATIM_USER_AGENT', 'khayrkhoh-dev')
 
 # Logging — without this the app's own logger.warning/error calls (the

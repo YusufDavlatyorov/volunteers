@@ -261,6 +261,10 @@ class Profile(models.Model):
     # Telegram notification text uses it.
     LANGUAGE_CHOICES = [("ru", "Русский"), ("tj", "Тоҷикӣ"), ("en", "English")]
     language = models.CharField(max_length=2, choices=LANGUAGE_CHOICES, default="ru")
+    # Live tracking consent (feature 7): set once when the volunteer accepts the
+    # in-app explanation of who sees their location and when. Null = not asked
+    # yet / declined — tasks still work, just without live location.
+    tracking_consent_at = models.DateTimeField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

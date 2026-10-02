@@ -7,7 +7,8 @@
      GCRealtime.off(type, fn)
      GCRealtime.subscribeTask(id)     → joins task_<id> (re-sent after every reconnect)
      GCRealtime.unsubscribeTask(id)
-     GCRealtime.send(type, payload)   → false when the socket isn't open
+     GCRealtime.send(type, payload, id?) → false when the socket isn't open
+                                        (id ≤ 64 chars, echoed as `ref` in error/ack)
      GCRealtime.mode                  → "connecting" | "ws" | "poll" | "stopped"
 
    fn(payload, envelope) is called for every server frame of that type.
@@ -76,10 +77,13 @@
         return socket && socket.readyState === 1;
     }
 
-    function send(type, payload) {
+    function send(type, payload, id) {
         if (!isOpen()) return false;
         try {
-            socket.send(JSON.stringify({ type, payload: payload || {} }));
+            const frame = { type, payload: payload || {} };
+            // Optional client id: echoed back as `ref` in the matching error/ack.
+            if (id != null) frame.id = id;
+            socket.send(JSON.stringify(frame));
             return true;
         } catch (e) {
             return false;

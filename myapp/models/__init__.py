@@ -54,9 +54,13 @@ from .pets import (
     PetReport,
 )
 from .photo_reports import PhotoReport
+from .tracking import TRACKING_SOURCE_CHOICES, TaskLocationPoint
 from .volunteer_applications import VolunteerApplication
 
 __all__ = [
+    # tracking
+    "TRACKING_SOURCE_CHOICES",
+    "TaskLocationPoint",
     # help_requests
     "HelpRequest",
     "HELP_TYPE_CHOICES",

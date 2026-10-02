@@ -116,11 +116,125 @@ def _primary_tile_layer():
     return dict(_OSM_TILE)
 
 
-def route(origin, destination):
-    """Driving route between two (lat, lng) tuples. Same contract as
-    geo.get_route: always a dict, never raises. Non-osm providers currently
-    reuse the OSRM backend."""
-    return _osm_route(origin, destination)
+ROUTE_PROFILES = ("driving", "walking")
+# OSRM URL profile segment per product profile. A self-hosted osrm-routed
+# ignores this segment (it serves whatever profile its data was built with),
+# which is why walking needs its own server (OSRM_FOOT_BASE_URL).
+_OSRM_PROFILE_SEGMENT = {"driving": "driving", "walking": "foot"}
+MAX_ROUTE_STEPS = 200
+_MAX_STEP_NAME = 120
+
+
+def route(origin, destination, *, profile="driving", steps=False):
+    """Route between two (lat, lng) tuples. Same contract as geo.get_route:
+    always a dict, never raises. Non-osm providers currently reuse the OSRM
+    backend.
+
+    The plain driving call (no ``steps``) is exactly ``geo.get_route``. With
+    ``steps=True`` and/or ``profile="walking"`` the OSRM request asks for the
+    turn-by-turn steps and the result also carries ``profile`` and ``steps``
+    (``[{maneuver, modifier, name, distance_m, duration_s, location, exit?}]``,
+    raw OSRM maneuver codes — the frontend localizes them). Walking uses
+    ``OSRM_FOOT_BASE_URL``; unset → the straight-line fallback."""
+    if profile not in ROUTE_PROFILES:
+        profile = "driving"
+    if profile == "driving" and not steps:
+        return _osm_route(origin, destination)
+    return _osrm_route_ex(origin, destination, profile=profile, steps=steps)
+
+
+def _osrm_base_url(profile):
+    key = "OSRM_FOOT_BASE_URL" if profile == "walking" else "OSRM_BASE_URL"
+    return (getattr(settings, key, "") or "").rstrip("/")
+
+
+def _route_fallback(origin, destination, profile):
+    try:
+        distance = round(haversine_km(float(origin[0]), float(origin[1]),
+                                      float(destination[0]), float(destination[1])), 2)
+    except (TypeError, ValueError, IndexError):
+        distance = None
+    return {
+        "success": False, "distance_km": distance, "duration_min": None,
+        "geometry": [], "steps": [], "profile": profile,
+    }
+
+
+def _osrm_route_ex(origin, destination, *, profile, steps):
+    """geo.get_route's twin with a profile and OSRM steps. Never raises."""
+    fallback = _route_fallback(origin, destination, profile)
+    if not (is_valid_coordinate(*origin) and is_valid_coordinate(*destination)):
+        return fallback
+    base_url = _osrm_base_url(profile)
+    if not base_url:
+        return fallback
+
+    (o_lat, o_lng), (d_lat, d_lng) = origin, destination
+    segment = _OSRM_PROFILE_SEGMENT[profile]
+    url = f"{base_url}/route/v1/{segment}/{float(o_lng)},{float(o_lat)};{float(d_lng)},{float(d_lat)}"
+    params = {"overview": "full", "geometries": "geojson", "steps": "true" if steps else "false"}
+    try:
+        response = requests.get(url, params=params, timeout=_osrm_timeout())
+        response.raise_for_status()
+        data = response.json()
+    except (requests.RequestException, ValueError) as exc:
+        logger.warning("OSRM %s route request failed: %s", profile, exc.__class__.__name__)
+        return fallback
+
+    if not isinstance(data, dict) or data.get("code") != "Ok" or not data.get("routes"):
+        logger.warning("OSRM %s returned no usable route (code=%s)", profile,
+                       data.get("code") if isinstance(data, dict) else None)
+        return fallback
+
+    try:
+        best = data["routes"][0]
+        coordinates = (best.get("geometry") or {}).get("coordinates") or []
+        geometry = [[float(lat), float(lng)] for lng, lat, *_ in coordinates]
+        result = {
+            "success": True,
+            "distance_km": round(float(best["distance"]) / 1000, 2),
+            "duration_min": round(float(best["duration"]) / 60, 1),
+            "geometry": geometry,
+            "steps": _parse_steps(best) if steps else [],
+            "profile": profile,
+        }
+    except (KeyError, TypeError, ValueError) as exc:
+        logger.warning("OSRM %s returned a malformed route: %s", profile, exc.__class__.__name__)
+        return fallback
+    return result
+
+
+def _osrm_timeout():
+    from .geo import OSRM_TIMEOUT_SECONDS
+
+    return getattr(settings, "OSRM_TIMEOUT_SECONDS", OSRM_TIMEOUT_SECONDS)
+
+
+def _parse_steps(osrm_route):
+    """OSRM legs[].steps[] → a flat, whitelisted step list. Location flipped
+    to [lat, lng]; malformed steps are skipped, never fatal."""
+    out = []
+    for leg in osrm_route.get("legs") or []:
+        for step in (leg or {}).get("steps") or []:
+            try:
+                maneuver = step.get("maneuver") or {}
+                lng, lat = maneuver["location"][:2]
+                item = {
+                    "maneuver": str(maneuver.get("type") or "continue")[:32],
+                    "modifier": str(maneuver.get("modifier") or "")[:32],
+                    "name": str(step.get("name") or "")[:_MAX_STEP_NAME],
+                    "distance_m": round(float(step.get("distance") or 0), 1),
+                    "duration_s": round(float(step.get("duration") or 0), 1),
+                    "location": [round(float(lat), 6), round(float(lng), 6)],
+                }
+                if maneuver.get("exit") is not None:
+                    item["exit"] = int(maneuver["exit"])
+            except (KeyError, TypeError, ValueError, IndexError):
+                continue
+            out.append(item)
+            if len(out) >= MAX_ROUTE_STEPS:
+                return out
+    return out
 
 
 def _nominatim(path, params):

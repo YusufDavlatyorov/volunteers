@@ -16,6 +16,20 @@
         <button type="button" class="button primary" data-live-reload data-i18n="rt.reload">Reload</button>
         <button type="button" class="button ghost" data-live-dismiss data-i18n="rt.dismiss">Dismiss</button>
     </div>
+    {% if show_route and user == task.volunteer %}
+    {# Live-tracking indicator (feature 7) — sticks under the topbar while sharing is on. static/js/task-route.js #}
+    <div class="track-banner" id="trackBanner" data-state="off">
+        <span class="track-banner__dot" aria-hidden="true"></span>
+        <div class="track-banner__text">
+            <strong id="trackBannerTitle" data-i18n="track.off_title">Your location is not being shared</strong>
+            <p id="trackBannerHint" role="status" aria-live="polite" data-i18n="track.off_hint">The client won't see you on the map. You can turn it on at any time.</p>
+        </div>
+        <div class="track-banner__actions">
+            <button type="button" class="button danger" id="trackStopBtn" data-i18n="track.stop" hidden>Stop sharing</button>
+            <button type="button" class="button secondary" id="trackShareBtn" data-i18n="track.share">Share my location</button>
+        </div>
+    </div>
+    {% endif %}
     <div class="opportunity-card detail-card">
         <div class="opportunity-media opportunity-media--lg media-{{ task.help_type }}">
             {% include "myapp/_help_type_icon.html" with help_type=task.help_type %}
@@ -165,40 +179,123 @@
             <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.3-4.3"></path></svg>
             <strong id="recommendEmptyText" data-i18n="rec.empty_title">No suitable volunteers found nearby.</strong>
         </div>
+        <details class="rec-away" id="recommendAway" hidden>
+            <summary><span data-i18n="rec.away_title">In “do not disturb” mode</span> (<span id="recommendAwayCount">0</span>)</summary>
+            <p class="field-hint" data-i18n="rec.away_hint">Not offered by matching. Assign only in an emergency — you will be asked to confirm, and the volunteer is told it was an urgent manual assignment.</p>
+            <div id="recommendAwayList" class="table-list"></div>
+        </details>
     </div>
     {% endif %}
 
     {% if show_route %}
+    {% comment %}Route + navigation (feature 2) and live tracking (feature 7): static/js/task-route.js.
+       Rendered only for staff, the task's client and the assigned volunteer of an ACTIVE task
+       (show_route = access.can_view_route); the server re-checks every location read/write.{% endcomment %}
     <div class="card route-card reveal" id="routeCard"
          data-route-url="{% url 'task_route' task.id %}"
-         data-is-volunteer="{% if user == task.volunteer %}1{% else %}0{% endif %}">
+         data-task-id="{{ task.id }}"
+         data-location-url="{% url 'task_location' task.id %}"
+         data-update-location-url="{% url 'update_location' %}"
+         data-is-volunteer="{% if user == task.volunteer %}1{% else %}0{% endif %}"{% if user == task.volunteer %}
+         data-stop-url="{% url 'tracking_stop' task.id %}"
+         data-consent-url="{% url 'tracking_consent' %}"
+         data-consent="{% if user.profile.tracking_consent_at %}1{% else %}0{% endif %}"
+         data-stopped="{% if task.tracking_stopped_at %}1{% else %}0{% endif %}"{% endif %}>
         {% csrf_token %}
         <div class="section-head">
             <h2 data-i18n="route.title">Route to client</h2>
             {% if user == task.volunteer %}
             <div class="button-row">
-                <button type="button" class="button ghost" id="routeLocateBtn" data-i18n="map.use_my_location" data-error-text="Не удалось определить местоположение">Use my location</button>
-                {% if task.has_location %}
-                <a class="button primary" target="_blank" rel="noopener"
-                   href="https://www.google.com/maps/dir/?api=1&destination={{ task.latitude }},{{ task.longitude }}&travelmode=driving"
-                   data-i18n="map.start_route">Start Route</a>
-                {% endif %}
+                <button type="button" class="button ghost" id="routeLocateBtn" data-i18n="map.use_my_location">Use my location</button>
             </div>
             {% endif %}
         </div>
-        <p class="field-hint" id="routeStatus" data-i18n="route.loading">Calculating route…</p>
+
+        {% if user != task.volunteer %}
+        <div class="track-banner track-banner--watch" id="trackWatch" data-state="loading">
+            <span class="track-banner__dot" aria-hidden="true"></span>
+            <div class="track-banner__text">
+                <strong id="trackWatchTitle" role="status" aria-live="polite" data-i18n="track.watch_checking">Checking where the volunteer is…</strong>
+                <p id="trackWatchHint" hidden></p>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="seg-toggle" role="group" aria-labelledby="routeModeLabel" id="routeMode">
+            <span class="visually-hidden" id="routeModeLabel" data-i18n="route.mode_label">Travel mode</span>
+            <button type="button" class="seg-toggle__btn" data-profile="driving" aria-pressed="true" data-i18n="route.mode_driving">By car</button>
+            <button type="button" class="seg-toggle__btn" data-profile="walking" aria-pressed="false" data-i18n="route.mode_walking">On foot</button>
+        </div>
+
+        <p class="field-hint" id="routeStatus" role="status" aria-live="polite" data-i18n="route.loading">Calculating route…</p>
         <div class="map-route-meta" id="routeMetrics" hidden>
             <div class="metric"><span class="meta-label" data-i18n="route.distance">Distance</span><strong id="routeDistance">—</strong></div>
-            <div class="metric"><span class="meta-label" data-i18n="route.eta">Estimated time</span><strong id="routeEta">—</strong></div>
-            <div class="metric"><span class="meta-label" data-i18n="route.source">Your location</span><strong id="routeSource">—</strong></div>
+            <div class="metric"><span class="meta-label" data-i18n="route.eta">Estimated time</span><strong id="routeEta">—</strong> <span class="route-approx" id="routeEtaApprox" data-i18n="route.eta_estimated" hidden>≈ approx.</span></div>
+            <div class="metric metric--text"><span class="meta-label" data-i18n="{% if user == task.volunteer %}route.source{% else %}route.source_volunteer{% endif %}">Your location</span><strong id="routeSource">—</strong></div>
         </div>
+        {% if user == task.volunteer %}
+        <div class="nav-next" id="navNext" hidden>
+            <span class="meta-label" data-i18n="route.next_step">Next</span>
+            <p class="nav-next__text" id="navNextText"></p>
+            <strong class="nav-next__dist" id="navNextDist"></strong>
+        </div>
+        {% endif %}
         <div id="routeMap" class="map-mini" hidden></div>
         <div id="routeEmpty" class="empty-state" hidden>
             <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0Z"></path><path d="M9.5 9.5l5 5m0-5l-5 5"></path></svg>
             <strong data-i18n="route.unavailable_title">Location unavailable</strong>
             <p id="routeEmptyText" data-i18n="route.unavailable_desc">We don't have enough location data to draw a route yet.</p>
         </div>
+        {% if user == task.volunteer %}
+        {% if task.has_location %}
+        {# Destination-only links (no volunteer position in any URL); task-route.js swaps them for the server's deep_links per travel mode. #}
+        <div class="nav-apps" id="routeDeepLinks">
+            <span class="meta-label" data-i18n="route.open_in">Open in</span>
+            <div class="nav-apps__row">
+                <a class="button ghost" data-app="google" target="_blank" rel="noopener"
+                   href="https://www.google.com/maps/dir/?api=1&destination={{ task.latitude }},{{ task.longitude }}&travelmode=driving"
+                   data-i18n="route.app_google">Google Maps</a>
+                <a class="button ghost" data-app="yandex_maps" target="_blank" rel="noopener"
+                   href="https://yandex.ru/maps/?rtext=~{{ task.latitude }},{{ task.longitude }}&rtt=auto"
+                   data-i18n="route.app_yandex_maps">Yandex Maps</a>
+                <a class="button ghost" data-app="yandex_navi" rel="noopener"
+                   href="yandexnavi://build_route_on_map?lat_to={{ task.latitude }}&lon_to={{ task.longitude }}"
+                   data-i18n="route.app_yandex_navi">Yandex Navigator</a>
+                <a class="button ghost" data-app="dgis" target="_blank" rel="noopener"
+                   href="https://2gis.ru/routeSearch/rsType/car/to/{{ task.longitude }},{{ task.latitude }}"
+                   data-i18n="route.app_dgis">2GIS</a>
+            </div>
+        </div>
+        {% endif %}
+        <details class="nav-steps-wrap" id="routeStepsWrap" open hidden>
+            <summary data-i18n="route.steps_title">Directions</summary>
+            <ol class="nav-steps" id="routeSteps" hidden></ol>
+        </details>
+        {% endif %}
     </div>
+
+    {% if user == task.volunteer and not user.profile.tracking_consent_at %}
+    {# First-time consent (feature 7). Opened by task-route.js; Esc / "Not now" keeps everything working without live location. #}
+    <dialog class="gc-dialog" id="trackConsentDialog" aria-labelledby="trackConsentTitle" aria-describedby="trackConsentLede">
+        <div class="gc-dialog__body">
+            <span class="gc-dialog__icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg></span>
+            <h2 id="trackConsentTitle" data-i18n="track.consent_title">Show the client where you are?</h2>
+            <p id="trackConsentLede" data-i18n="track.consent_lede">While you are on your way, the client can see you on the map and know when you will arrive.</p>
+            <ul class="gc-dialog__list">
+                <li><strong data-i18n="track.consent_who_label">Who sees it</strong><span data-i18n="track.consent_who">Only the client of this request and the curators.</span></li>
+                <li><strong data-i18n="track.consent_when_label">When</strong><span data-i18n="track.consent_when">Only while this request is active. It stops by itself when the request is completed or cancelled.</span></li>
+                <li><strong data-i18n="track.consent_keep_label">How long it is kept</strong><span data-i18n="track.consent_keep">Your route is deleted when the request ends and is never kept longer than 24 hours.</span></li>
+                <li><strong data-i18n="track.consent_control_label">You decide</strong><span data-i18n="track.consent_control">You can stop sharing at any time with one button.</span></li>
+            </ul>
+            <p class="field-hint" data-i18n="track.consent_optional">If you say “Not now”, everything still works — the client just won't see you on the map.</p>
+            <p class="gc-dialog__error" id="trackConsentError" role="alert" data-i18n="track.consent_failed" hidden>Couldn't save your choice. Check your connection and try again.</p>
+            <div class="button-row">
+                <button type="button" class="button primary" id="trackConsentAgree" data-i18n="track.consent_agree" autofocus>Agree and share</button>
+                <button type="button" class="button ghost" id="trackConsentDecline" data-i18n="track.consent_decline">Not now</button>
+            </div>
+        </div>
+    </dialog>
+    {% endif %}
     {% endif %}
 </section>
 {% endblock %}
@@ -351,9 +448,84 @@ document.addEventListener('DOMContentLoaded', () => {
         return row;
     }
 
+    function tr(key, fallback, args) {
+        const table = (window.T && (window.T[document.documentElement.lang] || window.T.ru)) || {};
+        const text = table[key] || fallback;
+        return text.replace(/\{(\w+)\}/g, (m, name) => (args && name in args ? String(args[name]) : m));
+    }
+
+    function formatDay(iso) {
+        if (!iso) return '';
+        const [y, m, d] = iso.split('-');
+        return `${d}.${m}.${y}`;
+    }
+
+    function awayWarning(item) {
+        return item.away_until
+            ? tr('rec.away_warning_until', 'Volunteer is in “do not disturb” mode until {date}', { date: formatDay(item.away_until) })
+            : tr('rec.away_warning', 'Volunteer is in “do not disturb” mode');
+    }
+
+    function renderAwayRow(item) {
+        const row = document.createElement('div');
+        row.className = 'card applicant-row rec-away__row';
+        const body = document.createElement('div');
+        body.className = 'applicant-body';
+        const tag = document.createElement('span');
+        tag.className = 'tag urgent';
+        tag.textContent = awayWarning(item);
+        const name = document.createElement('h3');
+        name.textContent = item.full_name;
+        const meta = document.createElement('p');
+        meta.className = 'opportunity-location';
+        meta.textContent = [item.region, item.distance_km != null ? `${item.distance_km} km` : ''].filter(Boolean).join(' · ');
+        body.append(tag, name, meta);
+        const actions = document.createElement('div');
+        actions.className = 'button-row';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'button danger';
+        btn.textContent = tr('rec.assign_anyway', 'Assign urgently');
+        btn.addEventListener('click', () => {
+            const question = awayWarning(item) + '.\n' + tr('rec.away_confirm', 'Assign {name} urgently anyway? They will be told it was an urgent manual assignment.', { name: item.full_name });
+            if (!confirm(question)) return;
+            btn.disabled = true;
+            const body = new FormData();
+            body.append('confirm_away', '1');
+            fetch(assignUrlTemplate.replace('999999', item.volunteer_id), {
+                method: 'POST',
+                headers: { 'X-CSRFToken': csrfToken ? csrfToken.value : '' },
+                body,
+            })
+                .then((r) => r.json())
+                .then((data) => {
+                    if (data.success) {
+                        window.location.reload();
+                    } else {
+                        btn.disabled = false;
+                        alert(tr('rec.assign_failed', 'Could not assign (the request is no longer pending).'));
+                    }
+                })
+                .catch(() => { btn.disabled = false; });
+        });
+        actions.append(btn);
+        row.append(body, actions);
+        return row;
+    }
+
+    function renderAway(items) {
+        const block = document.getElementById('recommendAway');
+        if (!block || !items || !items.length) return;
+        document.getElementById('recommendAwayCount').textContent = items.length;
+        const list = document.getElementById('recommendAwayList');
+        items.forEach((item) => list.appendChild(renderAwayRow(item)));
+        block.hidden = false;
+    }
+
     fetch(recommendUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
         .then((r) => r.json())
         .then((data) => {
+            renderAway(data.away_volunteers);
             if (!data.task_has_location) {
                 showEmpty('У этого запроса пока нет точки на карте — подобрать волонтёров по расстоянию нельзя.');
                 return;
@@ -390,115 +562,6 @@ document.addEventListener('DOMContentLoaded', () => {
 {% if show_route %}
 {% include "partials/_leaflet_js.html" %}
 <script src="{% asset 'js/map.js' %}"></script>
-<script>
-(function () {
-    const card = document.getElementById('routeCard');
-    if (!card || typeof L === 'undefined') return;
-
-    const routeUrl = card.dataset.routeUrl;
-    const statusEl = document.getElementById('routeStatus');
-    const metricsEl = document.getElementById('routeMetrics');
-    const mapEl = document.getElementById('routeMap');
-    const emptyEl = document.getElementById('routeEmpty');
-    const emptyTextEl = document.getElementById('routeEmptyText');
-    const distanceEl = document.getElementById('routeDistance');
-    const etaEl = document.getElementById('routeEta');
-    const sourceEl = document.getElementById('routeSource');
-    const locateBtn = document.getElementById('routeLocateBtn');
-    let map = null;
-
-    const reasonText = {
-        no_task_location: 'У этого запроса ещё нет точки на карте.',
-        no_volunteer_assigned: 'Волонтер ещё не назначен.',
-        no_volunteer_location: 'Волонтер ещё не указал своё местоположение.',
-        forbidden: 'Недостаточно прав для просмотра маршрута.',
-    };
-
-    function showEmpty(reason) {
-        statusEl.hidden = true;
-        metricsEl.hidden = true;
-        mapEl.hidden = true;
-        emptyEl.hidden = false;
-        if (reason && reasonText[reason]) emptyTextEl.textContent = reasonText[reason];
-    }
-
-    function renderRoute(data) {
-        statusEl.hidden = true;
-        emptyEl.hidden = true;
-        metricsEl.hidden = false;
-        mapEl.hidden = false;
-
-        distanceEl.textContent = data.distance_km != null ? `${data.distance_km} km` : '—';
-        etaEl.textContent = data.duration_min != null ? `${Math.round(data.duration_min)} min` : '—';
-        sourceEl.textContent = data.origin.source === 'live' ? 'GPS' : 'Saved';
-
-        if (!map) {
-            map = L.map('routeMap');
-            GCMap.tileLayer(map);
-        } else {
-            map.eachLayer((layer) => { if (!(layer instanceof L.TileLayer)) map.removeLayer(layer); });
-        }
-
-        L.marker([data.origin.lat, data.origin.lng], { icon: GCMap.pinIcon('--primary-2', 'V') }).addTo(map);
-        L.marker([data.destination.lat, data.destination.lng], { icon: GCMap.pinIcon('--accent', 'C') }).addTo(map);
-        const bounds = L.latLngBounds([[data.origin.lat, data.origin.lng], [data.destination.lat, data.destination.lng]]);
-
-        if (data.success && data.geometry && data.geometry.length) {
-            GCMap.drawRoute(map, data.geometry, '--primary');
-            data.geometry.forEach((point) => bounds.extend(point));
-        }
-        map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
-        setTimeout(() => map.invalidateSize(), 50);
-    }
-
-    function loadRoute(lat, lng) {
-        statusEl.hidden = false;
-        metricsEl.hidden = true;
-        mapEl.hidden = true;
-        emptyEl.hidden = true;
-
-        let url = routeUrl;
-        if (lat != null && lng != null) url += `?lat=${lat}&lng=${lng}`;
-
-        fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
-            .then((r) => r.json())
-            .then((data) => {
-                if (!data.origin || !data.destination) {
-                    showEmpty(data.reason);
-                    return;
-                }
-                renderRoute(data);
-            })
-            .catch(() => showEmpty(null));
-    }
-
-    loadRoute();
-
-    if (locateBtn) {
-        if (!navigator.geolocation) {
-            locateBtn.disabled = true;
-        } else {
-            locateBtn.addEventListener('click', () => {
-                locateBtn.disabled = true;
-                navigator.geolocation.getCurrentPosition(
-                    (pos) => {
-                        loadRoute(pos.coords.latitude, pos.coords.longitude);
-                        const token = card.querySelector('[name=csrfmiddlewaretoken]');
-                        fetch("{% url 'update_location' %}", {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': token ? token.value : '' },
-                            body: JSON.stringify({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
-                        }).finally(() => { locateBtn.disabled = false; });
-                    },
-                    () => {
-                        locateBtn.disabled = false;
-                        alert(locateBtn.dataset.errorText || 'Could not determine your location.');
-                    },
-                );
-            });
-        }
-    }
-})();
-</script>
+<script src="{% asset 'js/task-route.js' %}"></script>
 {% endif %}
 {% endblock %}

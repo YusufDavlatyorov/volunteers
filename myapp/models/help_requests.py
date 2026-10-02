@@ -127,6 +127,13 @@ class HelpRequest(models.Model):
         Users, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
     cancel_reason = models.CharField(max_length=500, blank=True)
+    # Live tracking (myapp/services/tracking.py): the assigned volunteer's latest
+    # accepted position while the task is active — cleared when it ends.
+    # `tracking_stopped_at` is set when the volunteer stops sharing by hand.
+    volunteer_last_lat = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    volunteer_last_lng = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    volunteer_last_at = models.DateTimeField(null=True, blank=True)
+    tracking_stopped_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         verbose_name = "Запрос помощи"

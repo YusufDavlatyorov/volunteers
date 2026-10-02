@@ -101,6 +101,24 @@ CHANNEL_TEXTS = {
         "en": ("A help request has been assigned",
                "A curator assigned request #{task_id} ({help_type_name}).\n"
                "Client: {client_name}, phone: {phone}\nAddress: {address}"),
+        # Milestone 2: a curator manually assigned a volunteer who has
+        # do-not-disturb on (owner note §12). Same maps/fallbacks as the base.
+        "variants": {
+            "urgent_override": {
+                "ru": ("Срочное назначение",
+                       "Куратор срочно назначил вам запрос #{task_id} ({help_type_name}), "
+                       "хотя у вас включён режим «не беспокоить».\n"
+                       "Клиент: {client_name}, телефон: {phone}\nАдрес: {address}"),
+                "tj": ("Таъиноти фаврӣ",
+                       "Куратор ба шумо дархости #{task_id} ({help_type_name})-ро фавран таъин кард, "
+                       "гарчанде ки реҷаи «халал нарасонед» фаъол аст.\n"
+                       "Муштарӣ: {client_name}, телефон: {phone}\nСуроға: {address}"),
+                "en": ("Urgent assignment",
+                       "A curator urgently assigned request #{task_id} ({help_type_name}) to you, "
+                       "even though your do-not-disturb mode is on.\n"
+                       "Client: {client_name}, phone: {phone}\nAddress: {address}"),
+            },
+        },
     },
     "task_stage_changed": {
         "maps": {
@@ -337,6 +355,14 @@ CHANNEL_TEXTS = {
                "A curator recommends request #{task_id} ({help_type_name}) in {region_name} to you.\n"
                "This is a recommendation, not an assignment — the request stays open until you accept it yourself."),
     },
+    "tracking_stopped": {
+        "ru": ("Волонтёр остановил передачу местоположения",
+               "Волонтёр прекратил передачу своего местоположения по запросу #{task_id}."),
+        "tj": ("Ихтиёрӣ интиқоли ҷойгиршавиро қатъ кард",
+               "Ихтиёрӣ интиқоли ҷойгиршавии худро оид ба дархости #{task_id} қатъ кард."),
+        "en": ("Volunteer stopped sharing location",
+               "The volunteer stopped sharing their location on request #{task_id}."),
+    },
     # Placeholders for later milestones (chat, reviews, achievements).
     "chat_message": {
         "ru": ("Новое сообщение в чате", "Новое сообщение по запросу #{task_id}."),
@@ -370,6 +396,19 @@ INAPP_TEXTS = {
         "tj": ("Дархост қабул шуд", "Дархости #{task_id}-ро ихтиёрӣ {volunteer_name} қабул кард."),
     },
     "task_assigned": {
+        "variants": {
+            "urgent_override": {
+                "en": ("Urgent assignment",
+                       "A curator urgently assigned request #{task_id} to you, even though your "
+                       "do-not-disturb mode is on."),
+                "ru": ("Срочное назначение",
+                       "Куратор срочно назначил вам запрос #{task_id}, хотя у вас включён режим "
+                       "«не беспокоить»."),
+                "tj": ("Таъиноти фаврӣ",
+                       "Куратор ба шумо дархости #{task_id}-ро фавран таъин кард, гарчанде ки "
+                       "реҷаи «халал нарасонед» фаъол аст."),
+            },
+        },
         "en": ("Request assigned", "Request #{task_id} was assigned by a curator."),
         "ru": ("Запрос назначен", "Куратор назначил запрос #{task_id}."),
         "tj": ("Дархост таъин шуд", "Куратор дархости #{task_id}-ро таъин кард."),
@@ -549,6 +588,13 @@ INAPP_TEXTS = {
         "ru": ("Рекомендованный запрос", "Куратор рекомендует вам запрос #{task_id}."),
         "tj": ("Дархости тавсияшуда", "Куратор ба шумо дархости #{task_id}-ро тавсия медиҳад."),
     },
+    "tracking_stopped": {
+        "en": ("Location sharing stopped", "The volunteer stopped sharing their location on request #{task_id}."),
+        "ru": ("Передача местоположения остановлена",
+               "Волонтёр прекратил передачу местоположения по запросу #{task_id}."),
+        "tj": ("Интиқоли ҷойгиршавӣ қатъ шуд",
+               "Ихтиёрӣ интиқоли ҷойгиршавиро оид ба дархости #{task_id} қатъ кард."),
+    },
     "chat_message": {
         "en": ("New message", "New message about request #{task_id}."),
         "ru": ("Новое сообщение", "Новое сообщение по запросу #{task_id}."),
@@ -602,11 +648,17 @@ def _fmt(template, ctx):
         return template
 
 
-def render_channel(type_, lang, context):
-    """(subject, body) for email/Telegram in ``lang``. Never raises."""
+def render_channel(type_, lang, context, variant=None):
+    """(subject, body) for email/Telegram in ``lang``. Never raises.
+
+    ``variant`` picks ``entry["variants"][variant]`` when the type defines it
+    (the base entry's ``maps`` / ``fallbacks`` still apply); otherwise the
+    base text is used, so an unknown variant degrades to the plain message."""
     lang = _norm_lang(lang)
     entry = CHANNEL_TEXTS.get(type_) or {}
-    pair = entry.get(lang) or entry.get(DEFAULT_LANG)
+    texts = (entry.get("variants") or {}).get(variant) if variant else None
+    texts = texts or entry
+    pair = texts.get(lang) or texts.get(DEFAULT_LANG)
     if not pair:
         return "KhayrKhoh", ""
     ctx = _SafeDict(context or {})
@@ -684,6 +736,7 @@ TYPE_LABELS = {
     "task_stale": {"en": "Requests waiting too long", "ru": "Долго ждущие запросы", "tj": "Дархостҳои дер интизоршуда"},
     "task_escalated": {"en": "Escalations", "ru": "Эскалации", "tj": "Эскалатсияҳо"},
     "volunteer_pinged": {"en": "Recommended requests", "ru": "Рекомендованные запросы", "tj": "Дархостҳои тавсияшуда"},
+    "tracking_stopped": {"en": "Location sharing stopped", "ru": "Остановка передачи местоположения", "tj": "Қатъи интиқоли ҷойгиршавӣ"},
     "chat_message": {"en": "Chat messages", "ru": "Сообщения в чате", "tj": "Паёмҳои чат"},
     "review_received": {"en": "Reviews", "ru": "Отзывы", "tj": "Фикрҳо"},
     "achievement_unlocked": {"en": "Achievements", "ru": "Достижения", "tj": "Дастовардҳо"},

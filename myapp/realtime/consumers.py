@@ -10,11 +10,20 @@ Protocol: ``docs/WS_PROTOCOL.md``. Rules:
   ``services.access.can_view_task`` — the same rule as the task detail page;
 * every inbound message: ≤ 4 KB (else close 4408), rate-limited per user
   (``ratelimit.py``), unknown types → ``error {code}``;
-* outbound shapes come only from ``events.py`` (no phone/email ever).
+* outbound shapes come only from ``events.py`` (no phone/email ever);
+* **delivery guards** (milestone 2): sensitive group events are re-checked per
+  socket right before they are sent (``DELIVERY_GUARDS``) — membership of a
+  group is not enough, because a task's parties change (accept / complete /
+  cancel) while sockets stay subscribed. Decisions are cached per socket per
+  task and dropped on every ``task.updated`` for that task;
+* the socket's user is re-read from the DB at most every
+  ``USER_RECHECK_SECONDS`` (checked on every inbound frame — the 25 s
+  heartbeat included — and every outbound event): deactivated → close 4401; lost staff role → leave staff groups.
 """
 
 import json
 import logging
+import time
 
 from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
@@ -25,22 +34,68 @@ from .groups import MAP_STAFF_GROUP, STAFF_GROUP, task_group, user_group
 logger = logging.getLogger(__name__)
 
 MAX_TASK_SUBSCRIPTIONS = 20
-# Inbound types that later milestones implement (tracking, chat). Until then
-# they are rate-limited like the rest and answered with error "unsupported".
-FUTURE_TYPES = {"location.update", "tracking.stop", "chat.send", "chat.typing", "chat.read"}
+# Inbound types that later milestones implement (chat). Until then they are
+# rate-limited like the rest and answered with error "unsupported".
+FUTURE_TYPES = {"chat.send", "chat.typing", "chat.read"}
+# How stale the socket's copy of the user may get (deactivation, role change).
+USER_RECHECK_SECONDS = 60
+# Per-socket guard decisions kept at most (staff see markers of many tasks).
+MAX_GUARD_CACHE = 256
+_TASK_FIELDS = ("id", "client_id", "volunteer_id", "status", "region")
+
+
+def _positive_int(raw):
+    if isinstance(raw, bool):
+        return None
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+def _number(raw):
+    """A JSON number (not a bool / string) as float, else None."""
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return None
+    value = float(raw)
+    return value if value == value and value not in (float("inf"), float("-inf")) else None
+
+
+def _identity(user):
+    """What a guard decision depends on, on the user's side."""
+    return (user.is_active, user.is_superuser, user.is_curator, user.is_volunteer,
+            user.is_client, user.region)
 
 
 # ----------------------------------------------------------------- db helpers
 
+def _load_task(task_id):
+    from ..models import HelpRequest
+
+    return HelpRequest.objects.filter(pk=task_id).only(*_TASK_FIELDS).first()
+
+
 @database_sync_to_async
 def _task_visible(user, task_id):
-    from ..models import HelpRequest
     from ..services import access
 
-    task = HelpRequest.objects.filter(pk=task_id).only(
-        "id", "client_id", "volunteer_id", "status", "region"
-    ).first()
+    task = _load_task(task_id)
     return task is not None and access.can_view_task(user, task)
+
+
+@database_sync_to_async
+def _task_check(user, task_id, predicate):
+    """``predicate(user, task)`` on a fresh row; a missing task is a "no"."""
+    task = _load_task(task_id)
+    return task is not None and bool(predicate(user, task))
+
+
+@database_sync_to_async
+def _reload_user(user_id):
+    from accounts.models import Users
+
+    return Users.objects.filter(pk=user_id).first()
 
 
 @database_sync_to_async
@@ -70,11 +125,115 @@ def _mark_read(user, ids, all_):
     return notify.mark_read(user, ids=ids, all=all_, publish_event=False)
 
 
+def _tracking():
+    """The tracking service (geo-engineer), imported lazily: the consumer must
+    load even where it is missing (``error unsupported`` then)."""
+    from ..services import tracking
+
+    return tracking
+
+
+@database_sync_to_async
+def _accept_point(user, task_id, lat, lng, accuracy, speed, heading):
+    return _tracking().accept_point(
+        user, task_id, lat, lng, accuracy=accuracy, speed=speed, heading=heading, source="ws",
+    )
+
+
+@database_sync_to_async
+def _stop_tracking(user, task_id):
+    """Only the task's assigned volunteer may stop sharing. Returns an error
+    code, or None on success."""
+    task = _load_task(task_id)
+    if task is None or task.volunteer_id != user.pk:
+        return events.ERR_FORBIDDEN
+    result = _tracking().stop(user, task, reason="volunteer")
+    # tracking.stop returns a bool (False: not the assigned volunteer of an
+    # active task); tolerate an outcome object too.
+    if result is False or getattr(result, "ok", True) is False:
+        return getattr(result, "code", None) or events.ERR_FORBIDDEN
+    return None
+
+
+# -------------------------------------------------------------- permissions
+
+def can_see_location(user, task):
+    from ..services import access
+
+    return access.can_see_location(user, task)
+
+
+def was_location_party(user, task):
+    """Audience of ``tracking.stopped``: the people who could see the live
+    location — staff, the client, the assigned volunteer — WITHOUT the
+    "task is active" condition, so "tracking ended because the task ended"
+    still reaches the client. The event carries no coordinates."""
+    from ..services import access
+
+    if not user.is_active or not task.volunteer_id:
+        return False
+    return access.is_staff_user(user) or user.id in (task.client_id, task.volunteer_id)
+
+
+class TaskGuard:
+    """Deliver an event only if ``predicate(user, task)`` holds for the task
+    named by ``payload.task_id``. Decisions are cached per socket under
+    ``(name, task_id)`` and dropped on ``task.updated`` for that task.
+
+    Milestone 3 plugs chat in with one line:
+    ``DELIVERY_GUARDS["chat.message"] = TaskGuard("chat", can_read_chat)``.
+    """
+
+    def __init__(self, name, predicate, staff_only=False):
+        self.name = name
+        self.predicate = predicate
+        self.staff_only = staff_only
+
+    async def __call__(self, consumer, payload):
+        if self.staff_only and not consumer.is_staff:
+            return False
+        task_id = _positive_int(payload.get("task_id"))
+        if task_id is None:
+            return False
+        return await consumer.task_permission(self.name, task_id, self.predicate)
+
+
+class StaffGuard:
+    """``map_staff`` / ``staff`` events: the socket's user must still be
+    active staff (re-read every USER_RECHECK_SECONDS). A marker that names a
+    task (live volunteer position) additionally needs ``can_see_location`` —
+    except a removal (``removed: true``, no coordinates), which must reach
+    staff precisely when the task stopped being live."""
+
+    def __init__(self, task_guard=None):
+        self.task_guard = task_guard
+
+    async def __call__(self, consumer, payload):
+        if not consumer.is_staff:
+            return False
+        if payload.get("removed") is True:
+            return True
+        if self.task_guard is not None and payload.get("task_id") is not None:
+            return await self.task_guard(consumer, payload)
+        return True
+
+
+LOCATION_GUARD = TaskGuard("location", can_see_location)
+
+# event type -> async guard(consumer, payload) -> bool. Unlisted types pass.
+DELIVERY_GUARDS = {
+    events.LOCATION_UPDATED: LOCATION_GUARD,
+    events.TRACKING_STOPPED: TaskGuard("location_party", was_location_party),
+    events.MAP_MARKER: StaffGuard(task_guard=LOCATION_GUARD),
+}
+
+
 # ------------------------------------------------------------------ consumer
 
 class RealtimeConsumer(AsyncJsonWebsocketConsumer):
     user = None
     is_staff = False
+    closing = False
 
     async def connect(self):
         user = self.scope.get("user")
@@ -86,6 +245,8 @@ class RealtimeConsumer(AsyncJsonWebsocketConsumer):
         self.is_staff = bool(user.is_superuser or user.is_curator)
         self.groups_joined = set()
         self.task_ids = set()
+        self.guard_cache = {}
+        self.user_checked_at = time.monotonic()
         await self._join(user_group(user.pk))
         if self.is_staff:
             await self._join(STAFF_GROUP)
@@ -110,10 +271,65 @@ class RealtimeConsumer(AsyncJsonWebsocketConsumer):
         await self.channel_layer.group_discard(group, self.channel_name)
         self.groups_joined.discard(group)
 
+    # ------------------------------------------------------- user re-check
+
+    async def ensure_user_fresh(self, force=False):
+        """Re-read the user at most every USER_RECHECK_SECONDS. Returns False
+        (and closes 4401) when the account is gone or deactivated."""
+        if self.closing or self.user is None:
+            return False
+        now = time.monotonic()
+        if not force and now - self.user_checked_at < USER_RECHECK_SECONDS:
+            return True
+        self.user_checked_at = now
+        fresh = await _reload_user(self.user.pk)
+        if fresh is None or not fresh.is_active:
+            logger.info("ws: user #%s deactivated, closing", self.user.pk)
+            self.closing = True
+            self.guard_cache = {}
+            await self.close(code=events.CLOSE_UNAUTHENTICATED)
+            return False
+        if _identity(fresh) != _identity(self.user):
+            self.guard_cache = {}  # role / region changed: every decision is stale
+        self.user = fresh
+        is_staff = bool(fresh.is_superuser or fresh.is_curator)
+        if self.is_staff and not is_staff:
+            await self._leave(STAFF_GROUP)
+            await self._leave(MAP_STAFF_GROUP)
+        elif is_staff and not self.is_staff:
+            await self._join(STAFF_GROUP)
+            await self._join(MAP_STAFF_GROUP)
+        self.is_staff = is_staff
+        return True
+
+    # ----------------------------------------------------------- guards
+
+    async def task_permission(self, name, task_id, predicate):
+        key = (name, task_id)
+        if key not in self.guard_cache:
+            if len(self.guard_cache) >= MAX_GUARD_CACHE:
+                self.guard_cache = {}
+            self.guard_cache[key] = await _task_check(self.user, task_id, predicate)
+        return self.guard_cache[key]
+
+    def invalidate_task(self, task_id):
+        self.guard_cache = {k: v for k, v in self.guard_cache.items() if k[1] != task_id}
+
+    async def _recheck_subscription(self, task_id):
+        """After a task changed: drop the subscription if the user can no
+        longer open the task (e.g. a pending task another volunteer took)."""
+        if task_id not in self.task_ids:
+            return
+        if await _task_visible(self.user, task_id):
+            return
+        await self._leave(task_group(task_id))
+        self.task_ids.discard(task_id)
+        await self.send_json(events.unsubscribed("task", task_id, reason=events.ERR_FORBIDDEN))
+
     # ------------------------------------------------------------- inbound
 
     async def receive(self, text_data=None, bytes_data=None, **kwargs):
-        if self.user is None:
+        if self.user is None or self.closing:
             return
         if bytes_data is not None:
             if len(bytes_data) > ratelimit.MAX_MESSAGE_BYTES:
@@ -160,6 +376,9 @@ class RealtimeConsumer(AsyncJsonWebsocketConsumer):
             await self.send_json(events.error(events.ERR_RATE_LIMITED, ref))
             return
 
+        if not await self.ensure_user_fresh():
+            return
+
         handler = self.HANDLERS.get(msg_type)
         if handler is None:
             code = events.ERR_UNSUPPORTED if msg_type in FUTURE_TYPES else events.ERR_UNKNOWN_TYPE
@@ -200,6 +419,7 @@ class RealtimeConsumer(AsyncJsonWebsocketConsumer):
         if task_id in self.task_ids:
             await self._leave(task_group(task_id))
             self.task_ids.discard(task_id)
+            self.invalidate_task(task_id)
         await self.send_json(events.unsubscribed("task", task_id, ref))
 
     async def on_notification_read(self, payload, ref):
@@ -215,18 +435,64 @@ class RealtimeConsumer(AsyncJsonWebsocketConsumer):
             {"type": "realtime.event", "event": events.envelope(events.NOTIFICATION_READ, result)},
         )
 
+    async def on_location_update(self, payload, ref):
+        """``{task_id, lat, lng, accuracy, speed?, heading?}`` → tracking.accept_point.
+        ok → ``ack``; a rejected point → ``error {code}`` with the service's code."""
+        task_id = _positive_int(payload.get("task_id"))
+        lat, lng = _number(payload.get("lat")), _number(payload.get("lng"))
+        if task_id is None or lat is None or lng is None:
+            await self.send_json(events.error(events.ERR_BAD_REQUEST, ref))
+            return
+        optional = {}
+        for key in ("accuracy", "speed", "heading"):
+            raw = payload.get(key)
+            optional[key] = _number(raw)
+            if raw is not None and optional[key] is None:
+                await self.send_json(events.error(events.ERR_BAD_REQUEST, ref))
+                return
+        try:
+            outcome = await _accept_point(self.user, task_id, lat, lng, optional["accuracy"],
+                                          optional["speed"], optional["heading"])
+        except ImportError:
+            await self.send_json(events.error(events.ERR_UNSUPPORTED, ref))
+            return
+        except Exception:  # noqa: BLE001 — one bad point must not kill the socket
+            logger.exception("ws: location.update failed user #%s task #%s", self.user.pk, task_id)
+            await self.send_json(events.error(events.ERR_SERVER, ref))
+            return
+        code = getattr(outcome, "code", None)
+        if getattr(outcome, "ok", False):
+            await self.send_json(events.ack("location.update", task_id, "ok", ref))
+            return
+        if code not in events.TRACKING_ERROR_CODES:
+            code = events.ERR_FORBIDDEN
+        await self.send_json(events.error(code, ref))
+
+    async def on_tracking_stop(self, payload, ref):
+        """``{task_id}`` → tracking.stop, assigned volunteer only."""
+        task_id = _positive_int(payload.get("task_id"))
+        if task_id is None:
+            await self.send_json(events.error(events.ERR_BAD_REQUEST, ref))
+            return
+        try:
+            code = await _stop_tracking(self.user, task_id)
+        except ImportError:
+            await self.send_json(events.error(events.ERR_UNSUPPORTED, ref))
+            return
+        except Exception:  # noqa: BLE001
+            logger.exception("ws: tracking.stop failed user #%s task #%s", self.user.pk, task_id)
+            await self.send_json(events.error(events.ERR_SERVER, ref))
+            return
+        if code:
+            await self.send_json(events.error(code, ref))
+            return
+        await self.send_json(events.ack("tracking.stop", task_id, "ok", ref))
+
     @staticmethod
     def _task_id(payload):
         if payload.get("topic") != "task":
             return None
-        raw = payload.get("id")
-        if isinstance(raw, bool):
-            return None
-        try:
-            value = int(raw)
-        except (TypeError, ValueError):
-            return None
-        return value if value > 0 else None
+        return _positive_int(payload.get("id"))
 
     HANDLERS = {
         "ping": on_ping,
@@ -234,13 +500,29 @@ class RealtimeConsumer(AsyncJsonWebsocketConsumer):
         "subscribe": on_subscribe,
         "unsubscribe": on_unsubscribe,
         "notification.read": on_notification_read,
+        "location.update": on_location_update,
+        "tracking.stop": on_tracking_stop,
     }
 
     # ------------------------------------------------------------ outbound
 
     async def realtime_event(self, message):
         """Channel-layer handler for ``{"type": "realtime.event", "event": ...}``
-        (sent by ``publish.py`` and by this consumer)."""
+        (sent by ``publish.py`` and by this consumer). Guarded event types are
+        re-checked for THIS socket's user before they are sent."""
         event = message.get("event")
-        if isinstance(event, dict):
-            await self.send_json(event)
+        if not isinstance(event, dict) or self.user is None or self.closing:
+            return
+        event_type = event.get("type")
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        if not await self.ensure_user_fresh():
+            return
+        guard = DELIVERY_GUARDS.get(event_type)
+        if guard is not None and not await guard(self, payload):
+            return
+        await self.send_json(event)
+        if event_type == events.TASK_UPDATED:
+            task_id = _positive_int(payload.get("task_id"))
+            if task_id is not None:
+                self.invalidate_task(task_id)
+                await self._recheck_subscription(task_id)

@@ -949,7 +949,7 @@ class TaskRouteViewTests(TestCase):
         self.volunteer.profile.set_location(38.55, 68.78)
 
     def _mock_route(self):
-        return mock.patch("myapp.views.get_route", return_value={
+        return mock.patch("myapp.services.routing.route", return_value={
             "success": True, "distance_km": 1.5, "duration_min": 4.0,
             "geometry": [[38.55, 68.78], [38.56, 68.79]],
         })
@@ -1012,7 +1012,7 @@ class TaskRouteViewTests(TestCase):
         data = response.json()
         self.assertEqual(data["origin"]["source"], "live")
         self.assertEqual(data["origin"]["lat"], 38.5)
-        mocked.assert_called_once_with((38.5, 68.7), (38.56, 68.79))
+        mocked.assert_called_once_with((38.5, 68.7), (38.56, 68.79), profile="driving", steps=True)
 
     def test_client_cannot_override_origin_with_live_coordinates(self):
         # Only the assigned volunteer's browser location is trusted as origin;
@@ -1023,7 +1023,7 @@ class TaskRouteViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data["origin"]["source"], "saved")
-        mocked.assert_called_once_with((38.55, 68.78), (38.56, 68.79))
+        mocked.assert_called_once_with((38.55, 68.78), (38.56, 68.79), profile="driving", steps=True)
 
     # 7: missing task/location handled gracefully
     def test_task_without_location_is_graceful(self):
@@ -1062,7 +1062,7 @@ class TaskRouteViewTests(TestCase):
     # 8 & 9: OSRM failure and success paths through the view
     def test_osrm_failure_returns_graceful_fallback(self):
         self.client.login(username="route_vol", password="pass12345")
-        with mock.patch("myapp.views.get_route", return_value={
+        with mock.patch("myapp.services.routing.route", return_value={
             "success": False, "distance_km": 1.62, "duration_min": None, "geometry": [],
         }):
             response = self.client.get(reverse("task_route", args=[self.task.pk]))

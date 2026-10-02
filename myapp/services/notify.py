@@ -92,6 +92,9 @@ NOTIFICATION_TYPES = dict([
     _t("task_stale", STAFF),
     _t("task_escalated", STAFF),
     _t("volunteer_pinged", ("volunteer",)),
+    # Milestone 2: a volunteer pressed "stop sharing location" mid-task. Staff
+    # only, in-app only by default (it needs attention, not an email).
+    _t("tracking_stopped", STAFF, defaults=frozenset()),
     # Later milestones (chat / reviews / achievements) — registered now so
     # preferences and the i18n keys exist before the features land.
     _t("chat_message", ("volunteer", "client") + STAFF, defaults={TELEGRAM}),
@@ -281,7 +284,9 @@ def notify(recipients, type, *, params=None, link="", dedupe_key=None, subject=N
     ``subject`` / ``message`` — free-text override of the email/Telegram text
                   (staff broadcasts); same text for every language.
     ``variant`` — picks a more specific in-app i18n key when one exists
-                  (e.g. ``task_stage_changed`` + ``arrived``).
+                  (e.g. ``task_stage_changed`` + ``arrived``) and, when the
+                  type's ``CHANNEL_TEXTS`` define it, the email/Telegram text
+                  too (``task_assigned`` + ``urgent_override``).
     """
     ntype = NOTIFICATION_TYPES.get(type)
     if ntype is None:
@@ -346,7 +351,7 @@ def notify(recipients, type, *, params=None, link="", dedupe_key=None, subject=N
                 if subject is not None or message is not None:
                     rendered[lang] = (subject or "", message or "")
                 else:
-                    rendered[lang] = notify_texts.render_channel(type, lang, context)
+                    rendered[lang] = notify_texts.render_channel(type, lang, context, variant)
             sent_addresses[code].add(address)
             channel.send(address, *rendered[lang])
             queued += 1

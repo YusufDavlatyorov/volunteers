@@ -44,13 +44,13 @@ from .models import (
 from .models.emergency import STATUS_CHOICES as EMERGENCY_STATUS_CHOICES
 from .notifications import staff_recipients, volunteer_queryset_for_region
 from .realtime import publish
-from .services import cancellation, presence
+from .services import cancellation, presence, tracking
 from .services.notify import notify
-from .services import access, analytics, donations, emergency, maps, overdue, pets, stale
+from .services import access, analytics, dispatch, donations, emergency, maps, overdue, pets, stale
 from .services.ai import build_user_context, confirm_action, run_conversation
 from .services.ai import actions as ai_actions
 from .services.ai.prompts import detect_lang
-from .services.geo import get_route, is_valid_coordinate
+from .services.geo import is_valid_coordinate
 from .services.matching import location_freshness_label, recommend_volunteers
 
 logger = logging.getLogger(__name__)
@@ -377,9 +377,11 @@ def task_list_view(request):
 
 
 def _route_permission(user, task):
-    """Who may see the volunteer<->client route for a task: the two parties
-    involved plus staff — never an unrelated volunteer/client."""
-    return user.is_superuser or user.is_curator or task.client_id == user.id or task.volunteer_id == user.id
+    """Who may see the volunteer<->client route for a task — delegates to
+    ``access.can_view_route`` (staff always; the assigned volunteer and the
+    task's client only while it is active). ``task_route_view`` still answers
+    a task *party* outside that window with a graceful 200 reason, as before."""
+    return access.can_view_route(user, task)
 
 
 def _can_view_task(user, task):
@@ -550,6 +552,7 @@ def complete_task_view(request, pk):
 
     task.refresh_from_db()
     logger.info("task #%s completed by volunteer #%s", task.id, request.user.pk)
+    tracking.end(task)  # stop live location, delete the trail
     presence.on_task_change(task)
     publish.task_changed(task)
     profile, _ = Profile.objects.get_or_create(user=request.user)
@@ -961,14 +964,21 @@ def _task_point(task, subtitle_extra=""):
 MAP_TASK_LIMIT = 500
 MAP_VOLUNTEER_LIMIT = 500
 MAP_EMERGENCY_LIMIT = 200
+# Live volunteer positions (feature 7) in the staff map JSON — initial load
+# only; the staff-only `map.marker` WS event keeps them fresh afterwards.
+MAP_LIVE_LIMIT = 200
 
 
 @login_required
 def map_data_view(request):
     user = request.user
     points = []
+    extra = {}
 
     if user.is_superuser or user.is_curator:
+        # Staff branch only: current live volunteer positions (task id +
+        # coordinates + timestamp, no identity), bounded like every category.
+        extra["live"] = tracking.live_markers(limit=MAP_LIVE_LIMIT)
         tasks = (
             HelpRequest.objects.filter(status__in=["pending", "active"])
             .exclude(latitude__isnull=True)
@@ -1063,7 +1073,7 @@ def map_data_view(request):
             "glyph": "•",
         })
 
-    return JsonResponse({"points": points})
+    return JsonResponse({"points": points, **extra})
 
 
 @login_required
@@ -1091,11 +1101,31 @@ def update_location_view(request):
 def task_route_view(request, pk):
     """Volunteer -> client navigation data for one task: an OSRM route (or a
     graceful fallback) between the volunteer's current position and the
-    task's location. Read-only; never assigns or changes anything."""
+    task's location, with turn-by-turn steps, ETA and navigator deep links
+    (``myapp/services/routing.py``). ``?profile=driving|walking``.
+    Read-only; never assigns or changes anything.
+
+    Origin, first available: ``live`` — the assigned volunteer's own browser
+    GPS (``lat``/``lng``; nobody else may supply an origin); ``tracking`` —
+    their latest live-tracking point (feature 7); ``saved`` — their profile
+    location."""
+    from .services import routing, tracking
+
     task = get_object_or_404(
         HelpRequest.objects.select_related("client", "volunteer", "volunteer__profile"), pk=pk
     )
-    if not _route_permission(request.user, task):
+    user = request.user
+    if not _route_permission(user, task):
+        # A party of the task outside the active window gets the same graceful
+        # "nothing to draw" answer as before feature 7 — not a route.
+        if user.id in (task.client_id, task.volunteer_id):
+            if not task.has_location:
+                reason = "no_task_location"
+            elif not task.volunteer_id:
+                reason = "no_volunteer_assigned"
+            else:
+                reason = "task_not_active"
+            return JsonResponse({"success": False, "reason": reason})
         return JsonResponse({"success": False, "reason": "forbidden"}, status=403)
 
     if not task.has_location:
@@ -1105,29 +1135,45 @@ def task_route_view(request, pk):
     if not volunteer:
         return JsonResponse({"success": False, "reason": "no_volunteer_assigned"})
 
+    profile_name = routing.normalize_profile(request.GET.get("profile"))
     origin_lat = origin_lng = None
     origin_source = "saved"
     # Only the assigned volunteer's own browser can supply a live GPS fix for
     # "origin" — a client or curator/admin viewing the same task always sees
-    # the volunteer's last saved position, never their own location as origin.
-    if request.user.id == volunteer.id:
+    # the volunteer's tracked / saved position, never their own location.
+    if user.id == volunteer.id:
         raw_lat, raw_lng = request.GET.get("lat"), request.GET.get("lng")
         if raw_lat is not None or raw_lng is not None:
             if raw_lat is None or raw_lng is None or not is_valid_coordinate(raw_lat, raw_lng):
                 return JsonResponse({"success": False, "reason": "invalid_coordinates"}, status=400)
             origin_lat, origin_lng, origin_source = float(raw_lat), float(raw_lng), "live"
 
+    profile = getattr(volunteer, "profile", None)
     if origin_lat is None:
-        profile = getattr(volunteer, "profile", None)
+        live = tracking.latest(task)
+        saved_at = getattr(profile, "location_updated_at", None) if profile and profile.has_location else None
+        if live and not (saved_at and saved_at > task.volunteer_last_at):
+            origin_lat, origin_lng, origin_source = live["lat"], live["lng"], "tracking"
+
+    if origin_lat is None:
         if not profile or not profile.has_location:
             return JsonResponse({"success": False, "reason": "no_volunteer_location"})
         origin_lat, origin_lng = float(profile.latitude), float(profile.longitude)
 
     destination = (float(task.latitude), float(task.longitude))
-    result = get_route((origin_lat, origin_lng), destination)
+    result = dict(routing.route((origin_lat, origin_lng), destination, profile=profile_name, steps=True))
+    result.setdefault("profile", profile_name)
     result["origin"] = {"lat": origin_lat, "lng": origin_lng, "source": origin_source}
     result["destination"] = {"lat": destination[0], "lng": destination[1]}
     return JsonResponse(result)
+
+
+def _away_last_day_iso(volunteer):
+    """Inclusive last do-not-disturb day as ISO date (None = no end date)."""
+    from .templatetags.realtime_ui import away_last_day
+
+    last_day = away_last_day(volunteer.profile.away_until)
+    return last_day.isoformat() if last_day else None
 
 
 @role_required("admin", "curator")
@@ -1159,9 +1205,22 @@ def task_recommendations_view(request, pk):
             "reasons": item["reasons"],
         }
 
+    away = [
+        {
+            "volunteer_id": volunteer.id,
+            "full_name": volunteer.profile.full_name or volunteer.username,
+            "region": volunteer.get_region_display() or "",
+            "distance_km": distance_km,
+            "away_until": _away_last_day_iso(volunteer),
+        }
+        for volunteer, distance_km in dispatch.away_volunteers_for(task)
+    ]
     return JsonResponse({
         "task_has_location": task.has_location,
         "recommendations": [_serialize(item) for item in ranked],
+        # Do-not-disturb volunteers — never ranked; assignable only with an
+        # explicit confirmation (task_assign_volunteer_view, confirm_away=1).
+        "away_volunteers": away,
     })
 
 
@@ -1190,7 +1249,16 @@ def task_assign_volunteer_view(request, pk, volunteer_id):
     accept_task_view so a curator assign and a volunteer self-accept can't both
     win."""
     task = get_object_or_404(HelpRequest.objects.select_related("client"), pk=pk)
-    volunteer = get_object_or_404(Users, pk=volunteer_id, is_volunteer=True, is_active=True)
+    volunteer = get_object_or_404(
+        Users.objects.select_related("profile"), pk=volunteer_id, is_volunteer=True, is_active=True
+    )
+    # Owner rule: a do-not-disturb volunteer may be assigned by hand only after
+    # the curator explicitly confirmed the warning in the dispatch card.
+    override = dispatch.is_away_now(volunteer)
+    if override and request.POST.get("confirm_away") != "1":
+        return JsonResponse({
+            "success": False, "reason": "volunteer_away", "away_until": _away_last_day_iso(volunteer),
+        }, status=409)
 
     updated = HelpRequest.objects.filter(pk=pk, status="pending").update(
         volunteer=volunteer, status="active", accepted_at=timezone.now(),
@@ -1200,20 +1268,26 @@ def task_assign_volunteer_view(request, pk, volunteer_id):
         return JsonResponse({"success": False, "reason": "task_not_pending"})
 
     logger.info(
-        "task #%s assigned to volunteer #%s by user #%s (direct dispatch)",
-        task.id, volunteer.pk, request.user.pk,
+        "task #%s assigned to volunteer #%s by user #%s (direct dispatch%s)",
+        task.id, volunteer.pk, request.user.pk, ", do-not-disturb override" if override else "",
     )
     task.refresh_from_db()  # fetched before the UPDATE — volunteer/status are stale
     presence.on_task_change(task)
     publish.task_changed(task)
-    notify(
-        [volunteer, task.client], "task_assigned",
+    common = dict(
         params={"task_id": task.id, "help_type": task.help_type},
         link=reverse("task_detail", args=[task.id]),
         dedupe_key=f"task_assigned:{task.id}:{volunteer.pk}",
         extra={"help_type_name": task.get_help_type_display(), "client_name": task.client.username,
                "phone": task.phone, "address": task.address},
     )
+    if override:
+        # The volunteer learns this was an urgent manual assignment despite
+        # do-not-disturb; the client gets the ordinary "assigned" notice.
+        notify([volunteer], "task_assigned", variant="urgent_override", **common)
+        notify([task.client], "task_assigned", **common)
+    else:
+        notify([volunteer, task.client], "task_assigned", **common)
     return JsonResponse({"success": True})
 
 

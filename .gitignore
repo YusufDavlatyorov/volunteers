@@ -37,3 +37,6 @@ Thumbs.db
 
 # Local scratch files
 strart
+
+# OSRM routing data (built by scripts/osrm_build.sh, copied to the server — never committed)
+osrm-data/

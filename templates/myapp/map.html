@@ -54,6 +54,7 @@
             <span class="map-legend-item"><span class="map-legend-dot map-legend-dot--urgent"></span><span data-i18n="map.legend_overdue">Overdue</span></span>
             <span class="map-legend-item"><span class="map-legend-dot map-legend-dot--available"></span><span data-i18n="map.legend_volunteer_available">Volunteer available</span></span>
             <span class="map-legend-item"><span class="map-legend-dot map-legend-dot--offline"></span><span data-i18n="map.legend_volunteer_offline">Volunteer offline</span></span>
+            <span class="map-legend-item"><span class="map-legend-dot map-legend-dot--live"></span><span data-i18n="map.live_volunteer">Volunteer (live)</span></span>
         {% else %}
             <span class="map-legend-item"><span class="map-legend-dot map-legend-dot--pending"></span><span data-i18n="map.legend_task_pending">Free request</span></span>
             <span class="map-legend-item"><span class="map-legend-dot map-legend-dot--active"></span><span data-i18n="map.legend_task_active">In progress</span></span>
@@ -67,10 +68,19 @@
     <div class="ops-map">
         <div id="opsMap" class="ops-map__canvas"></div>
         <aside class="ops-map__panel" id="opsPanel">
-            <div class="ops-panel__empty">
-                <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg>
-                <p data-i18n="map.panel_prompt">Select a marker to see details.</p>
+            <div id="opsPanelBody">
+                <div class="ops-panel__empty">
+                    <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+                    <p data-i18n="map.panel_prompt">Select a marker to see details.</p>
+                </div>
             </div>
+            {% if is_ops_staff %}
+            {# Live volunteer positions (feature 7) — staff only; filled from the map JSON "live" list, kept fresh by the map.marker WS event. #}
+            <section class="ops-live" id="opsLive" aria-labelledby="opsLiveTitle" hidden>
+                <h3 class="ops-live__title" id="opsLiveTitle"><span class="ops-live__dot" aria-hidden="true"></span><span id="opsLiveTitleText" data-i18n="map.live_title" data-i18n-args='{"count": 0}'>On the way now: 0</span></h3>
+                <ul class="ops-live__list" id="opsLiveList"></ul>
+            </section>
+            {% endif %}
         </aside>
     </div>
 </section>
@@ -84,6 +94,7 @@
     const MY_ACTIVE_TASK_ID = {{ my_active_task_id|default:"null" }};
     const IS_STAFF = {% if is_ops_staff %}true{% else %}false{% endif %};
     const panel = document.getElementById('opsPanel');
+    const panelBody = document.getElementById('opsPanelBody');
     const locateStatus = document.getElementById('opsLocateStatus');
     const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]');
     const I = (key, fallback) => {
@@ -114,7 +125,7 @@
         }
         if (point.kind === 'emergency') {
             panel.hidden = false;
-            panel.innerHTML = `
+            panelBody.innerHTML = `
                 <h3 class="ops-panel__title">${point.title}</h3>
                 <div class="ops-panel__badges"><span class="tag urgent">${emgStatusLabel[point.status] || point.status}</span></div>
                 <p class="ops-panel__sub">${point.subtitle || ''}</p>
@@ -122,9 +133,25 @@
             maybeScroll();
             return;
         }
+        if (point.kind === 'volunteer_live') {
+            panel.hidden = false;
+            panelBody.innerHTML = `
+                <h3 class="ops-panel__title"></h3>
+                <div class="ops-panel__badges"><span class="tag success"></span></div>
+                <p class="ops-panel__sub"></p>
+                <div class="ops-panel__actions"><a class="button ghost"></a></div>`;
+            panelBody.querySelector('.ops-panel__title').textContent = GCMap.t('map.live_entry', { id: point.task_id });
+            panelBody.querySelector('.tag').textContent = GCMap.t('map.live_volunteer');
+            panelBody.querySelector('.ops-panel__sub').textContent = point.ts ? GCMap.t('map.live_updated', { time: liveTime(point.ts) }) : '';
+            const link = panelBody.querySelector('a');
+            link.href = `/myapp/tasks/${Number(point.task_id)}/`;
+            link.textContent = I('map.view_task', 'View Task');
+            maybeScroll();
+            return;
+        }
         if (point.kind === 'pet') {
             panel.hidden = false;
-            panel.innerHTML = `
+            panelBody.innerHTML = `
                 <h3 class="ops-panel__title">${point.title}</h3>
                 <p class="ops-panel__sub">${point.subtitle || ''}</p>
                 <div class="ops-panel__actions"><a class="button ghost" href="${point.url}">${I('pet.view_report', 'View report')}</a></div>`;
@@ -135,7 +162,7 @@
             panel.hidden = false;
             const away = point.kind === 'volunteer' && point.away
                 ? `<div class="ops-panel__badges"><span class="tag away">${((window.T || {})[document.documentElement.getAttribute('lang')] || {})['availability.away'] || I('availability.away', 'Do not disturb')}</span></div>` : '';
-            panel.innerHTML = `<h3 class="ops-panel__title">${point.title}</h3><p class="ops-panel__sub">${point.subtitle || ''}</p>${away}`;
+            panelBody.innerHTML = `<h3 class="ops-panel__title">${point.title}</h3><p class="ops-panel__sub">${point.subtitle || ''}</p>${away}`;
             maybeScroll();
             return;
         }
@@ -150,7 +177,7 @@
         const canRoute = MY_ACTIVE_TASK_ID !== null && point.id === MY_ACTIVE_TASK_ID;
         const routeHref = `https://www.google.com/maps/dir/?api=1&destination=${point.lat},${point.lng}&travelmode=driving`;
         panel.hidden = false;
-        panel.innerHTML = `
+        panelBody.innerHTML = `
             <h3 class="ops-panel__title">${point.title}</h3>
             <div class="ops-panel__badges">${badges}</div>
             <div class="ops-panel__meta">
@@ -164,8 +191,43 @@
         maybeScroll();
     }
 
+    const liveTime = (ts) => GCMap.clockTime(ts);
+
+    /* Staff: list of volunteers sharing their location right now. */
+    const liveBox = document.getElementById('opsLive');
+    function renderLive(list) {
+        if (!liveBox) return;
+        const title = document.getElementById('opsLiveTitleText');
+        title.setAttribute('data-i18n-args', JSON.stringify({ count: list.length }));
+        title.textContent = GCMap.t('map.live_title', { count: list.length });
+        const ul = document.getElementById('opsLiveList');
+        ul.textContent = '';
+        list.slice(0, 30).forEach((p) => {
+            const li = document.createElement('li');
+            li.className = 'ops-live__item';
+            const a = document.createElement('a');
+            a.href = `/myapp/tasks/${Number(p.task_id)}/`;
+            a.setAttribute('data-i18n', 'map.live_entry');
+            a.setAttribute('data-i18n-args', JSON.stringify({ id: Number(p.task_id) }));
+            a.textContent = GCMap.t('map.live_entry', { id: Number(p.task_id) });
+            const time = document.createElement('span');
+            time.className = 'ops-live__time';
+            time.textContent = p.ts ? liveTime(p.ts) : '';
+            const show = document.createElement('button');
+            show.type = 'button';
+            show.className = 'button ghost';
+            show.setAttribute('data-i18n', 'map.live_show');
+            show.textContent = GCMap.t('map.live_show');
+            show.addEventListener('click', () => { controller.focusLive(p.task_id); renderPanel(p); });
+            li.append(a, time, show);
+            ul.appendChild(li);
+        });
+        liveBox.hidden = list.length === 0;
+    }
+
     const controller = GCMap.createOpsMap('opsMap', {
         onSelect: renderPanel,
+        onLiveChange: renderLive,
         updateUrl: "{% url 'update_location' %}",
         csrfToken: csrfToken ? csrfToken.value : '',
         onLocate: (state) => {
@@ -207,7 +269,10 @@
 
     fetch("{% url 'map_data' %}", { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
         .then((r) => r.json())
-        .then((data) => controller.render(data.points || []))
+        .then((data) => {
+            controller.render(data.points || []);
+            if (IS_STAFF && Array.isArray(data.live)) controller.setLive(data.live);
+        })
         .catch(() => {});
 })();
 </script>

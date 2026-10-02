@@ -46,3 +46,31 @@ def can_view_emergency(user, report) -> bool:
     if user is None or not getattr(user, "is_authenticated", False):
         return False
     return bool(user.is_superuser or user.is_curator or report.volunteer_id == user.id)
+
+
+def can_see_location(user, task) -> bool:
+    """Who may see a volunteer's live location / trail for ``task`` (feature 7):
+    only while the task is ``active``, and only staff, the task's client and the
+    assigned volunteer themself. A volunteer who can merely *view* a pending task
+    never qualifies. Re-checked before every location delivery (WS + HTTP)."""
+    if user is None or not getattr(user, "is_authenticated", False) or not user.is_active:
+        return False
+    if task.status != "active" or not task.volunteer_id:
+        return False
+    if user.is_superuser or user.is_curator:
+        return True
+    return user.id in (task.client_id, task.volunteer_id)
+
+
+def can_view_route(user, task) -> bool:
+    """Route + navigation for a task: staff, the assigned volunteer, and the
+    task's client while it is active (they see the volunteer's way to them)."""
+    if user is None or not getattr(user, "is_authenticated", False):
+        return False
+    if user.is_superuser or user.is_curator:
+        return True
+    if task.volunteer_id and user.id == task.volunteer_id:
+        return task.status == "active"
+    if user.id == task.client_id:
+        return task.status == "active" and bool(task.volunteer_id)
+    return False

@@ -73,8 +73,23 @@
     0% { transform: scale(0.85); opacity: 0.7; }
     100% { transform: scale(1.5); opacity: 0; }
 }
+/* Live volunteer position (feature 7): a slow, soft ring in the pin colour.
+   The accuracy circle (L.circle className "gc-accuracy") is themed here so it
+   follows light/dark — CSS beats the SVG presentation attributes. */
+.gc-pin--live::after {
+    content: '';
+    position: absolute;
+    inset: -5px;
+    border-radius: 50% 50% 50% 0;
+    border: 2px solid var(--pin-color, var(--primary-2));
+    opacity: 0.5;
+    animation: gcPinPulse 2.4s ease-out infinite;
+}
+.leaflet-interactive.gc-accuracy, path.gc-accuracy { stroke: var(--primary-2); fill: var(--primary-2); stroke-opacity: 0.45; fill-opacity: 0.1; }
+[data-theme="dark"] path.gc-accuracy { stroke-opacity: 0.6; fill-opacity: 0.16; }
 @media (prefers-reduced-motion: reduce) {
     .gc-pin--emergency::after { animation: none; opacity: 0.6; }
+    .gc-pin--live::after { animation: none; opacity: 0.45; }
 }
 .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--card-bg); color: var(--text); }
 .gc-popup a { color: var(--primary); font-weight: 600; }
@@ -127,6 +142,18 @@
 .ops-panel__meta p { margin: 0; color: var(--text); font-weight: 600; }
 .ops-panel__actions { display: flex; flex-direction: column; gap: var(--space-2); }
 .ops-panel__actions .button { width: 100%; }
+
+/* Live volunteers (staff ops map): a compact list under the selection panel. */
+.ops-live { margin-top: var(--space-5); padding-top: var(--space-4); border-top: 1px solid var(--line); }
+.ops-live[hidden] { display: none; }
+.ops-live__title { display: flex; align-items: center; gap: 0.5rem; margin: 0 0 var(--space-3); font-size: 0.95rem; }
+.ops-live__dot { width: 10px; height: 10px; border-radius: 50%; background: var(--primary-2); box-shadow: 0 0 0 3px var(--ok-glow); flex: 0 0 auto; }
+.ops-live__list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.ops-live__item { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding: 0.45rem 0.6rem; border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
+.ops-live__item a { font-weight: 700; color: var(--primary); min-width: 0; overflow-wrap: anywhere; }
+.ops-live__time { color: var(--muted); font-size: 0.8rem; white-space: nowrap; }
+.ops-live__item button { min-height: 2rem; padding: 0.3rem 0.8rem; font-size: 0.8rem; }
+.map-legend-dot--live { background: var(--primary-2); box-shadow: 0 0 0 3px var(--ok-glow); }
 
 .ops-locate-status { margin-top: var(--space-3); font-size: 0.85rem; color: var(--muted); }
 .ops-locate-status.is-error { color: var(--danger); }

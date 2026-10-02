@@ -208,3 +208,24 @@
 @media (max-width: 480px) {
     .hero-strip { flex-direction: column; align-items: flex-start; }
 }
+
+/* ===== LOCATION PRIVACY NOTE (about page, feature 7) =====
+   One quiet card: icon + short list. Sits between the stats band and the CTA. */
+.privacy-note {
+    display: flex;
+    gap: var(--space-5);
+    align-items: flex-start;
+    padding: clamp(1.25rem, 4vw, 2.2rem);
+    border: 1px solid var(--card-border);
+    border-radius: 18px;
+    background: var(--card-bg);
+    box-shadow: var(--shadow);
+}
+.privacy-note__icon { flex: 0 0 auto; }
+.privacy-note__body { min-width: 0; }
+.privacy-note__body h2 { margin: 0.2rem 0 var(--space-3); }
+.privacy-note__list { margin: 0; padding-left: 1.15rem; display: grid; gap: var(--space-2); color: var(--text-2); line-height: 1.55; }
+.privacy-note__list li::marker { color: var(--primary-2); }
+@media (max-width: 560px) {
+    .privacy-note { flex-direction: column; gap: var(--space-3); }
+}

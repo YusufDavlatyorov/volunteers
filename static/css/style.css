@@ -1363,6 +1363,11 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
 
 .emergency-card { border-left: 3px solid var(--danger); }
 
+/* Dispatch: do-not-disturb volunteers, listed apart from the ranked shortlist. */
+.rec-away { margin-top: var(--space-4); border-top: 1px solid var(--line); padding-top: var(--space-3); }
+.rec-away > summary { cursor: pointer; font-weight: 700; }
+.rec-away__row { border-left: 3px solid var(--danger); }
+
 /* Request cancellation (task_detail): a collapsed control, then a short form. */
 .cancel-box { margin-top: var(--space-4); }
 .cancel-box > summary { list-style: none; display: inline-flex; cursor: pointer; }
@@ -1660,4 +1665,73 @@ a.emergency-banner--link:hover { background: var(--surface-2); }
     .prefs-matrix tbody td:first-child::before { content: none; }
     .prefs-matrix tbody td:not(:first-child) { border-bottom: none; }
     .prefs-matrix .pref-cell { flex-wrap: wrap; }
+}
+
+/* ===== DIALOG (<dialog class="gc-dialog">, opened with showModal()) =====
+   Native modal: focus trap, Esc and the top layer come from the browser; the
+   page script returns focus to the opener on `close`. The dialog itself has no
+   padding so a click whose target is the <dialog> is a backdrop click.
+   First user: tracking consent (myapp/task_detail.html). */
+.gc-dialog {
+    width: min(34rem, calc(100vw - 2rem));
+    max-height: calc(100dvh - 2rem);
+    padding: 0;
+    border: 1px solid var(--card-border);
+    border-radius: 18px;
+    background: var(--card-bg);
+    color: var(--text);
+    box-shadow: 0 24px 60px rgba(0,0,0,0.28);
+    overflow: auto;
+}
+.gc-dialog::backdrop { background: rgba(11,18,32,0.55); }
+.gc-dialog[open] { animation: gcDialogIn 0.2s ease-out; }
+@keyframes gcDialogIn {
+    from { opacity: 0; transform: translateY(8px) scale(0.98); }
+    to { opacity: 1; transform: none; }
+}
+.gc-dialog__body { padding: clamp(1.25rem, 4vw, 1.9rem); display: flex; flex-direction: column; gap: var(--space-3); }
+.gc-dialog__body > * { margin: 0; }
+.gc-dialog h2 { font-size: clamp(1.3rem, 4.5vw, 1.6rem); line-height: 1.25; }
+.gc-dialog__body > p { color: var(--text-2); line-height: 1.5; }
+.gc-dialog__icon {
+    display: inline-grid;
+    place-items: center;
+    width: 3rem;
+    height: 3rem;
+    border-radius: 50%;
+    background: var(--ok-glow);
+    color: var(--ok);
+}
+.gc-dialog__list { list-style: none; padding: 0; display: grid; gap: var(--space-3); }
+.gc-dialog__list li {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    padding: var(--space-2) var(--space-3);
+    border-left: 3px solid var(--primary-2);
+    background: var(--surface-2);
+    border-radius: 0 10px 10px 0;
+    line-height: 1.45;
+}
+.gc-dialog__list strong { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--primary-2); }
+.gc-dialog__error { color: var(--danger); font-weight: 600; }
+.gc-dialog__error[hidden] { display: none; }
+/* The two choices stay in view on a short phone screen: the row sticks to the
+   dialog's bottom edge while the explanation scrolls under it. */
+.gc-dialog__body { padding-bottom: 0; }
+.gc-dialog .button-row {
+    position: sticky;
+    bottom: 0;
+    margin-top: var(--space-1);
+    padding: var(--space-3) 0 clamp(1.25rem, 4vw, 1.9rem);
+    background: var(--card-bg);
+    box-shadow: 0 -10px 12px -10px rgba(0,0,0,0.18);
+}
+@media (max-width: 480px) {
+    .gc-dialog .button-row { gap: var(--space-2); }
+    .gc-dialog .button-row .button { flex: 1 1 100%; }
+    .gc-dialog__list { gap: var(--space-2); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .gc-dialog[open] { animation: none; }
 }
