@@ -1,0 +1,57 @@
+{% load static %}{% comment %}
+Volunteer achievements grid (own profile / staff view) + the badge dialog.
+Context: items (services.achievements.progress_for), dom_id. Each tile carries
+its own data for the dialog (static/js/achievements.js); without JS the tile
+still shows the title and the progress / earned state.
+{% endcomment %}
+<div class="card reveal achievements-card" id="{{ dom_id }}">
+    <div class="section-head">
+        <h3 data-i18n="ach.section_title">Достижения</h3>
+        <span class="tag muted">{{ earned_count }} / {{ items|length }}</span>
+    </div>
+    {% if own %}<p class="field-hint" data-i18n="ach.section_lede">Значки отмечают ваш вклад, заботу и постоянство — без гонки и сравнения с другими. На подбор запросов они не влияют.</p>{% endif %}
+    <ul class="badge-grid" role="list">
+        {% for item in items %}
+            <li>
+                <button type="button" class="badge-tile{% if item.earned %} is-earned{% else %} is-locked{% endif %}"
+                        data-ach-open
+                        data-code="{{ item.code }}" data-tier="{{ item.tier }}"
+                        data-earned="{% if item.earned %}1{% else %}0{% endif %}"
+                        data-date="{% if item.awarded_at %}{{ item.awarded_at|date:'d.m.Y' }}{% endif %}"
+                        data-value="{{ item.value }}" data-threshold="{{ item.threshold }}"
+                        data-rule-key="{{ item.rule_key }}" data-soon="{% if item.coming_soon %}1{% else %}0{% endif %}"
+                        data-avg="{% if item.review_avg is not None %}{{ item.review_avg|floatformat:1 }}{% endif %}"
+                        data-icon="{% static item.achievement.icon_path %}"
+                        aria-haspopup="dialog">
+                    <span class="badge-art badge-art--{{ item.tier }}">
+                        <img src="{% static item.achievement.icon_path %}" alt="" width="64" height="64" loading="lazy" decoding="async">
+                    </span>
+                    <span class="badge-tile__title" data-i18n="ach.{{ item.code }}.title">{{ item.title_ru }}</span>
+                    {% if item.earned %}
+                        <span class="badge-tile__meta">{{ item.awarded_at|date:"d.m.Y" }}</span>
+                    {% elif item.coming_soon %}
+                        <span class="badge-tile__meta" data-i18n="ach.coming_soon">Скоро</span>
+                    {% else %}
+                        <span class="badge-tile__meta">{{ item.value }}/{{ item.threshold }}</span>
+                        <span class="badge-progress" aria-hidden="true"><span style="width: {{ item.percent }}%"></span></span>
+                    {% endif %}
+                </button>
+            </li>
+        {% endfor %}
+    </ul>
+    {% if not earned_count and own %}<p class="field-hint" data-i18n="ach.none_yet">Значков пока нет — первый появится после первого выполненного запроса.</p>{% endif %}
+</div>
+
+<dialog class="gc-dialog badge-dialog" id="{{ dom_id }}Dialog" aria-labelledby="{{ dom_id }}DialogTitle">
+    <form method="dialog" class="badge-dialog__inner">
+        <span class="badge-art badge-art--lg" data-ach-art><img src="" alt="" width="120" height="120" data-ach-img></span>
+        <span class="tag" data-ach-tier></span>
+        <h3 id="{{ dom_id }}DialogTitle" data-ach-title></h3>
+        <p data-ach-desc></p>
+        <p class="badge-dialog__status" data-ach-status></p>
+        <div class="badge-progress badge-progress--lg" data-ach-progress hidden><span></span></div>
+        <p class="field-hint" data-ach-avg hidden></p>
+        <p class="field-hint" data-ach-rule hidden></p>
+        <button class="button primary" value="close" data-i18n="ach.close" autofocus>Закрыть</button>
+    </form>
+</dialog>

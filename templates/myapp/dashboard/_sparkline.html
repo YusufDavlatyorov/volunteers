@@ -1,0 +1,16 @@
+{% comment %}Requests over the last 14 days (services.analytics_v2.dashboard_trend) — inline SVG, numbers in text too.{% endcomment %}
+<div class="card reveal trend-card">
+    <div class="section-head">
+        <h3 data-i18n="an.trend_title" data-i18n-args='{"days": {{ trend.days }}}'>Запросы за {{ trend.days }} дней</h3>
+        <a class="button ghost" href="{% url 'crm_analytics' %}" data-i18n="an.open">Аналитика</a>
+    </div>
+    <svg class="trend-spark" viewBox="0 0 {{ width }} {{ height }}" preserveAspectRatio="none" role="img" aria-labelledby="trendSparkLegend" focusable="false">
+        <line x1="0" y1="{{ height|add:'-4' }}" x2="{{ width }}" y2="{{ height|add:'-4' }}" class="trend-spark__base"></line>
+        <polyline points="{{ created_points }}" class="trend-spark__line trend-spark__line--created"></polyline>
+        <polyline points="{{ completed_points }}" class="trend-spark__line trend-spark__line--completed"></polyline>
+    </svg>
+    <p class="trend-legend" id="trendSparkLegend">
+        <span class="trend-legend__item trend-legend__item--created"><span><span data-i18n="an.s.created">Создано</span>:</span> <strong>{{ trend.total_created }}</strong></span>
+        <span class="trend-legend__item trend-legend__item--completed"><span><span data-i18n="an.s.completed">Выполнено</span>:</span> <strong>{{ trend.total_completed }}</strong></span>
+    </p>
+</div>

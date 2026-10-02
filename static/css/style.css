@@ -1322,6 +1322,11 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
     margin: var(--space-5) 0;
 }
 .kpi-row > * { min-width: 0; }
+/* Phones: fill the width two-up. (The older max-width rule above sits before
+   the base .kpi-row rule, so the base columns used to win on phones too.) */
+@media (max-width: 600px) {
+    .kpi-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
+}
 .kpi-row .stat-card { padding: var(--space-4); }
 .kpi-row .metric { font-size: 1.6rem; }
 .kpi-group-label { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: var(--space-6) 0 var(--space-2); }
@@ -1680,6 +1685,9 @@ a.emergency-banner--link:hover { background: var(--surface-2); }
 .gc-dialog {
     width: min(34rem, calc(100vw - 2rem));
     max-height: calc(100dvh - 2rem);
+    /* The global reset (* { margin: 0 }) removes the UA's auto margin that
+       centres a modal <dialog> — restore it, or it sticks to the top-left. */
+    margin: auto;
     padding: 0;
     border: 1px solid var(--card-border);
     border-radius: 18px;
@@ -1878,3 +1886,139 @@ a.review-tile:hover { border-color: var(--primary); }
     .review-stars-input__options { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); }
     .review-stars-input__option label { min-width: 0; width: 100%; }
 }
+
+/* ===== ACHIEVEMENTS (feature 6) =====
+   Profile grid (myapp/achievements/_grid.html) + the badge dialog (reuses
+   .gc-dialog) + the small row on public cards (_badge_row.html). The SVG
+   badges carry their own colours, so they read the same in both themes; a
+   locked badge is greyscale with its progress. The "shine" sweeps once on
+   hover / keyboard focus and is off under prefers-reduced-motion. */
+.badge-grid {
+    list-style: none;
+    margin: var(--space-3) 0 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr));
+    gap: var(--space-3);
+}
+.badge-grid li { margin: 0; min-width: 0; }
+.badge-tile {
+    width: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.35rem;
+    padding: var(--space-2) 0.35rem var(--space-3);
+    border: 1px solid transparent;
+    border-radius: 14px;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    text-align: center;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+.badge-tile:hover { background: var(--surface-2); border-color: var(--line); }
+.badge-tile:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; }
+.badge-tile__title {
+    font-size: 0.82rem;
+    font-weight: 700;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+}
+.badge-tile__meta { font-size: 0.75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.badge-tile.is-earned .badge-tile__meta { color: var(--primary-2); font-weight: 600; }
+
+.badge-art {
+    position: relative;
+    display: inline-block;
+    width: 4rem;
+    height: 4rem;
+    border-radius: 50%;
+    overflow: hidden;
+    flex: none;
+    filter: drop-shadow(0 3px 6px rgba(15,23,42,0.18));
+}
+.badge-art img { display: block; width: 100%; height: 100%; }
+.badge-art::after {
+    content: "";
+    position: absolute;
+    inset: -20%;
+    background: linear-gradient(115deg, transparent 35%, rgba(255,255,255,0.65) 50%, transparent 65%);
+    transform: translateX(-120%);
+    pointer-events: none;
+}
+.badge-tile.is-earned:hover .badge-art::after,
+.badge-tile.is-earned:focus-visible .badge-art::after { animation: badgeShine 0.9s ease-out; }
+@keyframes badgeShine { to { transform: translateX(120%); } }
+.badge-tile.is-locked .badge-art,
+.badge-art.is-locked { filter: grayscale(1); opacity: 0.45; }
+.badge-art--lg { width: 7.5rem; height: 7.5rem; }
+.badge-art--sm { width: 1.75rem; height: 1.75rem; filter: none; }
+[data-theme="dark"] .badge-art { filter: drop-shadow(0 3px 8px rgba(0,0,0,0.45)); }
+[data-theme="dark"] .badge-tile.is-locked .badge-art,
+[data-theme="dark"] .badge-art.is-locked { filter: grayscale(1); opacity: 0.4; }
+
+.badge-progress {
+    display: block;
+    width: 80%;
+    height: 0.35rem;
+    border-radius: 999px;
+    background: var(--surface-2);
+    overflow: hidden;
+}
+.badge-progress > span { display: block; height: 100%; border-radius: inherit; background: var(--primary-2); }
+.badge-progress--lg { width: 100%; height: 0.55rem; }
+.badge-progress[hidden] { display: none; }
+
+.badge-dialog { width: min(26rem, calc(100vw - 2rem)); }
+.badge-dialog__inner {
+    padding: clamp(1.25rem, 4vw, 1.9rem);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-3);
+    text-align: center;
+}
+.badge-dialog__inner > * { margin: 0; }
+.badge-dialog__inner h3 { font-size: clamp(1.25rem, 4.5vw, 1.5rem); overflow-wrap: anywhere; }
+.badge-dialog__inner > p { color: var(--text-2); line-height: 1.5; }
+.badge-dialog__inner [hidden] { display: none; }
+.badge-dialog__status { font-weight: 700; color: var(--text) !important; font-variant-numeric: tabular-nums; }
+.badge-dialog__inner .button { min-width: 10rem; }
+.tier-tag--bronze { background: rgba(154,90,42,0.14); color: #8a4f22; }
+.tier-tag--silver { background: var(--surface-2); color: var(--text-2); }
+.tier-tag--gold { background: var(--accent-glow); color: var(--accent); }
+.tier-tag--legendary { background: var(--info-glow); color: var(--info); }
+[data-theme="dark"] .tier-tag--bronze { background: rgba(224,162,106,0.16); color: #e0a26a; }
+
+.badge-row { list-style: none; display: flex; gap: 0.3rem; margin: 0.3rem 0 0; padding: 0; }
+.badge-row__item { margin: 0; line-height: 0; }
+@media (max-width: 480px) {
+    .badge-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); }
+    .badge-art { width: 3.4rem; height: 3.4rem; }
+    .badge-art--lg { width: 6.5rem; height: 6.5rem; }
+    .badge-art--sm { width: 1.6rem; height: 1.6rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .badge-tile.is-earned:hover .badge-art::after,
+    .badge-tile.is-earned:focus-visible .badge-art::after { animation: none; }
+}
+
+/* ===== DASHBOARD TREND (feature 10) =====
+   Server-rendered 14-day sparkline on the curator/admin dashboard
+   (myapp/dashboard/_sparkline.html) — no chart library on the dashboard. */
+.trend-spark { display: block; width: 100%; height: 4rem; margin: var(--space-2) 0; overflow: visible; }
+.trend-spark__base { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.trend-spark__line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.trend-spark__line--created { stroke: #2a78d6; }
+.trend-spark__line--completed { stroke: #eb6834; }
+[data-theme="dark"] .trend-spark__line--created { stroke: #3987e5; }
+[data-theme="dark"] .trend-spark__line--completed { stroke: #d95926; }
+.trend-legend { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); margin: 0; font-size: 0.85rem; color: var(--text-2); }
+.trend-legend__item { display: inline-flex; align-items: center; gap: 0.4rem; }
+.trend-legend__item::before { content: ""; width: 0.6rem; height: 0.6rem; border-radius: 50%; background: #2a78d6; }
+.trend-legend__item--completed::before { background: #eb6834; }
+[data-theme="dark"] .trend-legend__item::before { background: #3987e5; }
+[data-theme="dark"] .trend-legend__item--completed::before { background: #d95926; }

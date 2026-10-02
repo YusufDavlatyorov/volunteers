@@ -37,6 +37,13 @@ when either
 
 The message text reaches email/Telegram only through ``notify(extra=...)``
 (a 200-char preview), never the in-app row / WS params.
+
+Safety (milestone 4): a party message is scanned by ``chat_flags.detect``
+(money / SMS codes / other messengers / phone numbers); the codes go to
+``ChatMessage.flags`` (staff payload only) and curators get one quiet in-app
+``chat_flagged`` per task × category × day — the message is never blocked.
+Photo originals are stored re-encoded without EXIF / GPS / XMP
+(``images.strip_metadata``), like their WebP variants.
 """
 
 from __future__ import annotations
@@ -65,7 +72,7 @@ from ..models import (
     HelpRequest,
 )
 from ..realtime import events, publish
-from . import access, images
+from . import access, chat_flags, images
 
 logger = logging.getLogger(__name__)
 
@@ -185,7 +192,7 @@ def internal_payload(message, task=None):
         sender_role=_sender_role(message, task), label_key=label,
         thumb_url=None if hidden else thumb, image_url=None if hidden else full,
     )
-    staff = {"body": message.body, "thumb_url": thumb, "image_url": full}
+    staff = {"body": message.body, "thumb_url": thumb, "image_url": full, "flags": list(message.flags or [])}
     if message.is_staff_post and message.sender_id is not None:
         staff["sender_display"] = display_name(message.sender)
     return events.chat_internal(public, sender_id=message.sender_id, staff=staff)
@@ -255,15 +262,23 @@ def send_message(user, task, *, text=None, image=None, client_msg_id=""):
     if not _rate_ok(user, task):
         return Outcome(False, RATE_LIMITED)
 
+    is_staff = access.is_staff_user(user)
     message = ChatMessage(
         task=task, sender=user, kind=CHAT_KIND_IMAGE if image is not None else CHAT_KIND_TEXT,
-        body=body, is_staff_post=access.is_staff_user(user), client_msg_id=client_msg_id,
+        body=body, is_staff_post=is_staff, client_msg_id=client_msg_id,
+        # Party messages only — a curator's own post is never flagged.
+        flags=[] if is_staff else chat_flags.detect(body),
     )
     if image is not None:
-        ext = (getattr(image, "name", "") or "").rsplit(".", 1)[-1].lower()
-        ext = ext if ext in ("jpg", "jpeg", "png", "webp", "heic", "heif") else "img"
+        # The stored original is a re-encoded copy without EXIF / GPS / XMP
+        # (images.strip_metadata) — not only the WebP thumbs.
+        try:
+            clean, ext = images.strip_metadata(image)
+        except Exception:  # noqa: BLE001 — validated above; a codec failure is not the user's fault
+            logger.exception("chat image metadata strip failed task=%s user=%s", task.pk, user.pk)
+            return Outcome(False, images.ERR_INVALID)
         # Unguessable name: media URLs are not access-controlled.
-        message.image.save(f"{uuid.uuid4().hex}.{ext}", image, save=False)
+        message.image.save(f"{uuid.uuid4().hex}.{ext}", clean, save=False)
     try:
         with transaction.atomic():
             message.save()
@@ -280,7 +295,34 @@ def send_message(user, task, *, text=None, image=None, client_msg_id=""):
     if image is not None:
         _queue_variants(message)
     _notify_parties(message, task)
+    if message.flags:
+        _flag_to_staff(message, task)
     return Outcome(True, OK, message, created=True)
+
+
+def _flag_to_staff(message, task):
+    """One quiet in-app ``chat_flagged`` notice to curators/admins per task ×
+    category × day (the dedupe key) — never email/Telegram by default, never
+    the message text (staff open the chat to read it). ID-only log."""
+    from ..notifications import staff_recipients
+    from . import notify
+
+    category = message.flags[0]
+    logger.info(
+        "chat message flagged message=%s task=%s flags=%s",
+        message.pk, task.pk, ",".join(message.flags),
+    )
+    day = timezone.localdate().isoformat()
+    try:
+        return notify.notify(
+            staff_recipients(), "chat_flagged",
+            params={"task_id": task.pk, "message_id": message.pk},
+            link=chat_url(task), variant=category,
+            dedupe_key=f"chat_flagged:{task.pk}:{category}:{day}",
+        )
+    except Exception:  # noqa: BLE001 — the message is already delivered
+        logger.exception("chat flag notify failed message=%s", message.pk)
+        return 0
 
 
 def _queue_variants(message):
@@ -583,6 +625,14 @@ UI_STRINGS = {
     "chat.hidden_stub": {"en": "Message hidden by a moderator.", "ru": "Сообщение скрыто модератором.",
                          "tj": "Паём аз ҷониби модератор пинҳон шуд."},
     "chat.hidden_tag": {"en": "Hidden", "ru": "Скрыто", "tj": "Пинҳон"},
+    # Staff-only safety flags on a message (services/chat_flags.py)
+    "chat.flag.sms_code": {"en": "SMS code?", "ru": "Код из СМС?", "tj": "Коди SMS?"},
+    "chat.flag.money": {"en": "Money?", "ru": "Деньги?", "tj": "Пул?"},
+    "chat.flag.off_platform": {"en": "Other messenger?", "ru": "Другой мессенджер?", "tj": "Мессенҷери дигар?"},
+    "chat.flag.phone": {"en": "Phone number", "ru": "Номер телефона", "tj": "Рақами телефон"},
+    "chat.flag.hint": {"en": "Automatic flag — visible to curators only. The message was not blocked.",
+                       "ru": "Автоматический флаг — его видят только кураторы. Сообщение не заблокировано.",
+                       "tj": "Аломати худкор — онро танҳо кураторон мебинанд. Паём манъ карда нашудааст."},
     "chat.report": {"en": "Report", "ru": "Пожаловаться", "tj": "Шикоят"},
     "chat.report_confirm": {"en": "Report this message to the curators?", "ru": "Пожаловаться кураторам на это сообщение?",
                             "tj": "Ба кураторон аз ин паём шикоят кунед?"},

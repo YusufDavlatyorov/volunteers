@@ -17,7 +17,7 @@ from django.utils import timezone
 from accounts.models import Profile
 
 from ..models import Donation, EmergencyReport, Event, HelpRequest, PetReport, VolunteerApplication
-from . import analytics, chat, donations, emergency, feedback, matching, overdue, pets, stale
+from . import achievements, analytics, analytics_v2, chat, donations, emergency, feedback, matching, overdue, pets, stale
 
 EVENTS_LIMIT = 3
 LIST_LIMIT = 5
@@ -89,6 +89,8 @@ def _volunteer(user):
         # In-kind offers this volunteer has been asked to collect or deliver.
         "assigned_donations": list(donations.assigned_to(user)[:LIST_LIMIT]),
         "upcoming_events": _upcoming_events(user.region),
+        # Badges + progress (feature 6) — display only, never a matching input.
+        "achievement_items": achievements.progress_for(user),
     }
 
 
@@ -199,6 +201,8 @@ def _curator(user):
         # operational summary (item counts, never money).
         "offer_summary": donations.offer_summary(),
         "donation_offers_pending": list(donations.pending_offers()[:QUEUE_LIMIT]),
+        # 14-day requests sparkline (cached aggregate; links to CRM analytics).
+        "trend": analytics_v2.dashboard_trend(),
     }
 
 

@@ -1,0 +1,11 @@
+{% load static %}{% comment %}Up to 3 earned badges on a public card — the badge only, never progress or dates.{% endcomment %}
+{% if badges %}
+    <ul class="badge-row" role="list">
+        {% for b in badges %}
+            <li class="badge-row__item" title="{{ b.title_ru }}">
+                <span class="badge-art badge-art--{{ b.tier }} badge-art--sm"><img src="{% static b.icon_path %}" alt="" width="28" height="28" loading="lazy" decoding="async"></span>
+                <span class="visually-hidden" data-i18n="ach.{{ b.code }}.title">{{ b.title_ru }}</span>
+            </li>
+        {% endfor %}
+    </ul>
+{% endif %}

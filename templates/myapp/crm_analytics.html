@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% load assets %}
+{% block title %}Аналитика - KhayrKhoh{% endblock %}
+{% block extra_css %}{% include "partials/_leaflet_css.html" %}<link rel="stylesheet" href="{% asset 'css/analytics.css' %}">{% endblock %}
+{% block content %}
+<section class="section section-xl analytics-root" id="analyticsRoot">
+    {% url 'admin_panel' as panel_url %}
+    {% include "partials/_page_header.html" with title="Аналитика" title_i18n="an.title" lede="Динамика платформы для координаторов. Цифры обновляются раз в 5 минут." lede_i18n="an.lede" action_url=panel_url action_label="Admin Panel" action_i18n="nav.admin" action_class="ghost" %}
+
+    {# Filters: one row above every chart (period presets, custom range, region). #}
+    <form method="get" class="card analytics-filters" aria-label="Фильтры">
+        <fieldset class="analytics-filters__group">
+            <legend class="meta-label" data-i18n="an.period">Период</legend>
+            <div class="tab-bar analytics-presets">
+                {% for days in presets %}
+                    <a href="?days={{ days }}{% if filters.region %}&region={{ filters.region }}{% endif %}"
+                       class="{% if filters.preset == days %}active{% endif %}"
+                       {% if filters.preset == days %}aria-current="page"{% endif %}
+                       data-i18n="an.days_{{ days }}">{{ days }} дней</a>
+                {% endfor %}
+            </div>
+        </fieldset>
+        <fieldset class="analytics-filters__group analytics-filters__range">
+            <legend class="meta-label" data-i18n="an.custom">Свой период</legend>
+            <label><span data-i18n="an.from">С</span>
+                <input type="date" name="from" class="control" value="{{ filters.start_date|date:'Y-m-d' }}" max="{{ filters.end_date|date:'Y-m-d' }}"></label>
+            <label><span data-i18n="an.to">По</span>
+                <input type="date" name="to" class="control" value="{{ filters.end_date|date:'Y-m-d' }}"></label>
+        </fieldset>
+        <fieldset class="analytics-filters__group">
+            <legend class="meta-label"><label for="anRegion" data-i18n="an.region">Регион</label></legend>
+            <select id="anRegion" name="region" class="control">
+                <option value="" data-i18n="an.all_regions">Все регионы</option>
+                {% for code, label in regions %}
+                    <option value="{{ code }}" {% if filters.region == code %}selected{% endif %} data-i18n="region.{{ code }}">{{ label }}</option>
+                {% endfor %}
+            </select>
+        </fieldset>
+        <button type="submit" class="button primary" data-i18n="an.apply">Применить</button>
+    </form>
+    <p class="field-hint analytics-meta">
+        <span data-i18n="an.updated">Данные на</span> {{ generated_at|date:"d.m.Y H:i" }} UTC ·
+        {{ filters.start_date|date:"d.m.Y" }} – {{ filters.end_date|date:"d.m.Y" }}
+        {% if filters.weekly %}· <span data-i18n="an.weekly_note">Длинный период: значения сгруппированы по неделям.</span>{% endif %}
+    </p>
+
+    <div class="kpi-row analytics-kpis">
+        <div class="card stat-card"><span class="metric">{{ kpis.created|default:0 }}</span><p data-i18n="an.kpi.created">Создано запросов</p></div>
+        <div class="card stat-card"><span class="metric">{{ kpis.completed|default:0 }}</span><p data-i18n="an.kpi.completed">Выполнено</p></div>
+        <div class="card stat-card"><span class="metric">{% if kpis.completion_rate is not None %}{{ kpis.completion_rate }}%{% else %}—{% endif %}</span><p data-i18n="an.kpi.completion_rate">Доля выполненных</p></div>
+        <div class="card stat-card"><span class="metric">{% if kpis.hours_to_accept is not None %}<span data-i18n="an.unit.h" data-i18n-args='{"n": "{{ kpis.hours_to_accept }}"}'>{{ kpis.hours_to_accept }} ч</span>{% else %}—{% endif %}</span><p data-i18n="an.kpi.to_accept">Среднее время до принятия</p></div>
+        <div class="card stat-card"><span class="metric">{% if kpis.hours_to_complete is not None %}<span data-i18n="an.unit.h" data-i18n-args='{"n": "{{ kpis.hours_to_complete }}"}'>{{ kpis.hours_to_complete }} ч</span>{% else %}—{% endif %}</span><p data-i18n="an.kpi.to_complete">Среднее время выполнения</p></div>
+        <div class="card stat-card"><span class="metric">{% if avg_rating is not None %}{{ avg_rating|floatformat:1 }}{% else %}—{% endif %}</span><p data-i18n="an.kpi.avg_rating">Средняя оценка</p></div>
+        <div class="card stat-card"><span class="metric">{% if sos_minutes is not None %}<span data-i18n="an.unit.min" data-i18n-args='{"n": "{{ sos_minutes }}"}'>{{ sos_minutes }} мин</span>{% else %}—{% endif %}</span><p data-i18n="an.kpi.sos_ack">Средняя реакция на SOS</p></div>
+    </div>
+
+    <div class="chart-grid">
+        {% for item in chart_layout %}
+            <section class="card chart-card{% if item.wide %} chart-card--wide{% endif %}" data-chart="{{ item.name }}" aria-labelledby="chartTitle-{{ item.name }}">
+                <div class="chart-card__head">
+                    <h3 id="chartTitle-{{ item.name }}" data-i18n="an.c.{{ item.name }}">{{ item.name }}</h3>
+                    <a class="button ghost chart-card__csv" href="{% url 'crm_analytics_csv' item.name %}?{{ filters.querystring }}" data-i18n-tooltip="an.csv_hint" data-tooltip="Скачать данные графика (CSV)" aria-label="CSV" download data-csv>CSV</a>
+                </div>
+                {% if item.name == "delays" or item.name == "workload" or item.name == "ratings" or item.name == "availability" %}
+                    <p class="field-hint chart-card__note" data-i18n="an.n.{{ item.name }}"></p>
+                {% endif %}
+                <div class="chart-box"><canvas role="img" aria-labelledby="chartTitle-{{ item.name }}"></canvas></div>
+                <p class="chart-empty field-hint" data-i18n="an.no_data" hidden>За этот период данных нет.</p>
+                <details class="chart-table">
+                    <summary data-i18n="an.table">Показать таблицей</summary>
+                    <div class="table-scroll" data-chart-table></div>
+                </details>
+            </section>
+            {% if item.name == "registrations" %}
+                <section class="card chart-card chart-card--wide" aria-labelledby="chartTitle-top">
+                    <div class="chart-card__head">
+                        <h3 id="chartTitle-top" data-i18n="an.c.top_volunteers">Больше всего выполненных запросов</h3>
+                        <a class="button ghost chart-card__csv" href="{% url 'crm_analytics_csv' 'top_volunteers' %}?{{ filters.querystring }}" download data-csv>CSV</a>
+                    </div>
+                    <p class="field-hint chart-card__note" data-i18n="an.n.top_volunteers">Смотрите вместе с оценкой: качество важно не меньше количества.</p>
+                    {% if top_volunteers %}
+                        <div class="table-scroll">
+                            <table class="analytics-table">
+                                <thead><tr>
+                                    <th data-i18n="an.col.name">Волонтёр</th>
+                                    <th data-i18n="an.col.region">Регион</th>
+                                    <th class="num" data-i18n="an.col.completed">Выполнено</th>
+                                    <th class="num" data-i18n="an.col.avg">Средняя оценка</th>
+                                </tr></thead>
+                                <tbody>
+                                    {% for row in top_volunteers %}
+                                        <tr>
+                                            <td data-label="Волонтёр"><a href="{% url 'crm_volunteer_detail' row.id %}">{{ row.name }}</a></td>
+                                            <td data-label="Регион">{% if row.region %}<span data-i18n="region.{{ row.region }}">{{ row.region }}</span>{% else %}—{% endif %}</td>
+                                            <td data-label="Выполнено" class="num">{{ row.completed }}</td>
+                                            <td data-label="Средняя оценка" class="num">{% if row.review_avg is not None %}{{ row.review_avg|floatformat:1 }} ({{ row.review_count }}){% else %}—{% endif %}</td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <p class="field-hint" data-i18n="an.no_data">За этот период данных нет.</p>
+                    {% endif %}
+                </section>
+            {% endif %}
+        {% endfor %}
+
+        <section class="card chart-card chart-card--wide" aria-labelledby="chartTitle-heat">
+            <div class="chart-card__head">
+                <h3 id="chartTitle-heat" data-i18n="an.c.heatmap">Откуда приходят запросы</h3>
+            </div>
+            <p class="field-hint chart-card__note" data-i18n="an.n.heatmap">Координаты округлены примерно до 100 м.</p>
+            <div class="analytics-heat" id="analyticsHeat" data-url="{% url 'crm_analytics_heat' %}?{{ filters.querystring }}" role="img" aria-labelledby="chartTitle-heat"></div>
+        </section>
+    </div>
+</section>
+{{ payload|json_script:"analyticsData" }}
+{% endblock %}
+{% block extra_js %}
+{% include "partials/_leaflet_js.html" %}
+<script src="{% asset 'js/map.js' %}" defer></script>
+<script src="{% asset 'vendor/leaflet-heat-0.2.0/leaflet-heat.js' %}" defer></script>
+<script src="{% asset 'vendor/chartjs-4.4.7/chart.umd.min.js' %}" defer></script>
+<script src="{% asset 'js/crm-analytics.js' %}" defer></script>
+{% endblock %}

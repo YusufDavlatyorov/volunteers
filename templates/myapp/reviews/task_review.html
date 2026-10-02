@@ -60,7 +60,7 @@
                 <div class="field-group">
                     <label for="reviewComment" data-i18n="review.comment_label">Comment (optional)</label>
                     <textarea id="reviewComment" name="comment" rows="4" maxlength="{{ comment_max }}" class="control" data-i18n-ph="review.comment_ph" placeholder="What would you like to say to the volunteer?">{{ form_values.comment }}</textarea>
-                    <span class="field-hint" data-i18n="review.comment_hint">Only the volunteer and coordinators see your comment.</span>
+                    <span class="field-hint" data-i18n="review.comment_hint">Coordinators see your comment. The volunteer sees it too if you give 3 stars or more.</span>
                 </div>
 
                 {% if is_edit and edit_deadline %}

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120" role="img" aria-label="Сердце района">
+<defs>
+<linearGradient id="r" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6dd8c"/><stop offset="1" stop-color="#c9961e"/></linearGradient>
+<linearGradient id="d" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2456c6"/><stop offset="1" stop-color="#17337f"/></linearGradient>
+</defs>
+<circle cx="60" cy="60" r="57" fill="url(#r)" stroke="#8a630b" stroke-width="2"/>
+<circle cx="60" cy="60" r="46" fill="url(#d)" stroke="#8a630b" stroke-opacity=".55" stroke-width="2"/>
+<path d="M17 78 L38 60 L49 69 L64 54 L80 68 L90 61 L103 78 A46 46 0 0 1 17 78 Z" fill="#fff" fill-opacity=".1"/>
+<path d="M22 44 A40 40 0 0 1 98 44" fill="none" stroke="#fff" stroke-opacity=".22" stroke-width="3" stroke-linecap="round"/>
+<path d="M34 58 L60 36 L86 58" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M40 54 V82 H80 V54" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M60 76 C40 63 34 54 34 46 C34 39 39 34 46 34 C52 34 56 38 60 43 C64 38 68 34 74 34 C81 34 86 39 86 46 C86 54 80 63 60 76 Z" fill="#fff" transform="translate(0 12) translate(60 55) scale(0.42) translate(-60 -55)" />
+
+</svg>

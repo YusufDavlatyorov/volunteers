@@ -8,6 +8,13 @@ existing imports keep working unchanged:
 New domain areas get their own module in this package plus an entry below.
 """
 
+from .achievements import (
+    ACHIEVEMENT_CATEGORY_CHOICES,
+    ACHIEVEMENT_TIER_CHOICES,
+    TIER_RANK,
+    Achievement,
+    UserAchievement,
+)
 from .donations import (
     DONATION_ALLOWED_TRANSITIONS,
     DONATION_ASSIGNABLE_STATUSES,
@@ -69,6 +76,8 @@ from .tracking import TRACKING_SOURCE_CHOICES, TaskLocationPoint
 from .volunteer_applications import VolunteerApplication
 
 __all__ = [
+    # achievements
+    "ACHIEVEMENT_CATEGORY_CHOICES", "ACHIEVEMENT_TIER_CHOICES", "TIER_RANK", "Achievement", "UserAchievement",
     # chat
     "CHAT_KIND_CHOICES", "CHAT_KIND_IMAGE", "CHAT_KIND_SYSTEM", "CHAT_KIND_TEXT",
     "CHAT_MESSAGE_MAX_LENGTH", "ChatMessage", "ChatReadState", "ChatReport",

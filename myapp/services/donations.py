@@ -131,6 +131,14 @@ def _log_transition(offer, action, actor):
     )
 
 
+def _evaluate_courier(offer):
+    """The assigned volunteer may have earned "donation_courier" (never raises)."""
+    if offer.assigned_volunteer_id:
+        from . import achievements
+
+        achievements.award_safely(offer.assigned_volunteer, "donation_delivered")
+
+
 def approve_offer(offer, *, actor):
     """Curator/admin verified the offer is genuine and useful."""
     offer.approve(actor)
@@ -149,6 +157,7 @@ def mark_offer_received(offer, *, actor):
     """The goods have reached KhayrKhoh (collected or dropped off)."""
     offer.mark_received(actor)
     _log_transition(offer, "received", actor)
+    _evaluate_courier(offer)
     return offer
 
 
@@ -156,6 +165,7 @@ def mark_offer_distributed(offer, *, actor):
     """The goods have been handed to the clients / help requests they were for."""
     offer.mark_distributed(actor)
     _log_transition(offer, "distributed", actor)
+    _evaluate_courier(offer)
     return offer
 
 

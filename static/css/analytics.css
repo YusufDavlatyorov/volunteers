@@ -1,0 +1,93 @@
+/* CRM analytics (Feature Pack v2, feature 10) — loaded only on /myapp/crm/analytics/.
+   Chart colours are tokens read by static/js/crm-analytics.js, selected per
+   theme (not an automatic flip) and validated with the dataviz palette checker
+   against the card surfaces (#ffffff light / #151b28 dark): adjacent CVD ΔE ≥ 8.4,
+   normal-vision ΔE ≥ 19.8. Light slots 3–4 sit under 3:1 on white — every chart
+   therefore carries a legend (≥ 2 series) and a table view. */
+.analytics-root {
+    --series-1: #2a78d6;
+    --series-2: #eb6834;
+    --series-3: #1baf7a;
+    --series-4: #eda100;
+    --chart-text: #33404f;
+    --chart-muted: #6b7280;
+    --chart-grid: #e8ebf3;
+    --chart-axis: #c9cfdd;
+    --chart-heat-1: #86b6ef;
+    --chart-heat-2: #2a78d6;
+    --chart-heat-3: #104281;
+}
+[data-theme="dark"] .analytics-root {
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --chart-text: #c7cede;
+    --chart-muted: #8b93a7;
+    --chart-grid: rgba(255,255,255,0.07);
+    --chart-axis: rgba(255,255,255,0.16);
+}
+
+.analytics-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--space-3) var(--space-4);
+    padding: var(--space-3) var(--space-4);
+}
+.analytics-filters__group { border: 0; margin: 0; padding: 0; min-width: 0; display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: flex-end; }
+.analytics-filters__group legend { padding: 0; margin-bottom: 0.3rem; float: left; width: 100%; }
+.analytics-filters__range label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.82rem; color: var(--muted); }
+.analytics-filters .control { min-width: 0; max-width: 100%; }
+.analytics-presets { margin: 0; }
+.analytics-meta { margin: var(--space-2) 0 var(--space-4); }
+.analytics-kpis { margin-bottom: var(--space-4); }
+.analytics-kpis .metric { font-variant-numeric: tabular-nums; }
+
+.chart-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));
+    gap: var(--space-4);
+    align-items: start;
+}
+.chart-card { min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.chart-card--wide { grid-column: 1 / -1; }
+.chart-card__head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.chart-card__head h3 { margin: 0; font-size: 1.05rem; overflow-wrap: anywhere; min-width: 0; }
+.chart-card__csv { flex: none; min-height: 2.25rem; padding: 0.3rem 0.8rem; font-size: 0.8rem; }
+.chart-card__note { margin: 0; }
+.chart-card__note:empty { display: none; }
+.chart-box { position: relative; height: 16rem; min-width: 0; }
+.chart-card--wide .chart-box { height: 18rem; }
+.chart-box canvas { display: block; max-width: 100%; }
+.chart-empty[hidden] { display: none; }
+.chart-table summary { cursor: pointer; font-size: 0.85rem; color: var(--primary-2); font-weight: 600; padding: 0.3rem 0; }
+/* Compact tables (chart data + top list): stay a table on phones and scroll
+   sideways inside their card (.table-scroll) instead of stacking into cards. */
+.analytics-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.chart-table .analytics-table { margin-top: var(--space-2); }
+.analytics-table th {
+    text-align: left; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em;
+    color: var(--muted); font-weight: 700; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--line); white-space: nowrap;
+}
+.analytics-table td { padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--line); color: var(--text); }
+.analytics-table tbody tr:last-child td { border-bottom: none; }
+.analytics-table td.num, .analytics-table th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.analytics-heat {
+    height: 22rem;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    background: var(--surface-2);
+}
+
+@media (max-width: 600px) {
+    .analytics-filters { padding: var(--space-3); }
+    .analytics-filters__group, .analytics-filters__range { width: 100%; }
+    .analytics-filters__range label { flex: 1 1 8rem; }
+    .analytics-filters select.control { width: 100%; }
+    .analytics-filters .button { width: 100%; }
+    .chart-box, .chart-card--wide .chart-box { height: 14rem; }
+    .analytics-heat { height: 18rem; }
+}

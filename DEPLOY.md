@@ -301,6 +301,72 @@ sudo nginx -t && sudo systemctl reload nginx
 `X-Forwarded-Proto` is what `DJANGO_BEHIND_TLS_PROXY=True` trusts — without
 it Django sees every request as plain HTTP and redirect-loops.
 
+### 10a. WebSockets (`/ws/` → `ws` service) and private chat photos
+
+Feature Pack v2 adds the `ws` container (uvicorn, `127.0.0.1:8001`, Channels
+layer on Redis DB 2 via `DJANGO_CHANNEL_REDIS_URL`, set for every app container
+in `docker-compose.yml`) and protected chat photos. Two additions to the config
+above — verified locally against `nginx:1.27-alpine` (2026-10-02): anonymous
+socket → upgraded then closed 4401, foreign `Origin` → 403 at the handshake,
+logged-in socket gets `hello`/`pong`, an event published from another process
+arrives through Redis; `/media/chat/…` → 404, `/protected-media/…` → 404
+from outside.
+
+Once, in the `http {}` context (e.g. `/etc/nginx/conf.d/websocket-map.conf`):
+
+```nginx
+map $http_upgrade $connection_upgrade { default upgrade; '' close; }
+```
+
+Inside the `server_name khayrkhoh.tj` 443 block, **above** `location /media/`
+and `location /`:
+
+```nginx
+    # WebSockets → the ws container (Django Channels under uvicorn).
+    location /ws/ {
+        proxy_pass http://127.0.0.1:8001;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Host $host;               # AllowedHostsOriginValidator
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 3600s;                  # clients heartbeat every 25 s
+        proxy_send_timeout 3600s;
+        proxy_buffering off;
+    }
+
+    # Chat photos are private: never served straight from /media/ …
+    location ^~ /media/chat/ { return 404; }
+    # … only through the permission-checked view's X-Accel-Redirect
+    # (compose sets DJANGO_MEDIA_X_ACCEL=True for web).
+    location ^~ /protected-media/ {
+        internal;
+        alias /opt/khayrkhoh/media/;
+        add_header Cache-Control "private, no-store";
+    }
+```
+
+Verify on the server (read-only):
+
+```bash
+sudo nginx -t
+docker compose exec -T web python manage.py check_realtime   # backend: channels_redis… / round trip: OK
+docker compose exec -T ws  python manage.py check_realtime
+# Handshake through nginx: prints 101 (curl then waits and exits 28 after 5 s
+# — expected; the consumer closes an anonymous socket with 4401).
+curl -sk -o /dev/null -w "%{http_code}\n" --http1.1 -m 5 \
+  -H "Connection: Upgrade" -H "Upgrade: websocket" -H "Sec-WebSocket-Version: 13" \
+  -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" -H "Origin: https://khayrkhoh.tj" \
+  https://khayrkhoh.tj/ws/
+curl -s -o /dev/null -w "%{http_code}\n" https://khayrkhoh.tj/media/chat/x.jpg        # 404
+curl -s -o /dev/null -w "%{http_code}\n" https://khayrkhoh.tj/protected-media/x.jpg   # 404
+```
+
+In a browser: log in, DevTools → Network → WS: one `/ws/` socket with status
+101 and `hello` / `pong` frames.
+
 ## 11. Firewall + SSH hardening
 
 ```bash

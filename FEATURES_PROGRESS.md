@@ -8,8 +8,8 @@ Design: `FEATURES_PLAN.md`. Brief: `FEATURES_SPEC.md`.
 | 0 | Plan, agent files | ✅ done 2026-10-02 (`2cfaf54`); owner answers in FEATURES_PLAN §9 |
 | 1 | Realtime (12) + notifications (11) + availability (3) + DND + cancellation | ✅ done 2026-10-02 (`a4d5fe0`, `477c53c`) |
 | 2 | Tracking (7) + routes/navigation (2) + self-hosted OSRM + DND manual assign | ✅ done 2026-10-02 (`a3b65b7`) |
-| 3 | Chat (8) + feedback (9) + profile location button | ✅ done 2026-10-02 — waiting for owner OK |
-| 4 | Achievements (6) + CRM charts (10) | ⏸ |
+| 3 | Chat (8) + feedback (9) + profile location button | ✅ done 2026-10-02 (`a1e8244`); owner follow-ups done in milestone 4 |
+| 4 | Achievements (6) + CRM charts (10) + milestone-3 follow-ups | ✅ done 2026-10-02 — waiting for owner OK |
 | 5 | Telegram main bot (4) + community bot (5) | ⏸ |
 | 6 | Speed (1) + full QA + docs | ⏸ |
 | 7 | Deploy (after "deploy") | ⏸ |
@@ -56,6 +56,25 @@ Baseline: 657 tests green at `2467bc5` (main).
   frontend-qa: chat UI, unread badges, review UI, e2e 45/45, matrix 125/125.
   Result: 1081 tests OK.
 
+- 2026-10-02 — milestone 4 (owner decisions: FEATURES_PLAN §14). Milestone-3 follow-ups:
+  quiet chat safety flags (`services/chat_flags.py`, `ChatMessage.flags`, myapp 0020,
+  staff-only in-app `chat_flagged`, 1 per task × category × day); chat photo originals
+  re-encoded without EXIF/GPS/XMP (`images.strip_metadata`); 1–2★ review comments for
+  coordinators only (`feedback.can_see_comment`); `check_realtime` command + DEPLOY.md §10a
+  nginx `/ws/` + protected media, verified against nginx:1.27 in Docker. Achievements:
+  myapp 0021 (models + starter set "без гонки"), `services/achievements.py` (4 aggregate
+  queries per evaluation, hooks: task completed / review saved·unhidden / donation delivered /
+  pet resolved), 12 original SVG badges, profile grid + `<dialog>`, top-3 on rating and CRM
+  volunteer page, `backfill_achievements`, admin (threshold/tier/on-off; award removal logged).
+  Analytics: `services/analytics_v2.py` (16 charts, 20 queries cold / 0 cached, 5-min cache,
+  Asia/Dushanbe days, weekly > 92 days), `/myapp/crm/analytics/` + CSV + heat.json,
+  self-hosted Chart.js 4.4.7 (≈70 KB gzip, analytics page only) + leaflet.heat 0.2.0,
+  palette validated (CVD ΔE ≥ 8.4), table view per chart, 14-day SVG sparkline on the staff
+  dashboard. Found & fixed: `.gc-dialog` never centred (global margin reset — also the
+  milestone-2 consent dialog), `.kpi-row` phone rule overridden (tiles half-width on phones),
+  `seed_demo` created tasks after their accept time. Browser matrix: 5 roles × 390/1280 ×
+  light/dark — no horizontal scroll, no JS errors (on ASGI). Result: 1180 tests OK.
+
 ## Deploy checklist (accumulated; applied only after the owner writes "deploy")
 - `.env` (server): add `OSRM_BASE_URL=http://osrm_car:5000`, `OSRM_FOOT_BASE_URL=http://osrm_foot:5000`
   (only with the `osrm` profile). Server `.env` has no `$` values (checked read-only 2026-10-02).
@@ -70,4 +89,13 @@ Baseline: 657 tests green at `2467bc5` (main).
   (compose sets `DJANGO_MEDIA_X_ACCEL=True` for `web`).
 - crons (deploy user, docker compose exec -T web …): `sweep_availability` */5,
   `prune_notifications` daily, `purge_tracking` hourly, `remind_stale_locations` daily.
+- nginx: the complete `/ws/` + private-media snippet (with the `map $http_upgrade
+  $connection_upgrade` block) and the read-only verification commands are in DEPLOY.md §10a.
+- After `up -d`: `docker compose exec -T web python manage.py check_realtime` and the same in `ws`
+  (expects `channels_redis…` + `round trip: OK`).
+- Milestone 4: after `migrate` (myapp 0020 + 0021) run once
+  `docker compose run --rm web python manage.py backfill_achievements --dry-run`, then without
+  `--dry-run` (silent — no notifications; `--notify` only if the owner wants them).
+- New static files (collectstatic picks them up): `vendor/chartjs-4.4.7/`, `vendor/leaflet-heat-0.2.0/`,
+  `images/badges/*.svg`, `css/analytics.css`, `js/crm-analytics.js`, `js/achievements.js`.
 - Order: build → migrate → collectstatic → up -d (incl. new `ws`) → nginx reload → verify.

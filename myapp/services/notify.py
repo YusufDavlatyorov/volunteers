@@ -101,6 +101,10 @@ NOTIFICATION_TYPES = dict([
     # it per recipient). chat_reported: staff, in-app only.
     _t("chat_message", ("volunteer", "client") + STAFF, defaults={TELEGRAM}),
     _t("chat_reported", STAFF, defaults=frozenset()),
+    # Milestone 3 follow-up: a party message mentions money / an SMS code /
+    # another messenger / a phone number (services/chat_flags.py). Quiet:
+    # in-app only by default, one per task × category × day.
+    _t("chat_flagged", STAFF, defaults=frozenset()),
     _t("review_received", ("volunteer",)),
     _t("review_low", STAFF, defaults={EMAIL}),
     _t("review_request", ("client",), defaults={TELEGRAM}),

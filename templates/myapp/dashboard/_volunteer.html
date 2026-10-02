@@ -1,5 +1,5 @@
 {% comment %}Volunteer dashboard — "what do I need to do right now?". Context from services.dashboard._volunteer.{% endcomment %}
-{% load realtime_ui chat_ui reviews %}
+{% load realtime_ui chat_ui reviews achievements_ui %}
 {% if profile.is_away_now %}
     {% with last_day=profile.away_until|away_last_day %}
     <div class="away-banner reveal" role="status">
@@ -103,6 +103,8 @@
         </div>
     {% endif %}
 </div>
+
+{% if achievement_items %}{% achievement_grid achievement_items %}{% endif %}
 
 {% if assigned_donations %}
 <div class="card reveal">

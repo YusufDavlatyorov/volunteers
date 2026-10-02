@@ -150,6 +150,10 @@ def apply_action(report, action, *, actor, notify_reporter=True):
             link=reverse("pet_report_detail", args=[report.pk]),
             extra={"display_name": report.display_name, "phrase": report.status},
         )
+    if report.status == PetReport.STATUS_RESOLVED:
+        from . import achievements
+
+        achievements.award_safely(report.reporter, "pet_reunited")  # "pet_friend"; never raises
     return report
 
 

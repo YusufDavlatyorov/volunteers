@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120" role="img" aria-label="Наставник">
+<defs>
+<linearGradient id="r" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6dd8c"/><stop offset="1" stop-color="#c9961e"/></linearGradient>
+<linearGradient id="d" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#b8432f"/><stop offset="1" stop-color="#7f2a1d"/></linearGradient>
+</defs>
+<circle cx="60" cy="60" r="57" fill="url(#r)" stroke="#8a630b" stroke-width="2"/>
+<circle cx="60" cy="60" r="46" fill="url(#d)" stroke="#8a630b" stroke-opacity=".55" stroke-width="2"/>
+<path d="M17 78 L38 60 L49 69 L64 54 L80 68 L90 61 L103 78 A46 46 0 0 1 17 78 Z" fill="#fff" fill-opacity=".1"/>
+<path d="M22 44 A40 40 0 0 1 98 44" fill="none" stroke="#fff" stroke-opacity=".22" stroke-width="3" stroke-linecap="round"/>
+<circle cx="50" cy="44" r="10" fill="#fff"/><path d="M30 84 C30 68 38 60 50 60 C62 60 70 68 70 84 Z" fill="#fff"/><circle cx="76" cy="54" r="7" fill="none" stroke="#fff" stroke-width="4.5"/><path d="M66 84 C66 74 70 68 76 68 C82 68 88 74 88 84" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round"/>
+
+</svg>

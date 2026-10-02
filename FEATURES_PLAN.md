@@ -565,3 +565,29 @@ party when they are not viewing (Telegram per preference). Image thumbs: WebP vi
 only to the volunteer and staff). stars ≤ 2 → `notify(staff, "review_low")`; every new review →
 `notify([volunteer], "review_received")`; task completion → `notify([client], "review_request")`
 (prompt). No matching weight.
+
+---
+
+## 14. Milestone 4 decisions (owner, 2026-10-02)
+
+- **Achievements "без гонки"**: milestones 1/10/50/100 without deadlines; quality badges
+  from *visible* reviews (`kind_words` 5 reviews with polite/careful/above-and-beyond,
+  `trusted` 10 reviews with avg ≥ 4.5); steadiness in months (`steady_helper` 3 months,
+  `year_together` 6 months in the last 12) — no daily streaks; `versatile` 4 help types;
+  `donation_courier`, `pet_friend`; `mentor` created inactive (community bot, milestone 5).
+  Dropped from the spec: region hero of the month, 30-day streak, night owl / early bird,
+  SOS badge (would reward alarms), legendary 500 points. A task with a visible 1–2★ review
+  doesn't count towards milestones / months / help types. No badge leaderboard; public
+  cards show up to 3 badges (rarest first), never counts or progress.
+- **No automatic revocation**: hiding a review never removes a badge; staff can delete a
+  `UserAchievement` in the Django admin (ID-only log).
+- **Low ratings**: the volunteer sees stars + tags of a 1–2★ review, the comment only
+  coordinators (and the author).
+- **Not a matching signal**: neither achievements nor reviews are read by
+  `services/matching.py` (behavioural + source tests in `myapp/tests_achievements.py`).
+- **Chat safety flags**: money / SMS codes / other messengers / phone numbers → stored on
+  `ChatMessage.flags` (staff-only), quiet in-app `chat_flagged` to curators, 1 per task ×
+  category × day; the message is never blocked or altered; staff posts never flagged.
+- **Analytics**: cached 5 min, no live WS updates (a "Данные на …" stamp instead); days
+  on Asia/Dushanbe; top-volunteers table shows the review average next to the count.
+

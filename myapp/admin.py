@@ -193,3 +193,52 @@ class TaskReviewAdmin(admin.ModelAdmin):
     def unhide_reviews(self, request, queryset):
         done = sum(1 for r in queryset if feedback_service.unhide(request.user, r).code == feedback_service.OK)
         self.message_user(request, f"Снова видимых отзывов: {done}.")
+
+
+# --- Achievements (Feature Pack v2, milestone 4) ---------------------------
+import logging  # noqa: E402
+
+from .models import Achievement, UserAchievement  # noqa: E402
+
+_ach_logger = logging.getLogger("myapp.achievements")
+
+
+@admin.register(Achievement)
+class AchievementAdmin(admin.ModelAdmin):
+    # The owner tweaks thresholds / tiers / order / on-off here; the rule behind
+    # each code lives in services/achievements.py, so the code itself is fixed.
+    list_display = ("code", "tier", "category", "threshold", "sort_order", "is_active")
+    list_editable = ("tier", "threshold", "sort_order", "is_active")
+    list_filter = ("tier", "category", "is_active")
+    readonly_fields = ("code",)
+
+    def has_add_permission(self, request):
+        return False  # a new code needs a rule in services/achievements.py
+
+    def has_delete_permission(self, request, obj=None):
+        return False  # deactivate instead — earned badges stay with their owners
+
+
+@admin.register(UserAchievement)
+class UserAchievementAdmin(admin.ModelAdmin):
+    # Awards come only from services.achievements.evaluate; staff may remove one
+    # (e.g. earned through reviews later found fake) — logged with IDs only.
+    list_display = ("id", "user", "achievement", "awarded_at", "progress_snapshot")
+    list_filter = ("achievement", "awarded_at")
+    search_fields = ("user__username",)
+    list_select_related = ("user", "achievement")
+    readonly_fields = ("user", "achievement", "awarded_at", "progress_snapshot")
+
+    def has_add_permission(self, request):
+        return False
+
+    def delete_model(self, request, obj):
+        _ach_logger.info("achievement removed award=%s user=%s code=%s by=%s",
+                         obj.pk, obj.user_id, obj.achievement.code, request.user.pk)
+        super().delete_model(request, obj)
+
+    def delete_queryset(self, request, queryset):
+        for obj in queryset.select_related("achievement"):
+            _ach_logger.info("achievement removed award=%s user=%s code=%s by=%s",
+                             obj.pk, obj.user_id, obj.achievement.code, request.user.pk)
+        super().delete_queryset(request, queryset)

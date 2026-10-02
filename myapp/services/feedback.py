@@ -15,7 +15,8 @@ The one path for leaving, editing, hiding and reading reviews
 - ``public_summary`` — ``{"avg", "count"}`` only: the single shape any public
   surface (rating page, client dashboard, cards) may show. Never comments.
 - ``reviews_for`` — comments, only to the reviewed volunteer and staff (hidden
-  ones to staff only).
+  ones to staff only); per review, ``can_see_comment`` also keeps the comment
+  of a 1–2 star review from the volunteer (coordinators only).
 - ``review_request`` — the "rate the help" prompt, called when a task completes.
 
 Display-only: reviews are **not** a matching weight (owner decision, FEATURES_PLAN
@@ -118,6 +119,18 @@ def can_see_comments(viewer, volunteer) -> bool:
         return False
     vid = volunteer if isinstance(volunteer, int) else volunteer.pk
     return is_staff_user(viewer) or viewer.pk == vid
+
+
+def can_see_comment(viewer, review) -> bool:
+    """The comment of one review: its author and staff always; the reviewed
+    volunteer only when the rating is above ``LOW_STARS`` — a 1–2 star
+    comment is for the coordinators (owner decision, milestone 3 follow-up).
+    The volunteer still sees the stars and tags of a low review."""
+    if not _active_user(viewer):
+        return False
+    if is_staff_user(viewer) or viewer.pk == review.client_id:
+        return True
+    return viewer.pk == review.volunteer_id and review.stars > LOW_STARS
 
 
 def can_view_review(viewer, review) -> bool:
@@ -333,6 +346,7 @@ def submit_review(client, task, *, stars, comment="", tags=()) -> Outcome:
     )
     if stars <= LOW_STARS:
         _alert_low(review)
+    _evaluate_badges(review)
     return Outcome(True, OK, review, created=True)
 
 
@@ -354,7 +368,17 @@ def _edit(client, review, stars, comment, tags) -> Outcome:
     # review alerts at most once over its whole life (4→2→5→1 alerts once).
     if stars <= LOW_STARS < old_stars:
         _alert_low(review)
+    _evaluate_badges(review)  # stars or tags changed — kind_words / trusted may now be met
     return Outcome(True, OK, review)
+
+
+def _evaluate_badges(review):
+    """Quality badges read visible reviews (services/achievements.py). Hiding
+    never revokes a badge (owner decision), so only create / edit / unhide
+    re-evaluate. Never raises."""
+    from . import achievements
+
+    achievements.award_safely(review.volunteer, "review")
 
 
 # --------------------------------------------------------------------------- #
@@ -390,6 +414,7 @@ def unhide(staff, review) -> Outcome:
     review.hidden_at, review.hidden_by = None, None
     recompute_volunteer_stats(review.volunteer_id)
     logger.info("review unhidden review=%s task=%s by=%s", review.pk, review.task_id, staff.pk)
+    _evaluate_badges(review)
     return Outcome(True, OK, review)
 
 

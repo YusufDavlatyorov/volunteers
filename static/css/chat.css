@@ -135,6 +135,8 @@
 .chat-msg.is-staff .chat-msg__who { color: var(--accent); text-transform: uppercase; letter-spacing: 0.03em; }
 .chat-msg__real { font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--muted); }
 .chat-msg__body { margin: 0; white-space: pre-wrap; line-height: 1.45; color: var(--text); }
+.chat-msg__flags { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0 0 0.3rem; }
+.chat-msg__flags .tag { font-size: 0.7rem; text-transform: none; }
 .chat-msg__stub { font-style: italic; color: var(--muted); }
 .chat-msg .tag { margin-bottom: 0.3rem; }
 

@@ -132,6 +132,8 @@ class Command(BaseCommand):
         self._create_emergencies(requests, admin)
         self._create_donations(clients, volunteers, admin)
         self._create_pet_reports(clients, volunteers, admin)
+        self._create_history(clients, volunteers)
+        self._award_achievements(volunteers)
 
         self.stdout.write(self.style.SUCCESS("Demo data ready."))
         self.stdout.write(f"Users: {User.objects.count()} | Events: {Event.objects.count()} | Requests: {HelpRequest.objects.count()} | Reports: {PhotoReport.objects.count()} | Emergencies: {EmergencyReport.objects.count()} | Donations: {Donation.objects.count()} | Pet reports: {PetReport.objects.count()}")
@@ -259,6 +261,12 @@ class Command(BaseCommand):
             )
             result.append(item)
 
+        # Accepted/completed demo tasks were created a little before they were
+        # accepted (auto_now_add would otherwise put created_at after accepted_at).
+        for task in result:
+            if task.accepted_at:
+                HelpRequest.objects.filter(pk=task.pk).update(created_at=task.accepted_at - timedelta(hours=2))
+
         # Make the pending set deterministic for the stale-request demo: exactly
         # one request sits past STALE_PENDING_THRESHOLD (48h), the rest are fresh.
         # created_at is auto_now_add, so it must be set with a raw UPDATE.
@@ -272,6 +280,52 @@ class Command(BaseCommand):
                 created_at=new_created, stale_alert_sent=False
             )
         return result
+
+    def _create_history(self, clients, volunteers):
+        """~45 completed requests over the last 85 days with client reviews, so
+        the CRM analytics charts and the volunteer badges have something to show
+        locally. Deterministic + idempotent (keyed on the description)."""
+        from myapp.models import TaskReview
+        from myapp.services import feedback
+
+        help_types = ["grocery", "medical", "transport", "household", "emotional", "documents", "other"]
+        regions = ["dushanbe", "sogd", "khatlon", "gbao", "rrp"]
+        tag_sets = [["polite", "punctual"], ["above_and_beyond"], ["careful", "friendly"], [], ["communicative"]]
+        now = timezone.now()
+        for i in range(45):
+            volunteer = volunteers[(i * 7) % len(volunteers)] if i % 3 else volunteers[0]
+            client = clients[i % len(clients)]
+            created = now - timedelta(days=85 - (i * 85) // 45, hours=(i * 5) % 11)
+            accepted = created + timedelta(hours=1 + (i * 7) % 30)
+            completed = accepted + timedelta(hours=1 + (i % 4))
+            if completed > now:
+                continue
+            region = regions[i % len(regions)]
+            lat, lng = _coords_for(region, f"history-{i}")
+            task, _ = HelpRequest.objects.update_or_create(
+                client=client, description=f"[история] Демо-запрос #{i + 1}",
+                defaults={"volunteer": volunteer, "help_type": help_types[i % len(help_types)],
+                          "address": "демо", "phone": "+992 90 200 00 00", "region": region,
+                          "status": "completed", "priority": "high" if i % 9 == 0 else "normal",
+                          "is_urgent": i % 9 == 0, "latitude": lat, "longitude": lng,
+                          "accepted_at": accepted, "completed_at": completed},
+            )
+            HelpRequest.objects.filter(pk=task.pk).update(created_at=created)
+            if i % 4 != 3 and not TaskReview.objects.filter(task=task).exists():
+                stars = 2 if i % 13 == 5 else 3 if i % 11 == 4 else 5 if i % 2 else 4
+                review = TaskReview.objects.create(task=task, client=client, volunteer=volunteer, stars=stars,
+                                                   comment="Спасибо за помощь!" if stars > 2 else "Опоздал.",
+                                                   tags=tag_sets[i % len(tag_sets)] if stars > 2 else [])
+                TaskReview.objects.filter(pk=review.pk).update(created_at=completed + timedelta(hours=2))
+        for volunteer in volunteers:
+            feedback.recompute_volunteer_stats(volunteer)
+
+    def _award_achievements(self, volunteers):
+        """Badges for the demo history — silently, like backfill_achievements."""
+        from myapp.services import achievements
+
+        for volunteer in volunteers:
+            achievements.evaluate(volunteer, send_notifications=False)
 
     def _create_emergencies(self, requests, admin):
         """One open + one resolved SOS on active tasks, so the CRM isn't empty."""

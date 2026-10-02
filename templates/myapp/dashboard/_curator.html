@@ -1,4 +1,5 @@
 {% comment %}Curator dashboard — "what needs my attention?". Context from services.dashboard._curator. Also included by _admin.html.{% endcomment %}
+{% load analytics_ui %}
 {% if open_emergency_count %}
 <a class="emergency-banner emergency-banner--link" href="{% url 'emergency_list' %}?status=open">
     <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"></path><path d="M12 9v4M12 17h.01"></path></svg>
@@ -35,6 +36,8 @@
         <span class="metric">{{ pets_open_count }}</span><p data-i18n="pet.kpi_open">Lost &amp; Found</p>
     </a>
 </div>
+
+{% if trend %}{% sparkline trend %}{% endif %}
 
 <div class="card reveal {% if open_emergencies %}card--alert{% endif %}">
     <div class="section-head"><h3 data-i18n="emg.feed_title">Active emergencies</h3><a class="button ghost" href="{% url 'emergency_list' %}" data-i18n="common.view_all">View all</a></div>

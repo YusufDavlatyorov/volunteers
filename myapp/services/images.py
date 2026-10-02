@@ -13,6 +13,10 @@ pet reports — nothing here knows about a particular model.
   ``<dir>/<stem>_<name>.webp`` next to the original through the file's own
   storage. Raises on a broken source; the Celery task that calls it logs
   and gives up (the original stays usable).
+* ``strip_metadata(upload) -> (ContentFile, ext)`` — the *original* re-encoded
+  without EXIF (incl. GPS), XMP, IPTC or comments, orientation baked in.
+  Called before an upload is stored (chat photos), so the full-size file a
+  party can open carries no location either — not only the thumbnails.
 """
 
 from __future__ import annotations
@@ -83,6 +87,53 @@ def _prepared(img):
     if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
         return img.convert("RGBA")
     return img.convert("RGB")
+
+
+# Re-encode settings for the stripped original: visually lossless for photos.
+ORIGINAL_JPEG_QUALITY = 90
+ORIGINAL_WEBP_QUALITY = 90
+_STRIP_OUTPUT = {"JPEG": ("JPEG", "jpg"), "PNG": ("PNG", "png"), "WEBP": ("WEBP", "webp")}
+
+
+def strip_metadata(upload):
+    """Return ``(ContentFile, ext)`` — ``upload`` re-encoded with no metadata.
+
+    EXIF orientation is applied to the pixels first (so dropping the tag never
+    leaves a sideways photo). JPEG/PNG/WebP keep their format; anything else
+    the decoder accepted (HEIC via pillow-heif) becomes JPEG. Only the ICC
+    colour profile is kept — it describes colours, not the person or place.
+    The caller has already run ``validate_upload``; a decode error raises."""
+    upload.seek(0)
+    with Image.open(upload) as src:
+        fmt = (src.format or "").upper()
+        if src.size[0] * src.size[1] > MAX_PIXELS:
+            raise ValueError("image too large to process")
+        icc = src.info.get("icc_profile")
+        img = ImageOps.exif_transpose(src)  # first frame; a copy without the EXIF orientation
+        img.load()
+    out_format, ext = _STRIP_OUTPUT.get(fmt, ("JPEG", "jpg"))
+    if out_format == "JPEG" and img.mode not in ("RGB", "L"):
+        img = img.convert("RGB")
+    elif out_format == "PNG" and img.mode not in ("RGB", "RGBA", "L", "LA", "P"):
+        img = img.convert("RGBA")
+    elif out_format == "WEBP" and img.mode not in ("RGB", "RGBA"):
+        img = img.convert("RGBA" if "A" in img.mode or "transparency" in img.info else "RGB")
+    options = {}
+    if icc:
+        options["icc_profile"] = icc
+    if out_format == "JPEG":
+        options.update(quality=ORIGINAL_JPEG_QUALITY, optimize=True)
+    elif out_format == "WEBP":
+        options.update(quality=ORIGINAL_WEBP_QUALITY, method=4)
+    else:
+        options.update(optimize=True)
+    # No exif= / xmp= / pnginfo= → nothing but pixels (+ ICC) is written.
+    img.info.pop("exif", None)
+    img.info.pop("xmp", None)
+    buf = io.BytesIO()
+    img.save(buf, format=out_format, **options)
+    upload.seek(0)
+    return ContentFile(buf.getvalue()), ext
 
 
 def variant_name(original_name, variant):

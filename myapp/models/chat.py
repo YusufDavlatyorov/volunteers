@@ -32,6 +32,9 @@ class ChatMessage(models.Model):
     # {"thumb": "<storage path>", ...} — WebP variants made in the background.
     image_variants = models.JSONField(default=dict, blank=True)
     is_staff_post = models.BooleanField(default=False)  # shown as "Куратор"
+    # Quiet safety flags (services/chat_flags.py codes) — staff-only, never
+    # blocks the message; drives the in-app ``chat_flagged`` staff notice.
+    flags = models.JSONField(default=list, blank=True)
     # Client-generated id: a retried send (WS reconnect, double tap) is stored once.
     client_msg_id = models.CharField(max_length=64, blank=True)
     hidden_at = models.DateTimeField(null=True, blank=True)  # staff moderation

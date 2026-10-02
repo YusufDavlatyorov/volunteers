@@ -202,6 +202,13 @@
             bubble.appendChild(keyed('p', 'chat-msg__body chat-msg__stub', 'chat.hidden_stub', 'Message hidden by a moderator.'));
         } else {
             if (m.hidden) bubble.appendChild(keyed('span', 'tag muted', 'chat.hidden_tag', 'Hidden'));
+            // Staff payloads only carry `flags` (events.for_viewer) — quiet safety marks.
+            if (isStaff && Array.isArray(m.flags) && m.flags.length) {
+                const flags = el('p', 'chat-msg__flags');
+                flags.title = t('chat.flag.hint', 'Automatic flag — visible to curators only.');
+                m.flags.forEach((code) => flags.appendChild(keyed('span', 'tag urgent', `chat.flag.${code}`, code)));
+                bubble.appendChild(flags);
+            }
             if (m.image_url) {
                 const a = el('a', 'chat-msg__photo');
                 a.href = m.image_url;

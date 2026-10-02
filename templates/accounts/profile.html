@@ -179,4 +179,4 @@
     </div>
 </section>
 {% endblock %}
-{% block extra_js %}{% if user.is_volunteer %}<script src="{% asset 'js/profile-location.js' %}" defer></script>{% endif %}{% endblock %}
+{% block extra_js %}{% if user.is_volunteer %}<script src="{% asset 'js/profile-location.js' %}" defer></script><script src="{% asset 'js/achievements.js' %}" defer></script>{% endif %}{% endblock %}

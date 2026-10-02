@@ -13,7 +13,7 @@ most once, so the command is safe to run on a short interval.
 
 import logging
 
-from django.db.models import Q
+from django.db.models import F, Q
 from django.utils import timezone
 
 from ..models import OVERDUE_THRESHOLD, HelpRequest
@@ -36,6 +36,17 @@ def currently_overdue_q():
     filter, analytics) applies the exact same rule against the one threshold —
     no re-inlined ``accepted_at__lt=now - OVERDUE_THRESHOLD`` copies to drift."""
     return Q(status="active", accepted_at__lt=timezone.now() - OVERDUE_THRESHOLD)
+
+
+def was_overdue_q(now=None):
+    """Historical counterpart for the CRM trend charts (services/analytics_v2):
+    a task that *went* past OVERDUE_THRESHOLD between accept and completion,
+    or is still active past it. Same one threshold as ``currently_overdue_q``."""
+    now = now or timezone.now()
+    return Q(accepted_at__isnull=False) & (
+        Q(completed_at__gt=F("accepted_at") + OVERDUE_THRESHOLD)
+        | Q(status="active", accepted_at__lt=now - OVERDUE_THRESHOLD)
+    )
 
 
 def _notify_overdue(recipients, task):

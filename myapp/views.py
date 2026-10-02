@@ -44,7 +44,7 @@ from .models import (
 from .models.emergency import STATUS_CHOICES as EMERGENCY_STATUS_CHOICES
 from .notifications import staff_recipients, volunteer_queryset_for_region
 from .realtime import publish
-from .services import cancellation, chat, feedback, presence, tracking
+from .services import achievements, cancellation, chat, feedback, presence, tracking
 from .services.notify import notify
 from .services import access, analytics, dispatch, donations, emergency, maps, overdue, pets, stale
 from .services.ai import build_user_context, confirm_action, run_conversation
@@ -328,6 +328,7 @@ def crm_volunteer_detail_view(request, pk):
         "active_count": stats["active"],
         "location_freshness": location_freshness_label(profile.location_updated_at) if profile.has_location else None,
         "last_activity": last_activity,
+        "achievement_items": achievements.progress_for(volunteer),
     }
     return render(request, "myapp/crm_volunteer_detail.html", context)
 
@@ -573,6 +574,7 @@ def complete_task_view(request, pk):
         link=reverse("task_detail", args=[task.id]), dedupe_key=f"task_completed:{task.id}",
     )
     feedback.review_request(task)  # "Оцените помощь" prompt to the client
+    achievements.award_safely(request.user, "task_completed")  # never raises
     messages.success(request, "Запрос завершен, рейтинг обновлен.")
     return redirect("task_list")
 
@@ -657,7 +659,9 @@ def _rating_volunteers():
 def rating_view(request):
     # Public page: the top-30 list comes from the shared cache (Redis in prod).
     volunteers = cache.get_or_set(RATING_CACHE_KEY, _rating_volunteers, RATING_TTL)
-    return render(request, "myapp/rating.html", {"volunteers": volunteers})
+    # Up to 3 earned badges per card (one query) — the badge only, no counts.
+    badges = achievements.top_badges([p.user_id for p in volunteers])
+    return render(request, "myapp/rating.html", {"volunteers": volunteers, "badges": badges})
 
 
 # Role-aware starter prompts shown on the empty chat screen. Kept server-side so

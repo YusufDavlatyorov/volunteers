@@ -65,6 +65,25 @@ LABELS = {
         "tj": {"dog": "Саг", "cat": "Гурба", "bird": "Парранда", "other": "Дигар"},
         "en": {"dog": "Dog", "cat": "Cat", "bird": "Bird", "other": "Other"},
     },
+    # Badge titles (milestone 4) — also the ach.<code>.title i18n keys
+    # (services/achievements.py::ui_i18n_keys).
+    "achievement": {
+        "ru": {"first_help": "Первая помощь", "tasks_10": "Надёжная опора", "tasks_50": "Сердце района",
+               "tasks_100": "Сто добрых дел", "kind_words": "Тёплые слова", "trusted": "Доверие клиентов",
+               "steady_helper": "Верный помощник", "year_together": "Год рядом",
+               "versatile": "Мастер на все руки", "donation_courier": "Курьер добра",
+               "pet_friend": "Друг хвостатых", "mentor": "Наставник"},
+        "tj": {"first_help": "Кумаки аввал", "tasks_10": "Такягоҳи боэътимод", "tasks_50": "Дили маҳалла",
+               "tasks_100": "Сад кори нек", "kind_words": "Суханони гарм", "trusted": "Эътимоди мизоҷон",
+               "steady_helper": "Ёвари содиқ", "year_together": "Як сол дар канор",
+               "versatile": "Устои ҳамакора", "donation_courier": "Қосиди некӣ",
+               "pet_friend": "Дӯсти ҳайвонот", "mentor": "Мураббӣ"},
+        "en": {"first_help": "First help", "tasks_10": "Reliable support", "tasks_50": "Heart of the neighbourhood",
+               "tasks_100": "A hundred good deeds", "kind_words": "Kind words", "trusted": "Clients' trust",
+               "steady_helper": "Steady helper", "year_together": "A year by their side",
+               "versatile": "Jack of all trades", "donation_courier": "Courier of kindness",
+               "pet_friend": "Friend of pets", "mentor": "Mentor"},
+    },
 }
 
 _REGION = ("region", "region")
@@ -379,6 +398,14 @@ CHANNEL_TEXTS = {
         "en": ("Chat message reported",
                "A chat participant on request #{task_id} reported message #{message_id}. Please review the chat."),
     },
+    "chat_flagged": {
+        "ru": ("Сообщение в чате стоит проверить",
+               "В чате запроса #{task_id} есть сообщение, которое стоит проверить (#{message_id}). Сообщение доставлено как обычно."),
+        "tj": ("Паём дар чатро бояд санҷид",
+               "Дар чати дархости #{task_id} паёме ҳаст, ки бояд санҷид (#{message_id}). Паём ба таври муқаррарӣ расонида шуд."),
+        "en": ("A chat message may need a look",
+               "The chat of request #{task_id} has a message worth checking (#{message_id}). It was delivered as usual."),
+    },
     "review_received": {
         "ru": ("Новый отзыв", "Вы получили новый отзыв по запросу #{task_id}."),
         "tj": ("Фикри нав", "Шумо оид ба дархости #{task_id} фикри нав гирифтед."),
@@ -406,6 +433,7 @@ CHANNEL_TEXTS = {
                "Your saved location is out of date — update it in your profile; requests are matched by it."),
     },
     "achievement_unlocked": {
+        "maps": {"achievement": ("achievement_code", "achievement")},
         "ru": ("Новое достижение", "Вы получили новое достижение: {achievement}."),
         "tj": ("Дастоварди нав", "Шумо дастоварди нав гирифтед: {achievement}."),
         "en": ("New achievement", "You unlocked a new achievement: {achievement}."),
@@ -644,6 +672,33 @@ INAPP_TEXTS = {
         "ru": ("Жалоба на сообщение", "На сообщение в чате запроса #{task_id} поступила жалоба."),
         "tj": ("Шикоят аз паём", "Аз паём дар чати дархости #{task_id} шикоят расид."),
     },
+    "chat_flagged": {
+        "en": ("Chat: worth a look", "A message in the chat of request #{task_id} may need a look."),
+        "ru": ("Чат: стоит проверить", "Сообщение в чате запроса #{task_id} стоит проверить."),
+        "tj": ("Чат: бояд санҷид", "Паём дар чати дархости #{task_id}-ро бояд санҷид."),
+        "variants": {
+            "sms_code": {
+                "en": ("Chat: an SMS code is mentioned", "Request #{task_id}: a chat message mentions a code from an SMS or a PIN."),
+                "ru": ("Чат: упоминается код из СМС", "Запрос #{task_id}: в чате упоминается код из СМС или ПИН-код."),
+                "tj": ("Чат: коди SMS зикр шудааст", "Дархости #{task_id}: дар чат коди SMS ё рамз зикр шудааст."),
+            },
+            "money": {
+                "en": ("Chat: money is mentioned", "Request #{task_id}: a chat message mentions money, a transfer or a bank card."),
+                "ru": ("Чат: упоминаются деньги", "Запрос #{task_id}: в чате упоминаются деньги, перевод или банковская карта."),
+                "tj": ("Чат: пул зикр шудааст", "Дархости #{task_id}: дар чат пул, интиқол ё корти бонкӣ зикр шудааст."),
+            },
+            "off_platform": {
+                "en": ("Chat: another messenger is suggested", "Request #{task_id}: a chat message suggests moving to another messenger."),
+                "ru": ("Чат: предлагают другой мессенджер", "Запрос #{task_id}: в чате предлагают перейти в другой мессенджер."),
+                "tj": ("Чат: мессенҷери дигар пешниҳод мешавад", "Дархости #{task_id}: дар чат гузаштан ба мессенҷери дигарро пешниҳод мекунанд."),
+            },
+            "phone": {
+                "en": ("Chat: a phone number was shared", "Request #{task_id}: a chat message contains a phone number."),
+                "ru": ("Чат: отправлен номер телефона", "Запрос #{task_id}: в сообщении чата есть номер телефона."),
+                "tj": ("Чат: рақами телефон фиристода шуд", "Дархости #{task_id}: дар паёми чат рақами телефон ҳаст."),
+            },
+        },
+    },
     "review_received": {
         "en": ("New review", "You received a review for request #{task_id}."),
         "ru": ("Новый отзыв", "Вы получили отзыв по запросу #{task_id}."),
@@ -801,6 +856,7 @@ TYPE_LABELS = {
     "tracking_stopped": {"en": "Location sharing stopped", "ru": "Остановка передачи местоположения", "tj": "Қатъи интиқоли ҷойгиршавӣ"},
     "chat_message": {"en": "Chat messages", "ru": "Сообщения в чате", "tj": "Паёмҳои чат"},
     "chat_reported": {"en": "Chat reports", "ru": "Жалобы в чате", "tj": "Шикоятҳо дар чат"},
+    "chat_flagged": {"en": "Chat safety flags", "ru": "Флаги безопасности в чате", "tj": "Аломатҳои бехатарӣ дар чат"},
     "review_received": {"en": "Reviews", "ru": "Отзывы", "tj": "Фикрҳо"},
     "review_low": {"en": "Low ratings", "ru": "Низкие оценки", "tj": "Баҳоҳои паст"},
     "review_request": {"en": "Requests to rate help", "ru": "Просьбы оценить помощь", "tj": "Дархостҳои баҳодиҳӣ"},

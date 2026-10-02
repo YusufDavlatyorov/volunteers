@@ -17,7 +17,7 @@ overdue sweep and accept_task_view use to settle a race.
 
 import logging
 
-from django.db.models import Q
+from django.db.models import F, Q
 from django.utils import timezone
 
 from ..models import STALE_PENDING_THRESHOLD, HelpRequest
@@ -38,6 +38,16 @@ def currently_stale_pending_q():
     dashboard and analytics all test the exact same rule against the one
     threshold — the mirror of ``overdue.currently_overdue_q()``."""
     return Q(status="pending", created_at__lt=timezone.now() - STALE_PENDING_THRESHOLD)
+
+
+def was_stale_q(now=None):
+    """Historical counterpart for the CRM trend charts (services/analytics_v2):
+    a request that waited longer than STALE_PENDING_THRESHOLD for a volunteer —
+    accepted late, or still pending past it. Mirror of ``overdue.was_overdue_q``."""
+    now = now or timezone.now()
+    return Q(accepted_at__gt=F("created_at") + STALE_PENDING_THRESHOLD) | Q(
+        status="pending", created_at__lt=now - STALE_PENDING_THRESHOLD
+    )
 
 
 def _notify_stale(recipients, task):

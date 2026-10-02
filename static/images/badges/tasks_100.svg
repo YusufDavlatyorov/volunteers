@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120" role="img" aria-label="Сто добрых дел">
+<defs>
+<linearGradient id="r" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7fe0d3"/><stop offset="1" stop-color="#2456c6"/></linearGradient>
+<linearGradient id="d" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2456c6"/><stop offset="1" stop-color="#17337f"/></linearGradient>
+</defs>
+<circle cx="60" cy="60" r="57" fill="url(#r)" stroke="#1b2f73" stroke-width="2"/>
+<circle cx="60" cy="60" r="46" fill="url(#d)" stroke="#1b2f73" stroke-opacity=".55" stroke-width="2"/>
+<path d="M17 78 L38 60 L49 69 L64 54 L80 68 L90 61 L103 78 A46 46 0 0 1 17 78 Z" fill="#fff" fill-opacity=".1"/>
+<path d="M22 44 A40 40 0 0 1 98 44" fill="none" stroke="#fff" stroke-opacity=".22" stroke-width="3" stroke-linecap="round"/>
+<path d="M36 80 C26 70 24 54 30 40" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M84 80 C94 70 96 54 90 40" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M29 50 l-7 -3 M28 62 l-8 0 M31 73 l-7 4 M91 50 l7 -3 M92 62 l8 0 M89 73 l7 4" stroke="#fff" stroke-width="4" stroke-linecap="round"/><text x="60" y="68" text-anchor="middle" font-family="Manrope, Inter, Arial, sans-serif" font-weight="800" font-size="24" fill="#fff">100</text>
+<path d="M60 2 L61.6 5.4 L65 7 L61.6 8.6 L60 12 L58.4 8.6 L55 7 L58.4 5.4 Z" fill="#f6dd8c"/><path d="M14 35 L15.6 38.4 L19 40 L15.6 41.6 L14 45 L12.4 41.6 L9 40 L12.4 38.4 Z" fill="#f6dd8c"/><path d="M106 35 L107.6 38.4 L111 40 L107.6 41.6 L106 45 L104.4 41.6 L101 40 L104.4 38.4 Z" fill="#f6dd8c"/>
+</svg>

@@ -192,3 +192,12 @@ urlpatterns += [
     path('chat/messages/<int:message_id>/hide/', chat_message_hide_view, name='chat_message_hide'),
     path('chat/messages/<int:message_id>/image/<str:variant>/', chat_message_image_view, name='chat_message_image'),
 ]
+
+# Feature Pack v2 milestone 4 — CRM analytics (admin + curator)
+from .views_analytics import crm_analytics_csv_view, crm_analytics_heat_view, crm_analytics_view  # noqa: E402
+
+urlpatterns += [
+    path('crm/analytics/', crm_analytics_view, name='crm_analytics'),
+    path('crm/analytics/heat.json', crm_analytics_heat_view, name='crm_analytics_heat'),
+    path('crm/analytics/<slug:name>.csv', crm_analytics_csv_view, name='crm_analytics_csv'),
+]

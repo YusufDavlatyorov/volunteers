@@ -1,6 +1,8 @@
 {% load reviews %}{% comment %}
 One review with its comment — ONLY for viewers allowed to see comments (the
 author, the reviewed volunteer, staff). Params: review, show_task (bool).
+The comment of a 1–2 star review is shown to the author and staff only
+(feedback.can_see_comment); the volunteer gets a short note instead.
 {% endcomment %}
 <article class="review-card{% if review.hidden_at %} review-card--hidden{% endif %}">
     <div class="review-card__head">
@@ -14,5 +16,12 @@ author, the reviewed volunteer, staff). Params: review, show_task (bool).
             {% for tag in review.tags %}<li class="tag info" data-i18n="review.tag.{{ tag }}">{{ tag }}</li>{% endfor %}
         </ul>
     {% endif %}
-    {% if review.comment %}<p class="review-card__comment">{{ review.comment|linebreaksbr }}</p>{% endif %}
+    {% if review.comment %}
+        {% review_comment_visible review as show_comment %}
+        {% if show_comment %}
+            <p class="review-card__comment">{{ review.comment|linebreaksbr }}</p>
+        {% else %}
+            <p class="review-card__comment review-card__comment--withheld field-hint" data-i18n="review.comment_staff_only">The comment on this rating is seen by coordinators only.</p>
+        {% endif %}
+    {% endif %}
 </article>

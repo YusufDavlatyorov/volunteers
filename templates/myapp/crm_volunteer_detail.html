@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load realtime_ui reviews %}
+{% load assets realtime_ui reviews achievements_ui %}
 {% block title %}{{ profile.full_name|default:volunteer.username }} - KhayrKhoh{% endblock %}
 {% block content %}
 <section class="section">
@@ -55,6 +55,8 @@
         </div>
     </div>
 
+    {% if achievement_items %}{% achievement_grid achievement_items own=False %}{% endif %}
+
     <div class="section-head"><h2 data-i18n="crm.recent_tasks">Recent tasks</h2></div>
     {% if recent_tasks %}
         <div class="table-scroll">
@@ -90,3 +92,4 @@
     {% endif %}
 </section>
 {% endblock %}
+{% block extra_js %}<script src="{% asset 'js/achievements.js' %}" defer></script>{% endblock %}

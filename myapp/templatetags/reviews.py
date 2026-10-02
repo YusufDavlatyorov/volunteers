@@ -11,6 +11,9 @@ Load with ``{% load reviews %}``.
   ``entry.review`` (the task's review if this user may see it, else None),
   ``entry.can_review`` (may leave a new one), ``entry.can_edit`` (author,
   inside the edit window), ``entry.url`` (the review page). One query.
+* ``{% review_comment_visible review as show %}`` — may the current user read
+  this review's comment (``feedback.can_see_comment``: a 1–2 star comment is
+  for coordinators, not the volunteer).
 """
 
 from django import template
@@ -55,3 +58,11 @@ def review_entry(context, task):
         entry["review"] = review
         entry["can_edit"] = feedback.can_edit(user, review)
     return entry
+
+
+@register.simple_tag(takes_context=True)
+def review_comment_visible(context, review):
+    from myapp.services import feedback
+
+    request = context.get("request")
+    return feedback.can_see_comment(getattr(request, "user", None), review)
