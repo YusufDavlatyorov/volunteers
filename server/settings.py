@@ -267,6 +267,12 @@ else:
 AVAILABILITY_IDLE_MINUTES = int(os.getenv('AVAILABILITY_IDLE_MINUTES', '30'))
 # In-app notifications older than this are deleted by `prune_notifications`.
 NOTIFICATION_RETENTION_DAYS = int(os.getenv('NOTIFICATION_RETENTION_DAYS', '90'))
+# Chat becomes archived (hidden from lists, kept for staff) this long after the
+# task ended; reviews are editable by the client for this many hours.
+CHAT_ARCHIVE_DAYS = int(os.getenv('CHAT_ARCHIVE_DAYS', '30'))
+REVIEW_EDIT_HOURS = int(os.getenv('REVIEW_EDIT_HOURS', '24'))
+# Volunteers whose saved profile location is older than this get a reminder.
+LOCATION_STALE_DAYS = int(os.getenv('LOCATION_STALE_DAYS', '30'))
 
 LOGIN_URL = 'login'
 # Password validation
@@ -362,6 +368,10 @@ STORAGES = {
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+# Private media (chat photos) are served by a permission-checked view; with
+# this on (production, docker-compose.yml) the view only sets X-Accel-Redirect
+# and nginx streams the file from its `internal` /protected-media/ alias.
+MEDIA_X_ACCEL = env_bool('DJANGO_MEDIA_X_ACCEL', False)
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

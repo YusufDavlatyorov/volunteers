@@ -156,3 +156,40 @@ class VolunteerApplicationAdmin(admin.ModelAdmin):
             notify([application.user], "application_rejected", link=reverse("volunteer_application"))
             rejected += 1
         self.message_user(request, f"Отклонено заявок: {rejected}.")
+
+
+# --------------------------------------------------------------------------- #
+# Client reviews (Feature Pack v2, feature 9)
+# --------------------------------------------------------------------------- #
+from .models import TaskReview  # noqa: E402
+from .services import feedback as feedback_service  # noqa: E402
+
+
+@admin.register(TaskReview)
+class TaskReviewAdmin(admin.ModelAdmin):
+    list_display = ("id", "task", "volunteer", "client", "stars", "hidden_at", "created_at")
+    list_filter = ("stars", ("hidden_at", admin.EmptyFieldListFilter), "created_at")
+    search_fields = ("volunteer__username", "client__username")
+    list_select_related = ("task", "volunteer", "client")
+    # Read-only: stars/comment are the client's words, and a raw edit/delete
+    # would skip the denormalised Profile.review_avg/review_count recompute.
+    # Moderation goes through services.feedback.hide/unhide (the actions below,
+    # or the CRM list at /myapp/crm/reviews/).
+    readonly_fields = tuple(f.name for f in TaskReview._meta.fields)
+    actions = ("hide_reviews", "unhide_reviews")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    @admin.action(description="Hide selected reviews")
+    def hide_reviews(self, request, queryset):
+        done = sum(1 for r in queryset if feedback_service.hide(request.user, r).code == feedback_service.OK)
+        self.message_user(request, f"Скрыто отзывов: {done}.")
+
+    @admin.action(description="Show selected reviews again")
+    def unhide_reviews(self, request, queryset):
+        done = sum(1 for r in queryset if feedback_service.unhide(request.user, r).code == feedback_service.OK)
+        self.message_user(request, f"Снова видимых отзывов: {done}.")

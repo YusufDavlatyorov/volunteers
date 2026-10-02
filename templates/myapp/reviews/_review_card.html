@@ -1,0 +1,18 @@
+{% load reviews %}{% comment %}
+One review with its comment — ONLY for viewers allowed to see comments (the
+author, the reviewed volunteer, staff). Params: review, show_task (bool).
+{% endcomment %}
+<article class="review-card{% if review.hidden_at %} review-card--hidden{% endif %}">
+    <div class="review-card__head">
+        {% review_stars review.stars %}
+        <span class="review-card__date">{{ review.created_at|date:"d.m.Y" }}</span>
+        {% if show_task %}<a href="{% url 'task_detail' review.task_id %}">#{{ review.task_id }} · {{ review.task.get_help_type_display }}</a>{% endif %}
+        {% if review.hidden_at %}<span class="tag muted" data-i18n="review.hidden_tag">Hidden</span>{% endif %}
+    </div>
+    {% if review.tags %}
+        <ul class="review-card__tags">
+            {% for tag in review.tags %}<li class="tag info" data-i18n="review.tag.{{ tag }}">{{ tag }}</li>{% endfor %}
+        </ul>
+    {% endif %}
+    {% if review.comment %}<p class="review-card__comment">{{ review.comment|linebreaksbr }}</p>{% endif %}
+</article>

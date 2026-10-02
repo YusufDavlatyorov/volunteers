@@ -1,0 +1,1 @@
+<span class="review-stars" role="img" aria-label="{{ filled }}/5 ★">{% for i in range %}<span class="review-star{% if i <= filled %} is-filled{% endif %}" aria-hidden="true">{% if i <= filled %}★{% else %}☆{% endif %}</span>{% endfor %}</span>

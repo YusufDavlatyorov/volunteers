@@ -265,6 +265,13 @@ class Profile(models.Model):
     # in-app explanation of who sees their location and when. Null = not asked
     # yet / declined — tasks still work, just without live location.
     tracking_consent_at = models.DateTimeField(null=True, blank=True)
+    # Reviews (myapp/services/feedback.py keeps these in sync): the average of
+    # visible reviews received, for public cards — comments are never public.
+    review_avg = models.DecimalField(max_digits=3, decimal_places=2, null=True, blank=True)
+    review_count = models.PositiveIntegerField(default=0)
+    # Last "your saved location is old" reminder (idempotency for
+    # `remind_stale_locations`); the saved point is what matching uses.
+    location_reminded_at = models.DateTimeField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

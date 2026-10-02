@@ -17,7 +17,7 @@ from django.utils import timezone
 from accounts.models import Profile
 
 from ..models import Donation, EmergencyReport, Event, HelpRequest, PetReport, VolunteerApplication
-from . import analytics, donations, emergency, matching, overdue, pets, stale
+from . import analytics, chat, donations, emergency, feedback, matching, overdue, pets, stale
 
 EVENTS_LIMIT = 3
 LIST_LIMIT = 5
@@ -32,14 +32,18 @@ def _upcoming_events(region):
 
 
 def _public_volunteer(volunteer):
-    """The only volunteer data a client is allowed to see: a display name and a
-    region. Never phone / email / rating / other tasks."""
+    """The only volunteer data a client is allowed to see: a display name, a
+    region and the public review average/count (``feedback.public_summary`` —
+    never comments). Never phone / email / points rating / other tasks."""
     if volunteer is None:
         return None
     profile = getattr(volunteer, "profile", None)
+    reviews = feedback.public_summary(profile)
     return {
         "name": (profile.full_name if profile and profile.full_name else volunteer.username),
         "region": volunteer.get_region_display() or "",
+        "review_avg": reviews["avg"],
+        "review_count": reviews["count"],
     }
 
 
@@ -66,6 +70,8 @@ def _volunteer(user):
     return {
         "dash_role": "volunteer",
         "active_task": active_task,
+        # Unread chat messages on the active task (one query; {} without one).
+        "chat_unread": chat.unread_counts(user, [active_task.pk]) if active_task else {},
         "active_task_emergency": active_task_emergency,
         "vol_completed": counts["completed"],
         "vol_completed_month": counts["completed_month"],
@@ -100,6 +106,11 @@ def _client(user):
         "dash_role": "client",
         "client_current": current,
         "client_current_volunteer": _public_volunteer(current.volunteer) if current else None,
+        # {task_id: unread chat messages} for every listed request — ONE query
+        # however many requests the client has (chat.unread_counts).
+        "chat_unread": chat.unread_counts(
+            user, [r.pk for r in active + completed[:LIST_LIMIT] if r.volunteer_id]
+        ),
         "client_active": active,
         "client_completed": completed[:LIST_LIMIT],
         "client_total": len(requests),

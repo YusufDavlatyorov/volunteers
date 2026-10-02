@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load static assets %}
+{% load static assets chat_ui reviews %}
 {% block title %}{{ task.get_help_type_display }} - KhayrKhoh{% endblock %}
 {% block extra_css %}
 <link rel="stylesheet" href="{% asset 'css/task-detail.css' %}">
@@ -85,6 +85,37 @@
                     </form>
                     {% endif %}
                 </div>
+                {% endif %}
+            {% endif %}
+            {% if chat_readable %}
+                {# Chat entry (feature 8): parties + staff while the chat is readable; badge = unread. #}
+                <div class="task-connect">
+                    <p class="field-hint" data-i18n="{% if task.status == 'active' %}chatpage.card_hint{% else %}chatpage.card_hint_ended{% endif %}">{% if task.status == 'active' %}Write to the volunteer or the client here. Curators can read the chat for safety.{% else %}The request is finished — you can still read the chat.{% endif %}</p>
+                    {% chat_button task chat_unread "primary" %}
+                </div>
+            {% endif %}
+            {% if task.status == "completed" %}{% review_entry task as rv %}
+                {% if rv.can_review %}
+                    <div class="review-cta" id="reviewCta">
+                        <div class="review-cta__text">
+                            <strong data-i18n="review.title_new">Rate the help</strong>
+                            <p data-i18n="review.cta_hint">The request is completed. Please rate how the volunteer helped.</p>
+                        </div>
+                        <a class="button primary" href="{{ rv.url }}" data-i18n="review.title_new">Rate the help</a>
+                    </div>
+                {% elif rv.review %}
+                    <div class="review-cta review-cta--done" id="reviewCta">
+                        <div class="review-cta__text">
+                            <strong data-i18n="{% if rv.review.client_id == user.pk %}review.yours{% else %}review.client_review{% endif %}">Review</strong>
+                            {% include "myapp/reviews/_review_card.html" with review=rv.review show_task=False %}
+                            {% if rv.can_edit %}<p class="field-hint" data-i18n="review.edit_hint">You can change your review within 24 hours.</p>{% endif %}
+                        </div>
+                        {% if rv.can_edit %}
+                            <a class="button ghost" href="{{ rv.url }}" data-i18n="review.title_edit">Edit your review</a>
+                        {% elif rv.review.client_id == user.pk or user.is_superuser or user.is_curator %}
+                            <a class="button ghost" href="{{ rv.url }}" data-i18n="review.view">View review</a>
+                        {% endif %}
+                    </div>
                 {% endif %}
             {% endif %}
             {% if task.status == "cancelled" %}

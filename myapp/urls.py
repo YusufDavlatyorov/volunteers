@@ -159,3 +159,36 @@ urlpatterns = [
     path('notifications/<int:pk>/read/', notification_read_view, name='notification_read'),
     path('realtime/poll/', realtime_poll_view, name='realtime_poll'),
 ]
+
+# Client reviews (Feature Pack v2, feature 9) — myapp/views_feedback.py
+from .views_feedback import crm_reviews_view, my_reviews_view, review_hide_view, task_review_view  # noqa: E402
+
+urlpatterns += [
+    path('tasks/<int:pk>/review/', task_review_view, name='task_review'),
+    path('reviews/mine/', my_reviews_view, name='my_reviews'),
+    path('reviews/<int:pk>/hide/', review_hide_view, name='review_hide'),
+    path('crm/reviews/', crm_reviews_view, name='crm_reviews'),
+]
+
+# Client <-> volunteer chat (Feature Pack v2, feature 8) — myapp/views_chat.py
+from .views_chat import (  # noqa: E402
+    chat_message_hide_view,
+    chat_message_image_view,
+    chat_message_report_view,
+    task_chat_messages_view,
+    task_chat_read_view,
+    task_chat_send_view,
+    task_chat_upload_view,
+    task_chat_view,
+)
+
+urlpatterns += [
+    path('tasks/<int:pk>/chat/', task_chat_view, name='task_chat'),
+    path('tasks/<int:pk>/chat/messages/', task_chat_messages_view, name='task_chat_messages'),
+    path('tasks/<int:pk>/chat/send/', task_chat_send_view, name='task_chat_send'),
+    path('tasks/<int:pk>/chat/upload/', task_chat_upload_view, name='task_chat_upload'),
+    path('tasks/<int:pk>/chat/read/', task_chat_read_view, name='task_chat_read'),
+    path('chat/messages/<int:message_id>/report/', chat_message_report_view, name='chat_message_report'),
+    path('chat/messages/<int:message_id>/hide/', chat_message_hide_view, name='chat_message_hide'),
+    path('chat/messages/<int:message_id>/image/<str:variant>/', chat_message_image_view, name='chat_message_image'),
+]

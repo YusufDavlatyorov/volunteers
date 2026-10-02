@@ -10,6 +10,7 @@
         <a class="button ghost" href="{% url 'create_event' %}" data-i18n="admin.create_event">Create Event</a>
         <a class="button ghost" href="{% url 'photo_reports' %}" data-i18n="admin.photo_reports">Photo Reports</a>
         <a class="button ghost" href="{% url 'rating' %}" data-i18n="admin.rating">Rating</a>
+        <a class="button ghost" href="{% url 'crm_reviews' %}" data-i18n="review.crm_title">Reviews</a>
         <form method="post" action="{% url 'check_overdue' %}" class="inline-form">
             {% csrf_token %}
             <button type="submit" class="button ghost" data-i18n="admin.check">Check Overdue</button>

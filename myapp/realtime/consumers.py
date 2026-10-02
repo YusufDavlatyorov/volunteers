@@ -15,7 +15,14 @@ Protocol: ``docs/WS_PROTOCOL.md``. Rules:
   socket right before they are sent (``DELIVERY_GUARDS``) — membership of a
   group is not enough, because a task's parties change (accept / complete /
   cancel) while sockets stay subscribed. Decisions are cached per socket per
-  task and dropped on every ``task.updated`` for that task;
+  task (at most ``GUARD_TTL_SECONDS``) and dropped on every ``task.updated``
+  for that task;
+* **chat** (milestone 3): ``chat.send`` / ``chat.typing`` / ``chat.read`` call
+  ``services/chat.py`` (which re-checks ``access.can_write_chat`` /
+  ``can_read_chat`` on a fresh task row); every outbound ``chat.*`` event is
+  guarded by ``can_read_chat`` and then personalised per socket
+  (``DELIVERY_TRANSFORMS`` → ``events.for_viewer``: ``mine``, a curator's
+  real name only for staff sockets, hidden bodies only for staff);
 * the socket's user is re-read from the DB at most every
   ``USER_RECHECK_SECONDS`` (checked on every inbound frame — the 25 s
   heartbeat included — and every outbound event): deactivated → close 4401; lost staff role → leave staff groups.
@@ -34,14 +41,18 @@ from .groups import MAP_STAFF_GROUP, STAFF_GROUP, task_group, user_group
 logger = logging.getLogger(__name__)
 
 MAX_TASK_SUBSCRIPTIONS = 20
-# Inbound types that later milestones implement (chat). Until then they are
-# rate-limited like the rest and answered with error "unsupported".
-FUTURE_TYPES = {"chat.send", "chat.typing", "chat.read"}
+# Inbound types a later milestone implements: rate-limited like the rest and
+# answered with error "unsupported" until then.
+FUTURE_TYPES = set()
 # How stale the socket's copy of the user may get (deactivation, role change).
 USER_RECHECK_SECONDS = 60
 # Per-socket guard decisions kept at most (staff see markers of many tasks).
 MAX_GUARD_CACHE = 256
-_TASK_FIELDS = ("id", "client_id", "volunteer_id", "status", "region")
+# A cached guard decision is re-evaluated after this long even without a
+# task.updated (e.g. a chat that became archived, a socket not subscribed).
+GUARD_TTL_SECONDS = 120
+_TASK_FIELDS = ("id", "client_id", "volunteer_id", "status", "region",
+                "completed_at", "cancelled_at", "updated_at")
 
 
 def _positive_int(raw):
@@ -140,6 +151,57 @@ def _accept_point(user, task_id, lat, lng, accuracy, speed, heading):
     )
 
 
+def _chat():
+    from ..services import chat
+
+    return chat
+
+
+def _load_chat_task(task_id):
+    from ..models import HelpRequest
+
+    return HelpRequest.objects.filter(pk=task_id).first()
+
+
+@database_sync_to_async
+def _chat_send(user, task_id, text, client_msg_id):
+    """→ (code, message_id). A missing task is ``forbidden`` (no oracle)."""
+    task = _load_chat_task(task_id)
+    if task is None:
+        return events.ERR_FORBIDDEN, None
+    outcome = _chat().send_message(user, task, text=text, client_msg_id=client_msg_id)
+    if not outcome.ok:
+        return outcome.code, None
+    return "ok", outcome.message.pk
+
+
+@database_sync_to_async
+def _chat_typing(user, task_id):
+    """→ the internal ``chat.typing`` payload, or None when the user may not
+    write in this chat (typing is only meaningful where one can write)."""
+    from ..services import access
+
+    task = _load_chat_task(task_id)
+    if task is None or not access.can_write_chat(user, task):
+        return None
+    chat = _chat()
+    staff = access.is_staff_user(user)
+    real = chat.display_name(user)
+    public = events.chat_typing_payload(task.pk, chat.STAFF_LABEL if staff else real)
+    return events.chat_internal(public, sender_id=user.pk, staff={"sender_display": real}, skip_self=True)
+
+
+@database_sync_to_async
+def _chat_read(user, task_id, last_id):
+    """→ (ok, cursor). ``mark_read`` publishes ``chat.read`` itself."""
+    from ..services import access
+
+    task = _load_chat_task(task_id)
+    if task is None or not access.can_read_chat(user, task):
+        return False, None
+    return True, _chat().mark_read(user, task, last_id)
+
+
 @database_sync_to_async
 def _stop_tracking(user, task_id):
     """Only the task's assigned volunteer may stop sharing. Returns an error
@@ -218,14 +280,31 @@ class StaffGuard:
         return True
 
 
+def can_read_chat(user, task):
+    from ..services import access
+
+    return access.can_read_chat(user, task)
+
+
 LOCATION_GUARD = TaskGuard("location", can_see_location)
+CHAT_GUARD = TaskGuard("chat", can_read_chat)
 
 # event type -> async guard(consumer, payload) -> bool. Unlisted types pass.
 DELIVERY_GUARDS = {
     events.LOCATION_UPDATED: LOCATION_GUARD,
     events.TRACKING_STOPPED: TaskGuard("location_party", was_location_party),
     events.MAP_MARKER: StaffGuard(task_guard=LOCATION_GUARD),
+    **{event_type: CHAT_GUARD for event_type in events.CHAT_EVENTS},
 }
+
+
+def _personalise_chat(consumer, payload):
+    return events.for_viewer(payload, consumer.user.pk, consumer.is_staff)
+
+
+# event type -> transform(consumer, payload) -> payload | None (None = drop).
+# Runs after the guard; per-viewer shapes (chat) are made here.
+DELIVERY_TRANSFORMS = {event_type: _personalise_chat for event_type in events.CHAT_EVENTS}
 
 
 # ------------------------------------------------------------------ consumer
@@ -306,11 +385,14 @@ class RealtimeConsumer(AsyncJsonWebsocketConsumer):
 
     async def task_permission(self, name, task_id, predicate):
         key = (name, task_id)
-        if key not in self.guard_cache:
+        now = time.monotonic()
+        cached = self.guard_cache.get(key)
+        if cached is None or now - cached[1] > GUARD_TTL_SECONDS:
             if len(self.guard_cache) >= MAX_GUARD_CACHE:
                 self.guard_cache = {}
-            self.guard_cache[key] = await _task_check(self.user, task_id, predicate)
-        return self.guard_cache[key]
+            cached = (await _task_check(self.user, task_id, predicate), now)
+            self.guard_cache[key] = cached
+        return cached[0]
 
     def invalidate_task(self, task_id):
         self.guard_cache = {k: v for k, v in self.guard_cache.items() if k[1] != task_id}
@@ -488,6 +570,61 @@ class RealtimeConsumer(AsyncJsonWebsocketConsumer):
             return
         await self.send_json(events.ack("tracking.stop", task_id, "ok", ref))
 
+    # ---------------------------------------------------------------- chat
+
+    async def on_chat_send(self, payload, ref):
+        """``{task_id, text, client_msg_id}`` → chat.send_message. Reply
+        ``ack {for: "chat.send", task_id, code, client_msg_id, id}`` or
+        ``error {code}``; the message itself arrives as ``chat.message`` on
+        the task group (this socket included, ``mine: true``)."""
+        task_id = _positive_int(payload.get("task_id"))
+        text = payload.get("text")
+        client_msg_id = payload.get("client_msg_id") or ""
+        if task_id is None or not isinstance(text, str) or not isinstance(client_msg_id, str):
+            await self.send_json(events.error(events.ERR_BAD_REQUEST, ref))
+            return
+        try:
+            code, message_id = await _chat_send(self.user, task_id, text, client_msg_id)
+        except Exception:  # noqa: BLE001 — one bad message must not kill the socket
+            logger.exception("ws: chat.send failed user #%s task #%s", self.user.pk, task_id)
+            await self.send_json(events.error(events.ERR_SERVER, ref))
+            return
+        if code != "ok":
+            await self.send_json(events.error(code if code in events.CHAT_ERROR_CODES else events.ERR_FORBIDDEN, ref))
+            return
+        await self.send_json(events.ack("chat.send", task_id, "ok", ref,
+                                        client_msg_id=client_msg_id, id=message_id))
+
+    async def on_chat_typing(self, payload, ref):
+        """``{task_id}`` → ``chat.typing {task_id, sender_display}`` to the
+        task group, except this user's own sockets. No reply on success."""
+        task_id = _positive_int(payload.get("task_id"))
+        if task_id is None:
+            await self.send_json(events.error(events.ERR_BAD_REQUEST, ref))
+            return
+        internal = await _chat_typing(self.user, task_id)
+        if internal is None:
+            await self.send_json(events.error(events.ERR_FORBIDDEN, ref))
+            return
+        await self.channel_layer.group_send(
+            task_group(task_id),
+            {"type": "realtime.event", "event": events.envelope(events.CHAT_TYPING, internal)},
+        )
+
+    async def on_chat_read(self, payload, ref):
+        """``{task_id, last_id}`` → chat.mark_read (monotonic; publishes
+        ``chat.read`` to the group on a change). Reply ``ack {last_id}``."""
+        task_id = _positive_int(payload.get("task_id"))
+        last_id = _positive_int(payload.get("last_id"))
+        if task_id is None or last_id is None:
+            await self.send_json(events.error(events.ERR_BAD_REQUEST, ref))
+            return
+        ok, cursor = await _chat_read(self.user, task_id, last_id)
+        if not ok:
+            await self.send_json(events.error(events.ERR_FORBIDDEN, ref))
+            return
+        await self.send_json(events.ack("chat.read", task_id, "ok", ref, last_id=cursor))
+
     @staticmethod
     def _task_id(payload):
         if payload.get("topic") != "task":
@@ -502,6 +639,9 @@ class RealtimeConsumer(AsyncJsonWebsocketConsumer):
         "notification.read": on_notification_read,
         "location.update": on_location_update,
         "tracking.stop": on_tracking_stop,
+        "chat.send": on_chat_send,
+        "chat.typing": on_chat_typing,
+        "chat.read": on_chat_read,
     }
 
     # ------------------------------------------------------------ outbound
@@ -520,6 +660,12 @@ class RealtimeConsumer(AsyncJsonWebsocketConsumer):
         guard = DELIVERY_GUARDS.get(event_type)
         if guard is not None and not await guard(self, payload):
             return
+        transform = DELIVERY_TRANSFORMS.get(event_type)
+        if transform is not None:
+            shaped = transform(self, payload)
+            if shaped is None:
+                return
+            event = {**event, "payload": shaped}
         await self.send_json(event)
         if event_type == events.TASK_UPDATED:
             task_id = _positive_int(payload.get("task_id"))

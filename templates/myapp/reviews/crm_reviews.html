@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% load reviews %}
+{% block title %}Reviews - KhayrKhoh{% endblock %}
+{% block content %}
+<section class="section section-xl">
+    {% url 'admin_panel' as admin_panel_url %}
+    {% include "partials/_page_header.html" with title="Reviews" title_i18n="review.crm_title" lede="Client ratings of completed requests. Hide abusive reviews — they stop counting in the average." lede_i18n="review.crm_lede" action_url=admin_panel_url action_label="Back to dashboard" action_i18n="crm.back_dashboard" action_class="ghost" %}
+
+    <div class="tab-bar">
+        <a href="{% url 'crm_reviews' %}" {% if not low_filter and not hidden_filter %}aria-current="page"{% endif %} data-i18n="va.filter_all">All</a>
+        <a href="{% url 'crm_reviews' %}?low=1" {% if low_filter and not hidden_filter %}aria-current="page"{% endif %} data-i18n="review.filter_low">Low ratings (≤ 2)</a>
+        <a href="{% url 'crm_reviews' %}?hidden=1" {% if hidden_filter == "1" and not low_filter %}aria-current="page"{% endif %} data-i18n="review.filter_hidden">Hidden</a>
+        <a href="{% url 'crm_reviews' %}?hidden=0" {% if hidden_filter == "0" and not low_filter %}aria-current="page"{% endif %} data-i18n="review.filter_visible">Visible</a>
+    </div>
+
+    {% if page_obj.object_list %}
+        <div class="table-scroll">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th data-i18n="review.col_stars">Rating</th>
+                        <th data-i18n="tbl.task">Task</th>
+                        <th data-i18n="tbl.volunteer">Volunteer</th>
+                        <th data-i18n="tbl.client">Client</th>
+                        <th data-i18n="review.col_comment">Comment</th>
+                        <th data-i18n="tbl.created">Created</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for review in page_obj %}
+                    <tr {% if review.stars <= low_stars and not review.hidden_at %}class="row-alert"{% endif %}>
+                        <td data-label="Rating">
+                            {% review_stars review.stars %}
+                            {% if review.hidden_at %}<span class="tag muted" data-i18n="review.hidden_tag">Hidden</span>{% endif %}
+                        </td>
+                        <td data-label="Task"><a href="{% url 'task_detail' review.task_id %}">#{{ review.task_id }} · {{ review.task.get_help_type_display }}</a></td>
+                        <td data-label="Volunteer"><a href="{% url 'crm_volunteer_detail' review.volunteer_id %}">{{ review.volunteer.username }}</a></td>
+                        <td data-label="Client">{{ review.client.username }}</td>
+                        <td data-label="Comment">
+                            {% if review.tags %}<span class="cell-sub">{% for tag in review.tags %}<span data-i18n="review.tag.{{ tag }}">{{ tag }}</span>{% if not forloop.last %}, {% endif %}{% endfor %}</span>{% endif %}
+                            {% if review.comment %}<p class="clamp-text">{{ review.comment }}</p>{% endif %}
+                        </td>
+                        <td data-label="Created" class="col-num">{{ review.created_at|date:"d M, H:i" }}</td>
+                        <td data-label="" class="col-actions">
+                            <a class="button ghost" href="{% url 'task_review' review.task_id %}" data-i18n="task.details">Details</a>
+                            <form method="post" action="{% url 'review_hide' review.pk %}">
+                                {% csrf_token %}
+                                <input type="hidden" name="next" value="{{ current_url }}">
+                                {% if review.hidden_at %}
+                                    <button class="button ghost" type="submit" name="action" value="unhide" data-i18n="review.unhide">Show again</button>
+                                {% else %}
+                                    <button class="button danger" type="submit" name="action" value="hide" data-i18n="review.hide">Hide review</button>
+                                {% endif %}
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% include "myapp/_pagination.html" with page_obj=page_obj querystring=querystring %}
+    {% else %}
+        <div class="empty-state">
+            <strong data-i18n="va.empty_title">Nothing here</strong>
+            <p data-i18n="review.crm_empty">No reviews match these filters.</p>
+        </div>
+    {% endif %}
+</section>
+{% endblock %}

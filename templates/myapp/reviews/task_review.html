@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% load reviews %}
+{% block title %}Review - KhayrKhoh{% endblock %}
+{% block content %}
+<section class="section">
+    {% url 'task_detail' task.pk as task_url %}
+    {% if can_write and not is_edit %}
+        {% include "partials/_page_header.html" with title="Rate the help" title_i18n="review.title_new" lede="Your rating helps us thank volunteers and improve our help." lede_i18n="review.lede" action_url=task_url action_label="Back to request" action_i18n="review.back_to_task" action_class="ghost" %}
+    {% elif can_write %}
+        {% include "partials/_page_header.html" with title="Edit your review" title_i18n="review.title_edit" lede="Your rating helps us thank volunteers and improve our help." lede_i18n="review.lede" action_url=task_url action_label="Back to request" action_i18n="review.back_to_task" action_class="ghost" %}
+    {% else %}
+        {% include "partials/_page_header.html" with title="Review" title_i18n="review.title_view" action_url=task_url action_label="Back to request" action_i18n="review.back_to_task" action_class="ghost" %}
+    {% endif %}
+
+    <div class="card">
+        <p class="meta-label"><span data-i18n="tbl.task">Task</span> #{{ task.pk }} · {{ task.get_help_type_display }}</p>
+        {% if task.volunteer %}
+            <p><span data-i18n="tbl.volunteer">Volunteer</span>: <strong>{{ task.volunteer.profile.full_name|default:task.volunteer.username }}</strong></p>
+        {% endif %}
+
+        {% if can_write %}
+            <form method="post" class="review-form" novalidate>
+                {% csrf_token %}
+                {% if error_code %}
+                    <p class="field-error" role="alert" data-i18n="review.err.{{ error_code }}">Please check the form.</p>
+                {% endif %}
+
+                <fieldset class="review-stars-input field-group" aria-required="true">
+                    <legend data-i18n="review.stars_label">How would you rate the help?</legend>
+                    <p class="field-hint" id="reviewStarsHint" data-i18n="review.stars_hint">Tap the number of stars (or use the arrow keys).</p>
+                    <div class="review-stars-input__options">
+                        {% for n in star_choices %}
+                            <div class="review-stars-input__option">
+                                <input type="radio" name="stars" id="reviewStars{{ n }}" value="{{ n }}" required {% if form_values.stars == n %}checked{% endif %}>
+                                <label for="reviewStars{{ n }}">
+                                    <span class="review-star" aria-hidden="true">★</span>
+                                    <span class="review-stars-input__num" aria-hidden="true">{{ n }}</span>
+                                    <span class="visually-hidden" data-i18n="review.star_{{ n }}" data-i18n-args="{&quot;n&quot;: {{ n }}}">{{ n }} из 5</span>
+                                </label>
+                            </div>
+                        {% endfor %}
+                    </div>
+                </fieldset>
+
+                <fieldset class="field-group review-tags-input">
+                    <legend data-i18n="review.tags_label">What went well? (optional)</legend>
+                    <ul>
+                        {% for tag in review_tags %}
+                            <li>
+                                <input class="review-chip__input" type="checkbox" name="tags" id="reviewTag{{ tag }}" value="{{ tag }}" {% if tag in form_values.tags %}checked{% endif %}>
+                                <label class="review-chip" for="reviewTag{{ tag }}">
+                                    <svg class="review-chip__tick" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>
+                                    <span data-i18n="review.tag.{{ tag }}">{{ tag }}</span>
+                                </label>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                </fieldset>
+
+                <div class="field-group">
+                    <label for="reviewComment" data-i18n="review.comment_label">Comment (optional)</label>
+                    <textarea id="reviewComment" name="comment" rows="4" maxlength="{{ comment_max }}" class="control" data-i18n-ph="review.comment_ph" placeholder="What would you like to say to the volunteer?">{{ form_values.comment }}</textarea>
+                    <span class="field-hint" data-i18n="review.comment_hint">Only the volunteer and coordinators see your comment.</span>
+                </div>
+
+                {% if is_edit and edit_deadline %}
+                    <p class="field-hint"><span data-i18n="review.editable_until">You can edit your review until</span> {{ edit_deadline|date:"d.m.Y H:i" }}</p>
+                {% endif %}
+
+                <div class="button-row">
+                    <button class="button primary" type="submit" data-i18n="{% if is_edit %}review.save{% else %}review.submit{% endif %}">{% if is_edit %}Save changes{% else %}Send review{% endif %}</button>
+                    <a class="button ghost" href="{{ task_url }}" data-i18n="review.back_to_task">Back to request</a>
+                </div>
+            </form>
+        {% elif review %}
+            {% include "myapp/reviews/_review_card.html" with review=review show_task=False %}
+            {% if review.client_id == request.user.pk %}
+                <p class="field-hint" data-i18n="review.edit_closed">The edit period for this review has ended.</p>
+            {% endif %}
+            {% if is_staff_viewer %}
+                <form method="post" action="{% url 'review_hide' review.pk %}" class="button-row">
+                    {% csrf_token %}
+                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                    {% if review.hidden_at %}
+                        <button class="button ghost" type="submit" name="action" value="unhide" data-i18n="review.unhide">Show again</button>
+                    {% else %}
+                        <button class="button danger" type="submit" name="action" value="hide" data-i18n="review.hide">Hide review</button>
+                    {% endif %}
+                </form>
+            {% endif %}
+        {% endif %}
+    </div>
+</section>
+{% endblock %}

@@ -1,5 +1,5 @@
 {% comment %}Volunteer dashboard — "what do I need to do right now?". Context from services.dashboard._volunteer.{% endcomment %}
-{% load realtime_ui %}
+{% load realtime_ui chat_ui reviews %}
 {% if profile.is_away_now %}
     {% with last_day=profile.away_until|away_last_day %}
     <div class="away-banner reveal" role="status">
@@ -16,6 +16,11 @@
     <div class="card stat-card"><span class="metric">{{ vol_completed }}</span><p data-i18n="dash.tasks_completed">Tasks completed</p></div>
     <div class="card stat-card"><span class="metric">{{ vol_completed_month }}</span><p data-i18n="dash.this_month">This month</p></div>
     <div class="card stat-card"><span class="metric">{{ vol_points }}</span><p data-i18n="profile.rating_pts">rating points</p></div>
+    {# Client reviews (feature 9): public average + count; the comments are on "My reviews". #}
+    <a class="card stat-card review-tile" href="{% url 'my_reviews' %}">
+        <span class="metric">{% if profile.review_count %}{{ profile.review_avg|floatformat:1 }}{% else %}—{% endif %}</span>
+        <p><span data-i18n="review.average">Average rating</span>{% if profile.review_count %}<span class="review-tile__stars">{% review_stars profile.review_avg %} <span class="review-summary__count">({{ profile.review_count }})</span></span>{% endif %}</p>
+    </a>
 </div>
 
 {% if active_task %}
@@ -28,6 +33,7 @@
         </p>
         <div class="button-row">
             <a class="button primary" href="{% url 'task_detail' active_task.id %}" data-i18n="dash.view_task">View Task</a>
+            {% if active_task|chat_readable:user %}{% chat_button active_task chat_unread|unread_for:active_task.id %}{% endif %}
         </div>
         {% if active_task_emergency %}
             <div class="emergency-notice">

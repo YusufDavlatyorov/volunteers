@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% load assets reviews %}
+{% block title %}Чат по запросу #{{ task.pk }} - KhayrKhoh{% endblock %}
+{# Android Chrome: the on-screen keyboard shrinks the layout viewport, so the full-height chat (100dvh) stays above it. #}
+{% block viewport %}<meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">{% endblock %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% asset 'css/chat.css' %}">
+{% endblock %}
+{% block content %}
+{% comment %}
+Task chat (feature 8). static/js/chat.js drives it (WS + 10 s polling fallback);
+without JS every action still works as a plain POST form. Message text is plain
+text only — never auto-linked. Data hooks: see the header of chat.js.
+{% endcomment %}
+<section class="section chat-page">
+    {% url 'task_detail' task.pk as task_url %}
+    <header class="chat-head">
+        <a class="button ghost chat-head__back" href="{{ task_url }}">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg>
+            <span data-i18n="chat.back_to_task">Back to the request</span>
+        </a>
+        <div class="chat-head__text">
+            <h1><span data-i18n="chat.title">Chat</span> · #{{ task.pk }}</h1>
+            <p class="chat-head__sub">{{ task.get_help_type_display }}{% if task.get_region_display %} · {{ task.get_region_display }}{% endif %}</p>
+        </div>
+    </header>
+
+    {% url 'chat_message_report' 0 as report_url %}{% url 'chat_message_hide' 0 as hide_url %}
+    <div class="chat card" data-chat
+         data-task-id="{{ task.pk }}"
+         data-me="{{ request.user.pk }}"
+         data-is-staff="{{ is_staff|yesno:'1,0' }}"
+         data-can-write="{{ can_write|yesno:'1,0' }}"
+         data-max-length="{{ max_length }}"
+         data-my-last-read="{{ page.my_last_read_id }}"
+         data-peer-read="{{ peer_read }}"
+         data-cursor="{{ page.cursor|default_if_none:'' }}"
+         data-has-more="{{ page.has_more|yesno:'1,0' }}"
+         data-history-url="{% url 'task_chat_messages' task.pk %}"
+         data-send-url="{% url 'task_chat_send' task.pk %}"
+         data-upload-url="{% url 'task_chat_upload' task.pk %}"
+         data-read-url="{% url 'task_chat_read' task.pk %}"
+         data-report-url="{{ report_url }}"
+         data-hide-url="{{ hide_url }}"{% if request.user.pk == task.client_id %}
+         data-review-url="{% url 'task_review' task.pk %}"{% endif %}>
+
+        <div class="chat__bar">
+            <button type="button" class="chat__large" data-chat-large aria-pressed="false">
+                <span class="chat__large-icon" aria-hidden="true">Aa</span>
+                <span data-i18n="chat.large_text">Large text</span>
+            </button>
+            <p class="chat__mode" data-chat-mode role="status" hidden data-i18n="chatpage.mode_poll">Weak connection — new messages are checked every 10 seconds.</p>
+        </div>
+
+        {% if page.archived %}
+            <p class="chat__notice" data-chat-notice><span data-i18n="chat.archived">This chat is archived.</span></p>
+        {% elif not can_write %}
+            <p class="chat__notice" data-chat-notice>
+                <span data-i18n="chat.read_only">The request is finished — the chat is read-only.</span>
+                {% if ended and request.user.pk == task.client_id %}{% review_entry task as review %}{% if review.can_review or review.can_edit or review.review %}
+                    <a class="button primary chat__review" href="{{ review.url }}" data-i18n="{% if review.can_review %}review.title_new{% elif review.can_edit %}review.title_edit{% else %}review.yours{% endif %}">Rate the help</a>
+                {% endif %}{% endif %}
+            </p>
+        {% endif %}
+
+        <div class="chat__scroll" data-chat-scroll tabindex="0" aria-labelledby="chatLogLabel">
+            <span id="chatLogLabel" class="visually-hidden" data-i18n="chat.title">Chat</span>
+            {% if page.has_more %}<button type="button" class="chat__older button ghost" data-chat-older data-i18n="chat.load_older">Show earlier messages</button>{% endif %}
+            <ol class="chat-log" data-chat-log role="log" aria-live="polite">
+                {% for row in rows %}{% with m=row.p %}
+                <li class="chat-msg{% if m.kind == 'system' %} is-system{% elif m.mine %} is-mine{% else %} is-theirs{% endif %}{% if m.is_staff_post %} is-staff{% endif %}{% if m.hidden %} is-hidden{% endif %}" data-msg-id="{{ m.id }}">
+                    {% if m.kind == 'system' %}
+                        <p class="chat-msg__system" data-i18n="{{ m.body }}">{{ m.body }}</p>
+                    {% else %}
+                    <div class="chat-msg__bubble">
+                        {% if not m.mine %}
+                            <p class="chat-msg__who">{% if m.label_key %}<span data-i18n="{{ m.label_key }}">{{ m.sender_display }}</span>{% if is_staff and m.is_staff_post %} <span class="chat-msg__real">· {{ m.sender_display }}</span>{% endif %}{% else %}{{ m.sender_display }}{% endif %}</p>
+                        {% elif is_staff and m.is_staff_post %}
+                            <p class="chat-msg__who"><span data-i18n="chat.staff_label">Curator</span></p>
+                        {% endif %}
+                        {% if m.hidden and not is_staff %}
+                            <p class="chat-msg__body chat-msg__stub" data-i18n="chat.hidden_stub">Message hidden by a moderator.</p>
+                        {% else %}
+                            {% if m.hidden %}<span class="tag muted" data-i18n="chat.hidden_tag">Hidden</span>{% endif %}
+                            {% if m.image_url %}<a class="chat-msg__photo" href="{{ m.image_url }}" target="_blank" rel="noopener" aria-label="Открыть фото целиком" data-photo-link><img class="chat-msg__img" src="{{ m.thumb_url|default:m.image_url }}" alt="Фото из чата" width="320" height="240" loading="lazy" decoding="async"></a>{% endif %}
+                            {% if m.body %}<p class="chat-msg__body">{{ m.body }}</p>{% endif %}
+                        {% endif %}
+                        <p class="chat-msg__meta"><time datetime="{{ m.created_at }}">{{ row.time|date:"d.m H:i" }}</time>{% if m.mine %}<span class="chat-msg__seen" data-seen></span>{% endif %}</p>
+                    </div>
+                    {% if is_staff or not m.mine and not m.hidden %}
+                    <div class="chat-msg__actions">
+                        {% if not m.mine and not is_staff and not m.hidden %}
+                        <form method="post" action="{% url 'chat_message_report' m.id %}" data-chat-report>{% csrf_token %}
+                            <button type="submit" class="chat-msg__action" data-i18n="chat.report">Report</button>
+                        </form>
+                        {% endif %}
+                        {% if is_staff %}
+                        <form method="post" action="{% url 'chat_message_hide' m.id %}" data-chat-hide>{% csrf_token %}
+                            <input type="hidden" name="action" value="{% if m.hidden %}unhide{% else %}hide{% endif %}">
+                            <button type="submit" class="chat-msg__action" data-i18n="{% if m.hidden %}chat.unhide{% else %}chat.hide{% endif %}">{% if m.hidden %}Show{% else %}Hide{% endif %}</button>
+                        </form>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                    {% endif %}
+                </li>
+                {% endwith %}{% empty %}
+                <li class="chat-msg is-system" data-chat-empty><p class="chat-msg__system" data-i18n="chat.empty">No messages yet.</p></li>
+                {% endfor %}
+            </ol>
+        </div>
+
+        <p class="chat__typing" data-chat-typing aria-live="polite"></p>
+        <p class="chat__error" data-chat-error role="alert" hidden></p>
+
+        {% if can_write %}
+        <div class="chat__composer" data-chat-composer>
+            {% if not is_staff %}
+            {# Quick replies for the two parties (elderly-friendly one tap); curators type. #}
+            <div class="chat-quick" data-chat-quick role="group" aria-labelledby="chatQuickLabel">
+                <span id="chatQuickLabel" class="visually-hidden" data-i18n="chatpage.quick_label">Quick replies</span>
+                {% for key, text in quick_replies %}
+                <form method="post" action="{% url 'task_chat_send' task.pk %}">{% csrf_token %}
+                    <button type="submit" class="chat-quick__btn" name="text" value="{{ text }}" data-quick="{{ key }}" data-i18n="{{ key }}">{{ text }}</button>
+                </form>
+                {% endfor %}
+            </div>
+            {% endif %}
+            <form method="post" action="{% url 'task_chat_send' task.pk %}" class="chat-compose" data-chat-form>
+                {% csrf_token %}
+                <label for="chatImage" class="chat-compose__attach" data-chat-attach>
+                    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+                    <span class="visually-hidden" data-i18n="chat.attach">Attach a photo</span>
+                </label>
+                <label for="chatText" class="visually-hidden" data-i18n="chat.placeholder">Message</label>
+                <textarea id="chatText" name="text" rows="1" maxlength="{{ max_length }}" required data-i18n-ph="chat.placeholder" placeholder="Message" autocomplete="off"></textarea>
+                <button type="submit" class="button primary chat-compose__send">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2 11 13"></path><path d="M22 2 15 22l-4-9-9-4 20-7Z"></path></svg>
+                    <span data-i18n="chat.send">Send</span>
+                </button>
+            </form>
+            <form method="post" action="{% url 'task_chat_upload' task.pk %}" enctype="multipart/form-data" class="chat-upload" data-chat-upload>
+                {% csrf_token %}
+                <label for="chatImage" class="chat-upload__label" data-i18n="chat.attach">Attach a photo</label>
+                <input id="chatImage" class="chat-upload__input" type="file" name="image" accept="image/jpeg,image/png,image/webp" required>
+                <p class="chat-upload__chosen" data-chat-chosen hidden><span data-i18n="chatpage.photo_chosen">Selected photo:</span> <strong data-chat-filename></strong></p>
+                <button type="submit" class="button secondary" data-i18n="chat.upload">Send photo</button>
+            </form>
+        </div>
+        {% endif %}
+    </div>
+</section>
+{% endblock %}
+{% block extra_js %}
+<script src="{% asset 'js/chat.js' %}" defer></script>
+{% endblock %}

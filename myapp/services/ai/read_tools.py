@@ -31,7 +31,7 @@ from ...models import (
     PetReport,
     VolunteerApplication,
 )
-from .. import analytics, maps, matching, overdue, presence, stale
+from .. import analytics, feedback, maps, matching, overdue, presence, stale
 from . import access
 
 DEFAULT_LIMIT = 20
@@ -135,6 +135,7 @@ def _request_detail(r: HelpRequest, *, ctx) -> dict:
 
 def _volunteer_brief(u: Users) -> dict:
     profile = getattr(u, "profile", None)
+    reviews = feedback.public_summary(profile)
     return {
         "id": u.id,
         "username": u.username,
@@ -147,6 +148,10 @@ def _volunteer_brief(u: Users) -> dict:
         ),
         "do_not_disturb": bool(profile and profile.is_away_now),
         "rating": getattr(profile, "rating", 0),
+        # Client review average/count only (feedback.public_summary) — never
+        # comments. Display-only, not a matching weight.
+        "review_avg": reviews["avg"],
+        "review_count": reviews["count"],
         "active_task_count": getattr(u, "active_task_count", None),
         "has_location": bool(profile and profile.has_location),
     }

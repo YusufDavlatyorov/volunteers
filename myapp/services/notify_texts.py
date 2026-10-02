@@ -363,16 +363,47 @@ CHANNEL_TEXTS = {
         "en": ("Volunteer stopped sharing location",
                "The volunteer stopped sharing their location on request #{task_id}."),
     },
-    # Placeholders for later milestones (chat, reviews, achievements).
+    # Chat (milestone 3). ``sender_display`` / ``preview`` come from notify(extra=)
+    # — the message text reaches only the addressed party's email/Telegram.
     "chat_message": {
-        "ru": ("Новое сообщение в чате", "Новое сообщение по запросу #{task_id}."),
-        "tj": ("Паёми нав дар чат", "Паёми нав оид ба дархости #{task_id}."),
-        "en": ("New chat message", "New message about request #{task_id}."),
+        "fallbacks": {"ru": {"preview": "[фото]"}, "tj": {"preview": "[сурат]"}, "en": {"preview": "[photo]"}},
+        "ru": ("Новое сообщение в чате", "Новое сообщение по запросу #{task_id} от {sender_display}:\n{preview}"),
+        "tj": ("Паёми нав дар чат", "Паёми нав оид ба дархости #{task_id} аз {sender_display}:\n{preview}"),
+        "en": ("New chat message", "New message about request #{task_id} from {sender_display}:\n{preview}"),
+    },
+    "chat_reported": {
+        "ru": ("Жалоба на сообщение в чате",
+               "Участник чата по запросу #{task_id} пожаловался на сообщение #{message_id}. Проверьте чат."),
+        "tj": ("Шикоят аз паём дар чат",
+               "Иштирокчии чат оид ба дархости #{task_id} аз паёми #{message_id} шикоят кард. Чатро санҷед."),
+        "en": ("Chat message reported",
+               "A chat participant on request #{task_id} reported message #{message_id}. Please review the chat."),
     },
     "review_received": {
         "ru": ("Новый отзыв", "Вы получили новый отзыв по запросу #{task_id}."),
         "tj": ("Фикри нав", "Шумо оид ба дархости #{task_id} фикри нав гирифтед."),
         "en": ("New review", "You received a new review for request #{task_id}."),
+    },
+    "review_low": {
+        "ru": ("Низкая оценка волонтёра",
+               "Клиент оценил помощь по запросу #{task_id} на {stars} из 5 (волонтёр: {volunteer_name}). Проверьте отзыв."),
+        "tj": ("Баҳои пасти ихтиёрӣ",
+               "Мизоҷ кумакро оид ба дархости #{task_id} бо {stars} аз 5 баҳо дод (ихтиёрӣ: {volunteer_name}). Фикрро санҷед."),
+        "en": ("Low volunteer rating",
+               "The client rated the help on request #{task_id} {stars} out of 5 (volunteer: {volunteer_name}). Please review it."),
+    },
+    "review_request": {
+        "ru": ("Оцените помощь волонтёра", "Оцените помощь волонтёра по запросу #{task_id}."),
+        "tj": ("Кумаки ихтиёриро баҳо диҳед", "Кумаки ихтиёриро оид ба дархости #{task_id} баҳо диҳед."),
+        "en": ("Rate the volunteer's help", "Please rate the volunteer's help with request #{task_id}."),
+    },
+    "location_stale": {
+        "ru": ("Обновите местоположение",
+               "Ваше сохранённое местоположение устарело — обновите его в профиле, по нему подбираются запросы."),
+        "tj": ("Ҷойгиршавиро навсозӣ кунед",
+               "Ҷойгиршавии нигоҳдоштаи шумо кӯҳна шудааст — онро дар профил навсозӣ кунед, дархостҳо аз рӯи он интихоб мешаванд."),
+        "en": ("Update your location",
+               "Your saved location is out of date — update it in your profile; requests are matched by it."),
     },
     "achievement_unlocked": {
         "ru": ("Новое достижение", "Вы получили новое достижение: {achievement}."),
@@ -596,14 +627,45 @@ INAPP_TEXTS = {
                "Ихтиёрӣ интиқоли ҷойгиршавиро оид ба дархости #{task_id} қатъ кард."),
     },
     "chat_message": {
-        "en": ("New message", "New message about request #{task_id}."),
-        "ru": ("Новое сообщение", "Новое сообщение по запросу #{task_id}."),
-        "tj": ("Паёми нав", "Паёми нав оид ба дархости #{task_id}."),
+        "en": ("New message", "{sender_display}: new message about request #{task_id}."),
+        "ru": ("Новое сообщение", "{sender_display}: новое сообщение по запросу #{task_id}."),
+        "tj": ("Паёми нав", "{sender_display}: паёми нав оид ба дархости #{task_id}."),
+        "variants": {
+            # a curator wrote — the parties never see the curator's name
+            "staff": {
+                "en": ("Message from a curator", "A curator wrote in the chat about request #{task_id}."),
+                "ru": ("Сообщение от куратора", "Куратор написал в чате по запросу #{task_id}."),
+                "tj": ("Паём аз куратор", "Куратор дар чат оид ба дархости #{task_id} навишт."),
+            },
+        },
+    },
+    "chat_reported": {
+        "en": ("Chat message reported", "A message in the chat of request #{task_id} was reported."),
+        "ru": ("Жалоба на сообщение", "На сообщение в чате запроса #{task_id} поступила жалоба."),
+        "tj": ("Шикоят аз паём", "Аз паём дар чати дархости #{task_id} шикоят расид."),
     },
     "review_received": {
         "en": ("New review", "You received a review for request #{task_id}."),
         "ru": ("Новый отзыв", "Вы получили отзыв по запросу #{task_id}."),
         "tj": ("Фикри нав", "Шумо оид ба дархости #{task_id} фикр гирифтед."),
+    },
+    "review_low": {
+        "en": ("Low rating", "Request #{task_id}: {stars}/5 for {volunteer_name}."),
+        "ru": ("Низкая оценка", "Запрос #{task_id}: {stars}/5 для волонтёра {volunteer_name}."),
+        "tj": ("Баҳои паст", "Дархости #{task_id}: {stars}/5 барои ихтиёрӣ {volunteer_name}."),
+    },
+    "review_request": {
+        "en": ("Rate the help", "Please rate the volunteer's help with request #{task_id}."),
+        "ru": ("Оцените помощь", "Оцените помощь волонтёра по запросу #{task_id}."),
+        "tj": ("Кумакро баҳо диҳед", "Кумаки ихтиёриро оид ба дархости #{task_id} баҳо диҳед."),
+    },
+    "location_stale": {
+        "en": ("Update your location",
+               "Your saved location is out of date — update it in your profile; requests are matched by it."),
+        "ru": ("Обновите местоположение",
+               "Ваше сохранённое местоположение устарело — обновите его в профиле, по нему подбираются запросы."),
+        "tj": ("Ҷойгиршавиро навсозӣ кунед",
+               "Ҷойгиршавии нигоҳдоштаи шумо кӯҳна шудааст — онро дар профил навсозӣ кунед, дархостҳо аз рӯи он интихоб мешаванд."),
     },
     "achievement_unlocked": {
         "en": ("New achievement", "You unlocked a new badge!"),
@@ -738,7 +800,11 @@ TYPE_LABELS = {
     "volunteer_pinged": {"en": "Recommended requests", "ru": "Рекомендованные запросы", "tj": "Дархостҳои тавсияшуда"},
     "tracking_stopped": {"en": "Location sharing stopped", "ru": "Остановка передачи местоположения", "tj": "Қатъи интиқоли ҷойгиршавӣ"},
     "chat_message": {"en": "Chat messages", "ru": "Сообщения в чате", "tj": "Паёмҳои чат"},
+    "chat_reported": {"en": "Chat reports", "ru": "Жалобы в чате", "tj": "Шикоятҳо дар чат"},
     "review_received": {"en": "Reviews", "ru": "Отзывы", "tj": "Фикрҳо"},
+    "review_low": {"en": "Low ratings", "ru": "Низкие оценки", "tj": "Баҳоҳои паст"},
+    "review_request": {"en": "Requests to rate help", "ru": "Просьбы оценить помощь", "tj": "Дархостҳои баҳодиҳӣ"},
+    "location_stale": {"en": "Location reminders", "ru": "Напоминания о местоположении", "tj": "Ёдраскуниҳо дар бораи ҷойгиршавӣ"},
     "achievement_unlocked": {"en": "Achievements", "ru": "Достижения", "tj": "Дастовардҳо"},
 }
 

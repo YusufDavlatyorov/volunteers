@@ -32,7 +32,8 @@ _PAIR = re.compile(r'"((?:[^"\\]|\\.)*)"\s*:\s*"((?:[^"\\]|\\.)*)"')
 _ELEMENT = re.compile(
     r'(<([a-zA-Z][a-zA-Z0-9]*)\b([^>]*?\sdata-i18n="([^"]+)"[^>]*)>)([^<]*)(</\2\s*>)'
 )
-_ARGS = re.compile(r'\sdata-i18n-args="([^"]*)"')
+# Double- or single-quoted (templates use both: data-i18n-args='{"date": …}').
+_ARGS = re.compile(r"""\sdata-i18n-args=(?:"([^"]*)"|'([^']*)')""")
 # <input|textarea … data-i18n-ph="key" …>
 _PH_TAG = re.compile(r'<(?:input|textarea)\b[^>]*\sdata-i18n-ph="([^"]+)"[^>]*>')
 _PH_ATTR = re.compile(r'(\splaceholder=")[^"]*(")')
@@ -92,7 +93,7 @@ def render_html(document, lang):
         if key not in table:
             return match.group(0)
         args = _ARGS.search(attrs)
-        text = _interpolate(table[key], args.group(1) if args else None)
+        text = _interpolate(table[key], (args.group(1) if args.group(1) is not None else args.group(2)) if args else None)
         return f"{open_tag}{escape(text)}{close_tag}"
 
     def placeholder(match):

@@ -53,11 +53,27 @@ from .pets import (
     PET_STATUS_CHOICES,
     PetReport,
 )
+from .chat import (
+    CHAT_KIND_CHOICES,
+    CHAT_KIND_IMAGE,
+    CHAT_KIND_SYSTEM,
+    CHAT_KIND_TEXT,
+    CHAT_MESSAGE_MAX_LENGTH,
+    ChatMessage,
+    ChatReadState,
+    ChatReport,
+)
+from .feedback import REVIEW_COMMENT_MAX_LENGTH, REVIEW_TAGS, TaskReview
 from .photo_reports import PhotoReport
 from .tracking import TRACKING_SOURCE_CHOICES, TaskLocationPoint
 from .volunteer_applications import VolunteerApplication
 
 __all__ = [
+    # chat
+    "CHAT_KIND_CHOICES", "CHAT_KIND_IMAGE", "CHAT_KIND_SYSTEM", "CHAT_KIND_TEXT",
+    "CHAT_MESSAGE_MAX_LENGTH", "ChatMessage", "ChatReadState", "ChatReport",
+    # feedback
+    "REVIEW_COMMENT_MAX_LENGTH", "REVIEW_TAGS", "TaskReview",
     # tracking
     "TRACKING_SOURCE_CHOICES",
     "TaskLocationPoint",

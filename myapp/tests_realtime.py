@@ -190,9 +190,11 @@ class ConsumerConnectTests(_LayerMixin, TransactionTestCase):
             await comm.send_to(text_data="{not json")
             err = await comm.receive_json_from()
             self.assertEqual(err["payload"]["code"], "bad_json")
-            await comm.send_json_to({"type": "chat.send", "payload": {"task_id": 1, "text": "hi"}})
+            # chat.send is implemented since milestone 3: a task the user can't
+            # write in (here: one that doesn't exist) answers forbidden.
+            await comm.send_json_to({"type": "chat.send", "payload": {"task_id": 999999, "text": "hi"}})
             err = await comm.receive_json_from()
-            self.assertEqual(err["payload"]["code"], "unsupported")
+            self.assertEqual(err["payload"]["code"], "forbidden")
             await comm.disconnect()
         async_to_sync(run)()
 

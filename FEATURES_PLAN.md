@@ -525,3 +525,43 @@ speed?, heading?}` → `tracking.accept_point`; `tracking.stop {task_id}` →
 delivered to a socket only if `access.can_see_location` holds for that socket's user
 *now* (per-socket cache, invalidated on every `task.updated` for that task; a socket
 that lost task visibility is unsubscribed with `unsubscribed {reason:"forbidden"}`).
+
+---
+
+## 13. Milestone 3 contracts (chat + reviews + profile location)
+
+Owner notes (2026-10-02): the `$` problem was only local (`DJANGO_SECRET_KEY`, now
+single-quoted; the server `.env` has no `$`). Keep matching on the saved profile point;
+add "Обновить моё местоположение" (one tap, browser permission, validated, saved with
+`location_updated_at`, clear text that matching uses it) + optional reminder when the
+saved point is older than 30 days. Chat deliveries are re-checked like location.
+
+Already in place (orchestrator): models `ChatMessage` (task, sender|null, kind
+text|image|system, body ≤ 1000, image ≤ 5 MB, `image_variants`, `is_staff_post`,
+`client_msg_id` unique per (task, sender) when set, `hidden_at/by`), `ChatReadState`
+(task, user, last_read_id), `ChatReport` (message, reporter unique, reason, handled_*),
+`TaskReview` (task 1:1, client, volunteer, stars 1–5, comment ≤ 1000, tags from
+`REVIEW_TAGS`, hidden_*), `Profile.review_avg/review_count/location_reminded_at`
+(migrations accounts 0010, myapp 0019); settings `CHAT_ARCHIVE_DAYS` (30),
+`REVIEW_EDIT_HOURS` (24), `LOCATION_STALE_DAYS` (30); `access.can_read_chat`,
+`access.can_write_chat`, `access.chat_archived`, `access.chat_ended_at`.
+
+**`myapp/services/chat.py`** (realtime-engineer): `send_message(user, task, *, text=None,
+image=None, client_msg_id="") -> Outcome(ok, code, message)` (rate 20/min/user/task,
+length, staff → `is_staff_post`, dedupe on client_msg_id), `history(user, task, before_id=None,
+limit=30)`, `mark_read(user, task, last_id)`, `unread_counts(user, task_ids)`,
+`report(user, message, reason)` (→ `notify(staff, "chat_reported")`), `hide(staff, message)`,
+`close(task)` (system message on complete/cancel), `message_payload(message, viewer)` —
+display names only ("Куратор" for staff posts), no phone/email; links never auto-linked for
+clients (frontend). WS: `chat.send/typing/read` in; `chat.message/typing/read/hidden` out
+on `task_<id>`, each guarded by `can_read_chat`. Notification `chat_message` to the other
+party when they are not viewing (Telegram per preference). Image thumbs: WebP via
+`myapp/services/images.py` (Celery task; reused by feature 1 in milestone 6).
+
+**`myapp/services/feedback.py`** (engagement-engineer): `can_review(user, task)`,
+`submit_review(client, task, stars, comment, tags)` (create or edit within 24 h),
+`hide/unhide(staff, review)` (ID-only log), `recompute_volunteer_stats(volunteer)`,
+`public_summary(volunteer)` → `{avg, count}` only, `reviews_for(viewer, volunteer)` (comments
+only to the volunteer and staff). stars ≤ 2 → `notify(staff, "review_low")`; every new review →
+`notify([volunteer], "review_received")`; task completion → `notify([client], "review_request")`
+(prompt). No matching weight.

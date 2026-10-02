@@ -1,4 +1,5 @@
 import logging
+from datetime import timedelta
 
 from django.conf import settings
 from django.contrib import messages
@@ -139,9 +140,17 @@ def profile_view(request):
         "profile": profile,
         "greeting": greeting,
         "volunteer_application": VolunteerApplication.objects.filter(user=request.user).first(),
+        "location_stale": request.user.is_volunteer and _location_is_stale(profile),
         **dashboard.for_user(request.user),
     }
     return render(request, "accounts/profile.html", context)
+
+
+def _location_is_stale(profile):
+    """No saved point, or older than LOCATION_STALE_DAYS (matching uses it)."""
+    if not profile.has_location or profile.location_updated_at is None:
+        return True
+    return timezone.now() - profile.location_updated_at > timedelta(days=settings.LOCATION_STALE_DAYS)
 
 
 @login_required
@@ -305,3 +314,34 @@ def set_language_view(request):
     if profile.language != language:
         Profile.objects.filter(pk=profile.pk).update(language=language)
     return JsonResponse({"success": True, "language": language})
+
+
+# A one-tap browser fix is rarely better than a few hundred metres indoors;
+# anything vaguer than this would mislead the matching distance.
+PROFILE_LOCATION_MAX_ACCURACY_M = 2000
+
+
+@login_required
+@require_POST
+def profile_location_view(request):
+    """"Обновить моё местоположение": a volunteer saves their current device
+    position as the profile point that matching uses (owner decision — live
+    tracking never writes it). Validated WGS84; JSON response; ID-only log."""
+    from myapp.services.geo import is_valid_coordinate
+
+    if not request.user.is_volunteer:
+        return JsonResponse({"success": False, "error": "forbidden"}, status=403)
+    lat, lng = request.POST.get("lat"), request.POST.get("lng")
+    if lat is None or lng is None or not is_valid_coordinate(lat, lng):
+        return JsonResponse({"success": False, "error": "invalid_coordinates"}, status=400)
+    try:
+        accuracy = float(request.POST.get("accuracy") or 0)
+    except ValueError:
+        accuracy = 0
+    if accuracy > PROFILE_LOCATION_MAX_ACCURACY_M:
+        return JsonResponse({"success": False, "error": "inaccurate"}, status=400)
+    profile, _ = Profile.objects.get_or_create(user=request.user)
+    profile.set_location(round(float(lat), 6), round(float(lng), 6))
+    Profile.objects.filter(pk=profile.pk).update(location_reminded_at=None)
+    logger.info("profile location updated by user #%s", request.user.pk)
+    return JsonResponse({"success": True, "updated_at": profile.location_updated_at.isoformat()})

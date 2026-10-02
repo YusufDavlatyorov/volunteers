@@ -74,3 +74,50 @@ def can_view_route(user, task) -> bool:
     if user.id == task.client_id:
         return task.status == "active" and bool(task.volunteer_id)
     return False
+
+
+def chat_ended_at(task):
+    """When the task's chat became read-only (task completed/cancelled), or None."""
+    if task.status == "completed":
+        return task.completed_at or task.updated_at
+    if task.status == "cancelled":
+        return task.cancelled_at or task.updated_at
+    return None
+
+
+def chat_archived(task, now=None) -> bool:
+    """Archived = ended more than CHAT_ARCHIVE_DAYS ago: hidden from the parties'
+    lists, still readable by staff."""
+    from datetime import timedelta
+
+    from django.conf import settings
+    from django.utils import timezone
+
+    ended = chat_ended_at(task)
+    if ended is None:
+        return False
+    days = getattr(settings, "CHAT_ARCHIVE_DAYS", 30)
+    return (now or timezone.now()) - ended > timedelta(days=days)
+
+
+def can_read_chat(user, task) -> bool:
+    """Staff always (safety, incl. archived). The client and the assigned
+    volunteer once a volunteer is assigned — while active and read-only after
+    the end, until the chat is archived. Re-checked before every WS delivery."""
+    if user is None or not getattr(user, "is_authenticated", False) or not user.is_active:
+        return False
+    if user.is_superuser or user.is_curator:
+        return True
+    if not task.volunteer_id or task.status == "pending":
+        return False
+    if user.id not in (task.client_id, task.volunteer_id):
+        return False
+    return not chat_archived(task)
+
+
+def can_write_chat(user, task) -> bool:
+    """Writing needs an active task: its client, its assigned volunteer, or
+    staff (shown as "Куратор")."""
+    if not can_read_chat(user, task) or task.status != "active":
+        return False
+    return True

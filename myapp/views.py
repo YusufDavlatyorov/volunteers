@@ -44,7 +44,7 @@ from .models import (
 from .models.emergency import STATUS_CHOICES as EMERGENCY_STATUS_CHOICES
 from .notifications import staff_recipients, volunteer_queryset_for_region
 from .realtime import publish
-from .services import cancellation, presence, tracking
+from .services import cancellation, chat, feedback, presence, tracking
 from .services.notify import notify
 from .services import access, analytics, dispatch, donations, emergency, maps, overdue, pets, stale
 from .services.ai import build_user_context, confirm_action, run_conversation
@@ -372,8 +372,12 @@ def task_list_view(request):
         if filter_form.cleaned_data.get("is_urgent"):
             tasks = tasks.filter(is_urgent=True)
 
-    my_active = HelpRequest.objects.filter(volunteer=user, status="active") if user.is_volunteer else None
-    return render(request, "myapp/task_list.html", {"tasks": tasks, "filter_form": filter_form, "my_active": my_active})
+    my_active = list(HelpRequest.objects.filter(volunteer=user, status="active")) if user.is_volunteer else None
+    # One query for every active task's unread chat count (feature 8).
+    chat_unread = chat.unread_counts(user, [t.pk for t in my_active]) if my_active else {}
+    return render(request, "myapp/task_list.html", {
+        "tasks": tasks, "filter_form": filter_form, "my_active": my_active, "chat_unread": chat_unread,
+    })
 
 
 def _route_permission(user, task):
@@ -429,11 +433,17 @@ def task_detail_view(request, pk):
         .first()
     )
 
+    # Chat entry point (feature 8): parties + staff, only while readable.
+    chat_readable = access.can_read_chat(user, task)
+    chat_unread = chat.unread_counts(user, [task.pk]).get(task.pk, 0) if chat_readable else 0
+
     return render(
         request,
         "myapp/task_detail.html",
         {
             "task": task,
+            "chat_readable": chat_readable,
+            "chat_unread": chat_unread,
             "show_route": show_route,
             "show_recommendations": show_recommendations,
             "show_location_map": show_location_map,
@@ -553,6 +563,7 @@ def complete_task_view(request, pk):
     task.refresh_from_db()
     logger.info("task #%s completed by volunteer #%s", task.id, request.user.pk)
     tracking.end(task)  # stop live location, delete the trail
+    chat.close(task)  # the task chat becomes read-only (system message)
     presence.on_task_change(task)
     publish.task_changed(task)
     profile, _ = Profile.objects.get_or_create(user=request.user)
@@ -561,6 +572,7 @@ def complete_task_view(request, pk):
         [task.client], "task_completed", params={"task_id": task.id},
         link=reverse("task_detail", args=[task.id]), dedupe_key=f"task_completed:{task.id}",
     )
+    feedback.review_request(task)  # "Оцените помощь" prompt to the client
     messages.success(request, "Запрос завершен, рейтинг обновлен.")
     return redirect("task_list")
 

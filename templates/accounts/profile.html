@@ -73,6 +73,27 @@
                 </div>
             </div>
 
+            {% if user.is_volunteer %}
+            <div class="card reveal profile-location{% if location_stale %} is-stale{% endif %}" id="profileLocationCard"
+                 data-url="{% url 'profile_location' %}">
+                {% csrf_token %}
+                <div class="section-head"><h3 data-i18n="ploc.title">My location for matching</h3></div>
+                <p class="field-hint" data-i18n="ploc.hint">We use this saved point to offer you the nearest requests. It changes only when you press the button — live tracking during a request never updates it.</p>
+                <p class="profile-location__status" id="profileLocationStatus" aria-live="polite">
+                    {% if profile.has_location and profile.location_updated_at %}
+                        <span data-i18n="ploc.updated">Updated:</span>
+                        <time id="profileLocationTime" datetime="{{ profile.location_updated_at|date:'c' }}">{{ profile.location_updated_at|date:"d.m.Y H:i" }}</time>
+                        {% if location_stale %}<span class="tag urgent" data-i18n="ploc.stale">Outdated</span>{% endif %}
+                    {% else %}
+                        <span class="tag urgent" data-i18n="ploc.never">Not set yet</span>
+                    {% endif %}
+                </p>
+                <div class="button-row">
+                    <button type="button" class="button primary" id="profileLocationBtn" data-i18n="ploc.button">Update my location</button>
+                </div>
+            </div>
+            {% endif %}
+
             <div class="card reveal">
                 <div class="section-head"><h3 data-i18n="profile.quick">Quick Actions</h3></div>
                 <nav class="quick-actions">
@@ -85,6 +106,11 @@
                         <a class="quick-action" href="{% url 'emergency_list' %}">
                             <span class="quick-action__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"></path><path d="M12 9v4M12 17h.01"></path></svg></span>
                             <span class="quick-action__label" data-i18n="emg.list_title">Emergencies</span>
+                            <svg class="quick-action__chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg>
+                        </a>
+                        <a class="quick-action" href="{% url 'crm_reviews' %}">
+                            <span class="quick-action__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1Z"></path></svg></span>
+                            <span class="quick-action__label" data-i18n="review.crm_title">Reviews</span>
                             <svg class="quick-action__chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg>
                         </a>
                         <a class="quick-action" href="{% url 'broadcast' %}">
@@ -107,6 +133,11 @@
                         <a class="quick-action" href="{% url 'map' %}">
                             <span class="quick-action__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 20 3 17V4l6 3 6-3 6 3v13l-6-3-6 3Z"></path><path d="M9 7v13M15 4v13"></path></svg></span>
                             <span class="quick-action__label" data-i18n="nav.map">Map</span>
+                            <svg class="quick-action__chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg>
+                        </a>
+                        <a class="quick-action" href="{% url 'my_reviews' %}">
+                            <span class="quick-action__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1Z"></path></svg></span>
+                            <span class="quick-action__label" data-i18n="review.mine_title">My reviews</span>
                             <svg class="quick-action__chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg>
                         </a>
                         <a class="quick-action" href="{% url 'photo_reports' %}">
@@ -148,3 +179,4 @@
     </div>
 </section>
 {% endblock %}
+{% block extra_js %}{% if user.is_volunteer %}<script src="{% asset 'js/profile-location.js' %}" defer></script>{% endif %}{% endblock %}

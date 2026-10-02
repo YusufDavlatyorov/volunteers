@@ -266,7 +266,8 @@ class TextRegistryTests(TestCase):
 
     def test_inapp_placeholders_use_only_safe_param_names(self):
         allowed = {"task_id", "volunteer_name", "username", "donation_id", "pet_id", "other_id",
-                   "subject", "message", "title", "date", "time", "hours", "count"}
+                   "subject", "message", "title", "date", "time", "hours", "count",
+                   "sender_display", "stars"}
         for lang in notify_texts.LANGS:
             for key, text in notify_texts.all_i18n_keys(lang).items():
                 for name in self._FIELDS.findall(text):

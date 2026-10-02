@@ -97,8 +97,14 @@ NOTIFICATION_TYPES = dict([
     _t("tracking_stopped", STAFF, defaults=frozenset()),
     # Later milestones (chat / reviews / achievements) — registered now so
     # preferences and the i18n keys exist before the features land.
+    # Milestone 3. chat_message: in-app + Telegram (services/chat.py throttles
+    # it per recipient). chat_reported: staff, in-app only.
     _t("chat_message", ("volunteer", "client") + STAFF, defaults={TELEGRAM}),
+    _t("chat_reported", STAFF, defaults=frozenset()),
     _t("review_received", ("volunteer",)),
+    _t("review_low", STAFF, defaults={EMAIL}),
+    _t("review_request", ("client",), defaults={TELEGRAM}),
+    _t("location_stale", ("volunteer",), defaults={TELEGRAM}),
     _t("achievement_unlocked", ("volunteer",), defaults={TELEGRAM}),
 ])
 

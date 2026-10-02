@@ -61,3 +61,17 @@ def send_telegram_task(chat_id, text):
     if not send_telegram_message(chat_id, text):
         raise DeliveryError("telegram send failed")
     return True
+
+
+@shared_task(name="chat.make_image_variants", ignore_result=True)
+def make_chat_image_variants(message_id):
+    """WebP thumb + medium for one chat image (services/images.py), then a
+    ``chat.message_updated`` event so open chats swap the thumb in. A broken
+    source is logged (id only) and left as is — the original stays usable."""
+    from .services import chat
+
+    try:
+        return chat.apply_image_variants(message_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("chat image variants failed message=%s error=%s", message_id, type(exc).__name__)
+        return None

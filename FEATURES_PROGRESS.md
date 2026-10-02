@@ -7,8 +7,8 @@ Design: `FEATURES_PLAN.md`. Brief: `FEATURES_SPEC.md`.
 |---|---|---|
 | 0 | Plan, agent files | ✅ done 2026-10-02 (`2cfaf54`); owner answers in FEATURES_PLAN §9 |
 | 1 | Realtime (12) + notifications (11) + availability (3) + DND + cancellation | ✅ done 2026-10-02 (`a4d5fe0`, `477c53c`) |
-| 2 | Tracking (7) + routes/navigation (2) + self-hosted OSRM + DND manual assign | ✅ done 2026-10-02 — waiting for owner OK |
-| 3 | Chat (8) + feedback (9) | ⏸ |
+| 2 | Tracking (7) + routes/navigation (2) + self-hosted OSRM + DND manual assign | ✅ done 2026-10-02 (`a3b65b7`) |
+| 3 | Chat (8) + feedback (9) + profile location button | ✅ done 2026-10-02 — waiting for owner OK |
 | 4 | Achievements (6) + CRM charts (10) | ⏸ |
 | 5 | Telegram main bot (4) + community bot (5) | ⏸ |
 | 6 | Speed (1) + full QA + docs | ⏸ |
@@ -46,3 +46,28 @@ Baseline: 657 tests green at `2467bc5` (main).
   frontend-qa: consent dialog, sharing banner, route/nav panel + deep links, live client/staff
   views, ops map live list, About privacy section; e2e 37/37 with real OSRM, matrix 46 pages OK.
   Result: 912 tests OK. Crons to add at deploy: `purge_tracking` hourly.
+- 2026-10-02 — milestone 3. Orchestrator: `.env` `$` fix (local DJANGO_SECRET_KEY single-quoted;
+  server .env checked read-only — no `$`), models chat/feedback (myapp 0019, accounts 0010),
+  `access.can_read_chat/can_write_chat`, chat.close + review_request hooks, protected chat
+  photos (permission-checked view + X-Accel-Redirect), "Обновить моё местоположение" +
+  `remind_stale_locations`, role-based quick replies, prerender single-quoted args, CRM
+  reviews volunteer filter. realtime-engineer: chat service/views/WS + guards, images.py,
+  new notification types. engagement-engineer: reviews service/views/tags/admin.
+  frontend-qa: chat UI, unread badges, review UI, e2e 45/45, matrix 125/125.
+  Result: 1081 tests OK.
+
+## Deploy checklist (accumulated; applied only after the owner writes "deploy")
+- `.env` (server): add `OSRM_BASE_URL=http://osrm_car:5000`, `OSRM_FOOT_BASE_URL=http://osrm_foot:5000`
+  (only with the `osrm` profile). Server `.env` has no `$` values (checked read-only 2026-10-02).
+- Copy `osrm-data/{car,foot}` to `/opt/khayrkhoh/osrm-data/`; `docker compose --profile osrm up -d`;
+  measure `docker stats`.
+- nginx: `location /ws/ { proxy_pass http://127.0.0.1:8001; proxy_http_version 1.1;
+  proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection "upgrade";
+  proxy_set_header Host $host; proxy_set_header X-Forwarded-Proto $scheme;
+  proxy_read_timeout 3600s; }`
+- nginx (private chat photos): `location ^~ /media/chat/ { return 404; }` and
+  `location ^~ /protected-media/ { internal; alias /opt/khayrkhoh/media/; }`
+  (compose sets `DJANGO_MEDIA_X_ACCEL=True` for `web`).
+- crons (deploy user, docker compose exec -T web …): `sweep_availability` */5,
+  `prune_notifications` daily, `purge_tracking` hourly, `remind_stale_locations` daily.
+- Order: build → migrate → collectstatic → up -d (incl. new `ws`) → nginx reload → verify.

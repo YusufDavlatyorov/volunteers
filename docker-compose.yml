@@ -39,6 +39,8 @@ services:
       # can cache /static/ for a year — see server/settings.py STATIC_MANIFEST.
       # Requires collectstatic before web starts (DEPLOY.md "Redeploying").
       DJANGO_STATIC_MANIFEST: "True"
+      # Chat photos: the app checks access, nginx streams via X-Accel-Redirect.
+      DJANGO_MEDIA_X_ACCEL: "True"
     volumes:
       - ./staticfiles:/app/staticfiles
       - ./media:/app/media

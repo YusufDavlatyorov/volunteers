@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load realtime_ui %}
+{% load realtime_ui reviews %}
 {% block title %}{{ profile.full_name|default:volunteer.username }} - KhayrKhoh{% endblock %}
 {% block content %}
 <section class="section">
@@ -26,6 +26,10 @@
             <div class="card stat-card"><span class="metric">{{ profile.rating|default:0 }}</span><p data-i18n="people.rating_label">Rating</p></div>
             <div class="card stat-card"><span class="metric">{{ completed_count }}</span><p data-i18n="crm.completed_tasks">Completed tasks</p></div>
             <div class="card stat-card"><span class="metric">{{ active_count }}</span><p data-i18n="crm.active_tasks">Active tasks</p></div>
+            <a class="card stat-card review-tile" href="{% url 'crm_reviews' %}?volunteer={{ volunteer.pk }}">
+                <span class="metric">{% if profile.review_count %}{{ profile.review_avg|floatformat:1 }}{% else %}—{% endif %}</span>
+                <p><span data-i18n="review.average">Average rating</span>{% if profile.review_count %}<span class="review-tile__stars">{% review_stars profile.review_avg %} <span class="review-summary__count">({{ profile.review_count }})</span></span>{% endif %}</p>
+            </a>
         </div>
 
         <div class="detail-meta">

@@ -3,7 +3,7 @@
 <html lang="ru" data-theme="light">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    {% block viewport %}<meta name="viewport" content="width=device-width, initial-scale=1">{% endblock %}
     <script>
     /* Applied before first paint so dark-theme visitors don't see a flash
        of the light theme (and its color/background transition) on load. */

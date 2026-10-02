@@ -273,7 +273,11 @@
                 renderList();
             }
             // The open dropdown already shows it — a toast on top would cover it.
-            if (!open) showToast(t(n.title_key, n.params) || t('bell.label'), t(n.body_key, n.params));
+            // Nor toast a chat message for the chat the user is reading right now.
+            const chatEl = document.querySelector('[data-chat]');
+            const inThisChat = chatEl && n.type === 'chat_message' && n.params
+                && String(n.params.task_id) === String(chatEl.dataset.taskId);
+            if (!open && !inThisChat) showToast(t(n.title_key, n.params) || t('bell.label'), t(n.body_key, n.params));
         });
         RT.on('notification.read', (p) => {
             if (typeof p.unread === 'number') setCount(p.unread);
@@ -303,6 +307,42 @@
                 const away = el.querySelector('[data-availability-away]');
                 if (away && typeof p.away === 'boolean') away.hidden = !p.away;
             });
+        });
+    }
+
+    /* ===================== Chat unread badges (feature 8) =====================
+       [data-chat-unread][data-task-id] badges (myapp/_chat_button.html, the
+       client's request lists): subscribe to those task groups (≤ 20, the
+       server's per-socket cap) and count chat.message frames that aren't ours.
+       Not on the chat page itself (it marks messages read). In polling mode
+       the throttled chat_message notification bumps the badge instead. */
+    const badges = Array.from(document.querySelectorAll('[data-chat-unread][data-task-id]'));
+    if (RT && badges.length && !document.querySelector('[data-chat]')) {
+        const seen = new Set();
+        const byTask = new Map();
+        badges.forEach((b) => {
+            const id = Number(b.dataset.taskId);
+            if (!byTask.has(id)) byTask.set(id, []);
+            byTask.get(id).push(b);
+        });
+        const bump = (taskId) => {
+            (byTask.get(Number(taskId)) || []).forEach((b) => {
+                const n = (Number(b.dataset.count) || 0) + 1;
+                b.dataset.count = String(n);
+                b.setAttribute('data-i18n-args', JSON.stringify({ count: n }));
+                b.textContent = t('chat.unread', { count: n }) || String(n);
+                b.hidden = false;
+            });
+        };
+        Array.from(byTask.keys()).slice(0, 20).forEach((id) => RT.subscribeTask(id));
+        RT.on('chat.message', (m) => {
+            if (!m || m.mine || m.hidden || seen.has(m.id) || !byTask.has(Number(m.task_id))) return;
+            seen.add(m.id);
+            bump(m.task_id);
+        });
+        RT.on('notification.new', (n) => {
+            if (RT.mode === 'ws' || !n || n.type !== 'chat_message' || !n.params) return;
+            bump(n.params.task_id);
         });
     }
 

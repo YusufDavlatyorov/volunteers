@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% load reviews %}
+{% block title %}My reviews - KhayrKhoh{% endblock %}
+{% block content %}
+<section class="section">
+    {% include "partials/_page_header.html" with title="My reviews" title_i18n="review.mine_title" lede="What clients said about your help. Only you and coordinators see the comments." lede_i18n="review.mine_lede" %}
+
+    <div class="card">
+        <span class="meta-label" data-i18n="review.average">Average rating</span>
+        <p>{% review_summary summary_profile %}</p>
+    </div>
+
+    {% if page_obj and page_obj.object_list %}
+        <div class="grid grid-top">
+            {% for review in page_obj %}
+                <div class="card">{% include "myapp/reviews/_review_card.html" with review=review show_task=True %}</div>
+            {% endfor %}
+        </div>
+        {% include "myapp/_pagination.html" with page_obj=page_obj querystring=querystring %}
+    {% else %}
+        <div class="empty-state">
+            <strong data-i18n="review.none_yet">No reviews yet</strong>
+            <p data-i18n="review.mine_empty">Clients can rate your help after a request is completed.</p>
+        </div>
+    {% endif %}
+</section>
+{% endblock %}
