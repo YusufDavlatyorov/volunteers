@@ -18,3 +18,6 @@ psycopg[binary]==3.2.13
 channels==4.3.2
 channels-redis==4.3.0
 uvicorn[standard]==0.54.0
+# Telegram bots (Feature Pack v2, milestone 5): the main bot and the volunteer
+# community bot (asyncio, long polling). Smoke-tested on Python 3.14.
+python-telegram-bot==22.8

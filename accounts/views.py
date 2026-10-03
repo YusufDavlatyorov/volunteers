@@ -141,9 +141,20 @@ def profile_view(request):
         "greeting": greeting,
         "volunteer_application": VolunteerApplication.objects.filter(user=request.user).first(),
         "location_stale": request.user.is_volunteer and _location_is_stale(profile),
+        # Volunteer community card (Telegram, milestone 5): approved volunteers + staff.
+        "community_card": _community_card(request.user),
         **dashboard.for_user(request.user),
     }
     return render(request, "accounts/profile.html", context)
+
+
+def _community_card(user):
+    from myapp.services import community
+    from myapp.services.access import is_staff_user
+
+    if not community.configured() or not (user.is_volunteer or is_staff_user(user)):
+        return None
+    return {"linked": user.telegram_id is not None}
 
 
 def _location_is_stale(profile):
@@ -233,7 +244,8 @@ def telegram_link_view(request):
     request.user.refresh_from_db()
     return render(request, "accounts/telegram_link.html", {
         "raw_code": raw_code,
-        "bot_username": getattr(settings, "TELEGRAM_BOT_USERNAME", ""),
+        # Tolerate "@Name" in .env: the template adds the "@" and builds t.me/<name>.
+        "bot_username": (getattr(settings, "TELEGRAM_BOT_USERNAME", "") or "").strip().lstrip("@"),
         "is_linked": request.user.telegram_id is not None,
         "code_active": request.user.telegram_link_token_is_valid(),
     })
@@ -248,6 +260,10 @@ def telegram_unlink_view(request):
     request.user.save(update_fields=[
         "telegram_id", "telegram_link_token", "telegram_link_token_created_at",
     ])
+    # No linked Telegram → no place in the volunteer community chats.
+    from myapp.services import community
+
+    community.revoke_safely(request.user, reason="telegram_unlinked")
     messages.success(request, "Telegram отвязан от аккаунта.")
     return redirect("telegram_link")
 

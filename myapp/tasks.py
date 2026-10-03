@@ -75,3 +75,30 @@ def make_chat_image_variants(message_id):
     except Exception as exc:  # noqa: BLE001
         logger.warning("chat image variants failed message=%s error=%s", message_id, type(exc).__name__)
         return None
+
+
+@shared_task(name="community.revoke", ignore_result=True)
+def community_revoke_task(user_id, reason="not_eligible"):
+    """Remove a no-longer-eligible user from the volunteer community chats
+    (services/community.revoke). Telegram failures are logged there (IDs only)."""
+    from accounts.models import Users
+
+    from .services import community
+
+    user = Users.objects.filter(pk=user_id).first()
+    return community.revoke(user, reason) if user is not None else 0
+
+
+@shared_task(name="community.mirror", ignore_result=True)
+def community_mirror_task(kind, object_id):
+    """Pin a website broadcast / new event in the volunteer community."""
+    from .models import Broadcast, Event
+    from .services import community
+
+    if kind == "broadcast":
+        obj = Broadcast.objects.filter(pk=object_id).first()
+        return community.mirror_broadcast(obj) if obj else 0
+    if kind == "event":
+        obj = Event.objects.filter(pk=object_id).first()
+        return community.mirror_event(obj) if obj else 0
+    return 0

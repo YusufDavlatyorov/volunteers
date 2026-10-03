@@ -160,15 +160,23 @@ class ProfileForm(forms.ModelForm):
         widget=forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
         help_text="Необязательно. После этой даты режим выключится сам.",
     )
+    # Volunteer community (milestone 5): may the weekly "thank you" post name me?
+    community_shoutouts = forms.BooleanField(
+        label="Упоминать меня в сообществе волонтёров",
+        required=False,
+        help_text="В еженедельном «Спасибо недели» в Telegram-группе волонтёров — рядом с новыми значками.",
+    )
     # data-i18n keys picked up by partials/_field.html.
     I18N = {
         "is_away": ("profile.away_label", "profile.away_help"),
         "away_until": ("profile.away_until_label", "profile.away_until_help"),
+        "community_shoutouts": ("profile.shoutouts_label", "profile.shoutouts_help"),
     }
 
     class Meta:
         model = Profile
-        fields = ["full_name", "age", "image", "bio", "skills", "is_away", "away_until", "latitude", "longitude"]
+        fields = ["full_name", "age", "image", "bio", "skills", "is_away", "away_until", "community_shoutouts",
+                  "latitude", "longitude"]
         labels = {
             "full_name": "Полное имя",
             "age": "Возраст",
@@ -195,6 +203,7 @@ class ProfileForm(forms.ModelForm):
             # nor accepted.
             del self.fields["is_away"]
             del self.fields["away_until"]
+            del self.fields["community_shoutouts"]
         else:
             if self.instance.away_until:
                 # Stored as "start of the day after" → show the inclusive last day.

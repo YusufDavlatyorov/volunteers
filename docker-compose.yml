@@ -101,8 +101,9 @@ services:
       - internal
 
   telegram_bot:
-    # Long-polling Telegram bot — a separate process from gunicorn, same
-    # image and .env. No ports: it only makes outbound calls to Telegram.
+    # Long-polling Telegram bot (python-telegram-bot, role menus for linked
+    # accounts — myapp/telegram/main_bot) — a separate process from gunicorn,
+    # same image and .env. No ports: it only makes outbound calls to Telegram.
     image: khayrkhoh:latest
     container_name: khayrkhoh_telegram_bot
     command: ["python", "manage.py", "run_telegram_bot"]
@@ -114,6 +115,27 @@ services:
       <<: *app-env
     depends_on:
       - web
+      - redis
+    networks:
+      - shared_postgres_net
+      - internal
+
+  community_bot:
+    # Volunteer community bot (optional, `docker compose --profile community up -d`
+    # once the owner created the bot + supergroup — docs/COMMUNITY_BOT.md).
+    # Binds joiners to their single-use invites, removes everyone else,
+    # moderates. Without TELEGRAM_COMMUNITY_* it exits at once, hence the profile.
+    image: khayrkhoh:latest
+    container_name: khayrkhoh_community_bot
+    command: ["python", "manage.py", "run_community_bot"]
+    profiles: ["community"]
+    restart: unless-stopped
+    mem_limit: 200m
+    env_file:
+      - .env
+    environment:
+      <<: *app-env
+    depends_on:
       - redis
     networks:
       - shared_postgres_net

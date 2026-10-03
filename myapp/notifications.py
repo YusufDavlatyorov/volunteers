@@ -1,3 +1,4 @@
+import html
 import logging
 
 import requests
@@ -29,13 +30,19 @@ def send_telegram_message(chat_id, text):
     try:
         response = requests.post(
             f"https://api.telegram.org/bot{token}/sendMessage",
-            json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"},
+            # parse_mode=HTML with the text escaped: user words in a chat preview
+            # or a broadcast ("<3", "a < b") must not make Telegram reject the
+            # message ("can't parse entities") — no notification text uses tags.
+            json={"chat_id": chat_id, "text": html.escape(text or "", quote=False), "parse_mode": "HTML"},
             timeout=10,
         )
         response.raise_for_status()
         return True
     except requests.RequestException as exc:
-        logger.warning("Telegram send failed for %s: %s", chat_id, exc)
+        # Never log ``exc`` itself: a requests error message carries the URL,
+        # and the URL carries the bot token.
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        logger.warning("Telegram send failed: %s status=%s", type(exc).__name__, status)
         return False
 
 

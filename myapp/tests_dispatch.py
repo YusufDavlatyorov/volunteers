@@ -68,7 +68,7 @@ class AwayDispatchTests(TestCase):
         self.assertIsNone(self.task.volunteer)
 
     def test_assign_with_confirmation_logs_override_and_notifies_urgently(self):
-        with self.assertLogs("myapp.views", level="INFO") as logs:
+        with self.assertLogs("myapp.services.task_actions", level="INFO") as logs:
             response = self._assign(self.away, confirm_away="1")
         self.assertTrue(response.json()["success"])
         self.task.refresh_from_db()

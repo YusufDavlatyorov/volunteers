@@ -105,6 +105,8 @@ NOTIFICATION_TYPES = dict([
     # another messenger / a phone number (services/chat_flags.py). Quiet:
     # in-app only by default, one per task × category × day.
     _t("chat_flagged", STAFF, defaults=frozenset()),
+    # Milestone 5: a community member used /report on a message (in-app only).
+    _t("community_report", STAFF, defaults=frozenset()),
     _t("review_received", ("volunteer",)),
     _t("review_low", STAFF, defaults={EMAIL}),
     _t("review_request", ("client",), defaults={TELEGRAM}),
@@ -363,7 +365,11 @@ def notify(recipients, type, *, params=None, link="", dedupe_key=None, subject=N
                 else:
                     rendered[lang] = notify_texts.render_channel(type, lang, context, variant)
             sent_addresses[code].add(address)
-            channel.send(address, *rendered[lang])
+            subject_text, body_text = rendered[lang]
+            if code == TELEGRAM and subject is None and message is None:
+                # Telegram-only hint, e.g. "reply here: /chat_12" (the main bot relays it).
+                body_text += notify_texts.telegram_suffix(type, lang, context)
+            channel.send(address, subject_text, body_text)
             queued += 1
             reached.add(user.pk)
 

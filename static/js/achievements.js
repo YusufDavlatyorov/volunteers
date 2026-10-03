@@ -55,6 +55,9 @@
         } else if (d.soon === '1') {
             setKeyed(status, 'ach.coming_soon', 'Coming soon');
             progress.hidden = true;
+        } else if (d.manual === '1') {
+            setKeyed(status, 'ach.manual', 'Given by a coordinator');
+            progress.hidden = true;
         } else {
             status.textContent = `${t('ach.progress', 'Progress')}: ${d.value} / ${d.threshold}`;
             status.removeAttribute('data-i18n');

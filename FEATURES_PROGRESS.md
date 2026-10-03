@@ -9,8 +9,8 @@ Design: `FEATURES_PLAN.md`. Brief: `FEATURES_SPEC.md`.
 | 1 | Realtime (12) + notifications (11) + availability (3) + DND + cancellation | ✅ done 2026-10-02 (`a4d5fe0`, `477c53c`) |
 | 2 | Tracking (7) + routes/navigation (2) + self-hosted OSRM + DND manual assign | ✅ done 2026-10-02 (`a3b65b7`) |
 | 3 | Chat (8) + feedback (9) + profile location button | ✅ done 2026-10-02 (`a1e8244`); owner follow-ups done in milestone 4 |
-| 4 | Achievements (6) + CRM charts (10) + milestone-3 follow-ups | ✅ done 2026-10-02 — waiting for owner OK |
-| 5 | Telegram main bot (4) + community bot (5) | ⏸ |
+| 4 | Achievements (6) + CRM charts (10) + milestone-3 follow-ups | ✅ done 2026-10-02/03 (`56f2d6d`, `0186dae`, `95cf18b`) |
+| 5 | Telegram main bot (4) + community bot (5) | ✅ done 2026-10-03 — waiting for owner OK |
 | 6 | Speed (1) + full QA + docs | ⏸ |
 | 7 | Deploy (after "deploy") | ⏸ |
 
@@ -88,6 +88,31 @@ Baseline: 657 tests green at `2467bc5` (main).
   ≈ 265 → 300 MB unpacked, amd64 build), backup copy to the Mac + `scripts/verify_backup.sh`
   (tested end to end). Found: `osrm-data/` was not in `.dockerignore` — a later OSRM deploy would
   have baked ~0.5 GB into every image; fixed.
+- 2026-10-03 — milestone 5 (owner decisions: FEATURES_PLAN §15; deploy postponed until all 8
+  milestones; per-milestone routine: deploy docs as we go, PG16 rollback rehearsal, repo bundle —
+  `scripts/backup_repo.sh`). PTB 22.8 smoke-tested on Py 3.14 (offline dispatch with a fake HTTP
+  layer). Extracted from views into `services/task_actions.py` (accept / complete / assign /
+  create request / applications / broadcast) — the site and the bot share one copy of each rule.
+  Main bot: `myapp/telegram/main_bot/{core,app}.py` (transport-agnostic core + thin PTB adapter):
+  role menus (volunteer / client / staff / admin), client request wizard (location + contact
+  buttons, `normalize_tj_phone`, `HelpRequestForm`), chat relay incl. photos (`/chat_<id>` hint in
+  Telegram chat notifications), reviews, SOS, stages, live location → tracking, matching top 3 +
+  assign with DND confirmation, SOS ack/resolve, applications (admin), donations, broadcast;
+  one-time nonces on mutating buttons, per-chat rate limit, `/start <code>` deep link,
+  RU/TJ/EN texts (`myapp/telegram/i18n.py`). Community bot: models (myapp 0023, accounts 0011
+  `community_shoutouts`), `services/community.py` (single-use 24 h invites — hash stored, join
+  binding, unknown joiners kicked, revoke on rejection / unlink + hourly `community_sweep`,
+  moderation: links, flood, /report, /warn /mute /ban, `/mentor` manual badge, mirrored
+  broadcasts/events pinned, weekly "Спасибо недели" without rankings, opt-out), `run_community_bot`
+  (compose profile `community`), `docs/COMMUNITY_BOT.md`. Site: profile community card + invite
+  page, "Открыть в Telegram" deep link, opt-out checkbox, CRM "Выдать «Наставник»".
+  Found & fixed: bot token leaked into logs on a Telegram send error (requests error text has the
+  URL); user text could break Telegram HTML parse mode (now escaped); `yandexnavi://` button would
+  make Telegram reject the route message; `normalize_tj_phone` raises (wizard would crash on a
+  typo); `@` doubled in the bot username / broken deep link; `manage.py test` can no longer use a
+  real bot token from `.env`. RAM (offline, macOS, 50 updates): main ≈ 91 MiB, community ≈ 88 MiB.
+  PG16 rehearsal incl. accounts 0011 + myapp 0023: forward → rollback (12 migrations) → old code
+  OK → forward. Result: 1281 tests OK.
 
 ## Deploy checklist (milestones 1–4 together; only after the owner writes "deploy")
 
@@ -105,18 +130,21 @@ Full runbook with commands, expected output and the rollback plan:
    to `~/khayrkhoh-backups/` and run `scripts/verify_backup.sh` (checksums + test restore into postgres:16)
    — no verified copy, no deploy.
 3. `git pull --ff-only` → `docker compose build` (`.env` unchanged).
-4. `migrate` (accounts 0008–0010, myapp 0016–0022) — then steps 5–7 without a pause
+4. `migrate` (accounts 0008–0011, myapp 0016–0023 — 12 migrations) — then steps 5–7 without a pause
    (old code can't run on the new schema).
 5. `collectstatic`.
 6. nginx: `map $http_upgrade $connection_upgrade` + `/ws/` + `/media/chat/` 404 +
    `internal /protected-media/` (DEPLOY.md §10a) → `nginx -t` → reload — **before** `up -d`
    (`web` now serves chat photos via X-Accel).
-7. `docker compose up -d` (new `ws`; no `osrm` profile this time).
+7. `docker compose up -d` (new `ws`; `telegram_bot` now runs the PTB bot — same command; no `osrm`
+   and no `community` profile this time — the community bot is enabled separately, docs/COMMUNITY_BOT.md).
 8. Verify: health/ready, `check_realtime` in `web` and `ws`, `/ws/` handshake 101, logs, `docker stats`.
 9. `backfill_achievements --dry-run`, then without (silent); `purge_chats --dry-run`.
 10. crons (DEPLOY.md §13): `sweep_availability` */5, `purge_tracking` hourly, `prune_notifications`
-    daily, `purge_chats` daily, `remind_stale_locations` daily 05:00 UTC.
-11. Browser check by role (runbook §11); 12. 24 h monitoring.
+    daily, `purge_chats` daily, `remind_stale_locations` daily 05:00 UTC, `community_sweep` hourly,
+    `community_weekly` Mondays 05:00 UTC (both no-op until the community is configured).
+11. Browser + Telegram check by role (runbook §11); 12. 24 h monitoring.
+Later, separately: community bot (`.env` TELEGRAM_COMMUNITY_*, `--profile community`), OSRM.
 
 Rollback: level 0 (switch one feature off), level 1 (migrate `myapp 0015` → `accounts 0007` with the
 NEW image, then old commit + `rollback-2467bc5` image + collectstatic + nginx/crontab backups),

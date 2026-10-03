@@ -591,3 +591,22 @@ only to the volunteer and staff). stars ≤ 2 → `notify(staff, "review_low")`;
 - **Analytics**: cached 5 min, no live WS updates (a "Данные на …" stamp instead); days
   on Asia/Dushanbe; top-volunteers table shows the review average next to the count.
 
+---
+
+## 15. Milestone 5 decisions (owner, 2026-10-03)
+
+- Deploy postponed until all 8 milestones are done; each milestone keeps
+  `docs/DEPLOY_FEATURE_PACK_V2.md` + the deploy checklist current, rehearses rollback on
+  PostgreSQL 16 for its migrations and ends with `scripts/backup_repo.sh`.
+- Community weekly post = **"Спасибо недели"**: aggregate numbers (completed requests, regions,
+  average rating) + new badges with names alphabetical — **no rankings**. A volunteer can switch
+  off being named (`Profile.community_shoutouts`, edit profile).
+- **"Наставник"** is awarded by hand by a curator/admin (`/mentor` reply in the community chat, or
+  the CRM volunteer card) — no activity counter (it would reward flooding).
+- Chat through the main bot: **text and photos** (same validation / EXIF strip / flags as the
+  site; no voice or files).
+- Bot privacy choice: a pending task's card in the bot shows the address but not the client's
+  phone (the site shows both); the phone appears after accepting.
+- Long polling for both bots (no public webhook endpoint, one process each, copes with the
+  slow uplink); main bot keeps the `run_telegram_bot` command name.
+

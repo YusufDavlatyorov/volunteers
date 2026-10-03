@@ -25,6 +25,10 @@
                     {% if bot_username %}<strong>@{{ bot_username }}</strong>{% else %}<span data-i18n="tg.our_bot">our bot</span>{% endif %},
                     <span data-i18n="tg.instructions_2">and send the line above.</span>
                 </p>
+                {% if bot_username %}
+                    {# Deep link: Telegram opens the bot and sends "/start <code>" — the same one-time redemption. #}
+                    <a class="button primary" href="https://t.me/{{ bot_username }}?start={{ raw_code }}" target="_blank" rel="noopener" data-i18n="tg.open_in_telegram">Открыть в Telegram</a>
+                {% endif %}
             </div>
         {% endif %}
 

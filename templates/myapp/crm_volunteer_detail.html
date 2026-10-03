@@ -56,6 +56,12 @@
     </div>
 
     {% if achievement_items %}{% achievement_grid achievement_items own=False %}{% endif %}
+    {% if not mentor_awarded %}
+        <form method="post" action="{% url 'crm_award_mentor' volunteer.pk %}" class="button-row crm-mentor-form">
+            {% csrf_token %}
+            <button type="submit" class="button ghost" data-i18n="ach.award_mentor">Выдать «Наставник»</button>
+        </form>
+    {% endif %}
 
     <div class="section-head"><h2 data-i18n="crm.recent_tasks">Recent tasks</h2></div>
     {% if recent_tasks %}

@@ -15,6 +15,7 @@ from .achievements import (
     Achievement,
     UserAchievement,
 )
+from .community import CommunityInvite, CommunityMember, CommunityPost, ModerationAction
 from .donations import (
     DONATION_ALLOWED_TRANSITIONS,
     DONATION_ASSIGNABLE_STATUSES,
@@ -76,6 +77,8 @@ from .tracking import TRACKING_SOURCE_CHOICES, TaskLocationPoint
 from .volunteer_applications import VolunteerApplication
 
 __all__ = [
+    # community (Telegram)
+    "CommunityInvite", "CommunityMember", "CommunityPost", "ModerationAction",
     # achievements
     "ACHIEVEMENT_CATEGORY_CHOICES", "ACHIEVEMENT_TIER_CHOICES", "TIER_RANK", "Achievement", "UserAchievement",
     # chat

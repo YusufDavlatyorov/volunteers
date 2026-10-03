@@ -84,7 +84,9 @@ class StarterSetTests(AchievementBase):
             "first_help", "tasks_10", "tasks_50", "tasks_100", "kind_words", "trusted", "steady_helper",
             "year_together", "versatile", "donation_courier", "pet_friend", "mentor",
         })
-        self.assertFalse(Achievement.objects.get(code="mentor").is_active)  # community bot, milestone 5
+        # milestone 5: awarded by hand (achievements.MANUAL_CODES), active
+        self.assertTrue(Achievement.objects.get(code="mentor").is_active)
+        self.assertIn("mentor", achievements.MANUAL_CODES)
 
     def test_no_race_badges_exist(self):
         """No month-top, daily streak, night-shift, SOS or points badge."""
@@ -101,7 +103,7 @@ class StarterSetTests(AchievementBase):
 
         for a in Achievement.objects.all():
             with self.subTest(code=a.code):
-                self.assertIn(a.code, achievements.COUNTER_FOR)
+                self.assertTrue(a.code in achievements.COUNTER_FOR or a.code in achievements.MANUAL_CODES)
                 self.assertTrue((Path(settings.BASE_DIR) / "static" / a.icon_path).exists())
                 for lang in ("ru", "tj", "en"):
                     self.assertIn(a.code, notify_texts.LABELS["achievement"][lang])
@@ -371,7 +373,7 @@ class ReadTests(AchievementBase):
         self.done(3)
         achievements.evaluate(self.vol)
         items = {i["code"]: i for i in achievements.progress_for(self.vol)}
-        self.assertNotIn("mentor", items)  # inactive and not earned → hidden
+        self.assertTrue(items["mentor"]["manual"])  # hand-given: shown, no progress
         self.assertTrue(items["first_help"]["earned"])
         self.assertEqual((items["tasks_10"]["value"], items["tasks_10"]["threshold"], items["tasks_10"]["percent"]),
                          (3, 10, 30))

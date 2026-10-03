@@ -203,3 +203,11 @@ urlpatterns += [
     path('crm/analytics/heat.json', crm_analytics_heat_view, name='crm_analytics_heat'),
     path('crm/analytics/<slug:name>.csv', crm_analytics_csv_view, name='crm_analytics_csv'),
 ]
+
+# Feature Pack v2 milestone 5 — volunteer community (Telegram)
+from .views_community import community_invite_view, crm_award_mentor_view  # noqa: E402
+
+urlpatterns += [
+    path('community/invite/', community_invite_view, name='community_invite'),
+    path('crm/volunteers/<int:pk>/mentor/', crm_award_mentor_view, name='crm_award_mentor'),
+]

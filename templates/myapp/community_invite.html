@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Сообщество волонтёров - KhayrKhoh{% endblock %}
+{% block content %}
+<section class="section">
+    {% url 'profile' as profile_url %}
+    {% include "partials/_page_header.html" with title="Сообщество волонтёров" title_i18n="com.site.title" action_url=profile_url action_label="Профиль" action_i18n="nav.profile" action_class="ghost" %}
+    <div class="card detail-card">
+        {% if outcome.ok %}
+            <p data-i18n="com.site.links_hint" data-i18n-args='{"hours": {{ hours }}}'>Каждая ссылка работает один раз и {{ hours }} ч. Откройте её в Telegram на своём телефоне и не пересылайте другим.</p>
+            <div class="button-row community-links">
+                {% for key, url in outcome.links %}
+                    <a class="button primary" href="{{ url }}" target="_blank" rel="noopener">
+                        {% if key == general %}<span data-i18n="com.site.chat_general">Общий чат волонтёров</span>{% else %}<span data-i18n="com.site.chat_region">Чат региона</span>: <span data-i18n="region.{{ key }}">{{ key }}</span>{% endif %}
+                    </a>
+                {% endfor %}
+            </div>
+            <p class="field-hint" data-i18n="com.site.rules_hint">В сообществе нельзя публиковать данные клиентов: адреса, телефоны, фото.</p>
+        {% else %}
+            <p class="status-message" data-i18n="com.site.err.{{ outcome.code }}">Не удалось создать приглашение.</p>
+            {% if outcome.code == "not_eligible" %}<a class="button ghost" href="{% url 'telegram_link' %}" data-i18n="com.site.link_first">Сначала привяжите Telegram</a>{% endif %}
+        {% endif %}
+    </div>
+</section>
+{% endblock %}

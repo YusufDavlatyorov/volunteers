@@ -406,6 +406,11 @@ CHANNEL_TEXTS = {
         "en": ("A chat message may need a look",
                "The chat of request #{task_id} has a message worth checking (#{message_id}). It was delivered as usual."),
     },
+    "community_report": {
+        "ru": ("Жалоба в сообществе волонтёров", "Участник сообщества пожаловался на сообщение. Откройте ссылку и проверьте."),
+        "tj": ("Шикоят дар ҷамъияти ихтиёриён", "Иштирокчии ҷамъият аз паём шикоят кард. Истинодро кушоед ва санҷед."),
+        "en": ("Report in the volunteer community", "A community member reported a message. Open the link and review it."),
+    },
     "review_received": {
         "ru": ("Новый отзыв", "Вы получили новый отзыв по запросу #{task_id}."),
         "tj": ("Фикри нав", "Шумо оид ба дархости #{task_id} фикри нав гирифтед."),
@@ -699,6 +704,11 @@ INAPP_TEXTS = {
             },
         },
     },
+    "community_report": {
+        "en": ("Community report", "A message in the volunteer community was reported."),
+        "ru": ("Жалоба в сообществе", "В сообществе волонтёров пожаловались на сообщение."),
+        "tj": ("Шикоят дар ҷамъият", "Дар ҷамъияти ихтиёриён аз паём шикоят карданд."),
+    },
     "review_received": {
         "en": ("New review", "You received a review for request #{task_id}."),
         "ru": ("Новый отзыв", "Вы получили отзыв по запросу #{task_id}."),
@@ -788,6 +798,23 @@ def render_channel(type_, lang, context, variant=None):
     return _fmt(pair[0], ctx), _fmt(pair[1], ctx)
 
 
+# Telegram-only endings (the main bot understands these commands).
+TELEGRAM_SUFFIX = {
+    "chat_message": {
+        "ru": "\n\n↩️ Ответить прямо здесь: /chat_{task_id}",
+        "tj": "\n\n↩️ Ҳамин ҷо ҷавоб диҳед: /chat_{task_id}",
+        "en": "\n\n↩️ Reply right here: /chat_{task_id}",
+    },
+}
+
+
+def telegram_suffix(type_, lang, context) -> str:
+    entry = TELEGRAM_SUFFIX.get(type_)
+    if not entry or not (context or {}).get("task_id"):
+        return ""
+    return _fmt(entry.get(_norm_lang(lang)) or entry[DEFAULT_LANG], _SafeDict(context))
+
+
 def inapp_keys(type_, variant=None):
     """(title_key, body_key) for a type (+ optional variant known to INAPP_TEXTS)."""
     entry = INAPP_TEXTS.get(type_) or {}
@@ -856,6 +883,7 @@ TYPE_LABELS = {
     "tracking_stopped": {"en": "Location sharing stopped", "ru": "Остановка передачи местоположения", "tj": "Қатъи интиқоли ҷойгиршавӣ"},
     "chat_message": {"en": "Chat messages", "ru": "Сообщения в чате", "tj": "Паёмҳои чат"},
     "chat_reported": {"en": "Chat reports", "ru": "Жалобы в чате", "tj": "Шикоятҳо дар чат"},
+    "community_report": {"en": "Community reports", "ru": "Жалобы в сообществе", "tj": "Шикоятҳо дар ҷамъият"},
     "chat_flagged": {"en": "Chat safety flags", "ru": "Флаги безопасности в чате", "tj": "Аломатҳои бехатарӣ дар чат"},
     "review_received": {"en": "Reviews", "ru": "Отзывы", "tj": "Фикрҳо"},
     "review_low": {"en": "Low ratings", "ru": "Низкие оценки", "tj": "Баҳоҳои паст"},

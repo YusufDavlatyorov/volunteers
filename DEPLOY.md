@@ -432,7 +432,7 @@ Add:
 0 * * * * cd /opt/khayrkhoh && flock -n /tmp/khayrkhoh-stale.lock docker compose exec -T web python manage.py check_stale_requests >> /var/log/khayrkhoh/cron.log 2>&1
 ```
 
-Feature Pack v2 adds five more idempotent sweeps (same pattern; times are the
+Feature Pack v2 adds seven more idempotent sweeps (same pattern; times are the
 server clock, UTC — 05:00 UTC = 10:00 in Dushanbe):
 
 ```cron
@@ -446,6 +446,10 @@ server clock, UTC — 05:00 UTC = 10:00 in Dushanbe):
 30 3 * * * cd /opt/khayrkhoh && flock -n /tmp/khayrkhoh-chats.lock docker compose exec -T web python manage.py purge_chats >> /var/log/khayrkhoh/cron.log 2>&1
 # Remind volunteers whose saved location is older than 30 days. Daily, 10:00 Dushanbe.
 0 5 * * * cd /opt/khayrkhoh && flock -n /tmp/khayrkhoh-location.lock docker compose exec -T web python manage.py remind_stale_locations >> /var/log/khayrkhoh/cron.log 2>&1
+# Volunteer community (docs/COMMUNITY_BOT.md): remove members who are no longer eligible. Hourly.
+40 * * * * cd /opt/khayrkhoh && flock -n /tmp/khayrkhoh-community.lock docker compose exec -T web python manage.py community_sweep >> /var/log/khayrkhoh/cron.log 2>&1
+# Volunteer community: the weekly "thank you" post (once per ISO week). Mondays, 10:00 Dushanbe.
+0 5 * * 1 cd /opt/khayrkhoh && flock -n /tmp/khayrkhoh-weekly.lock docker compose exec -T web python manage.py community_weekly >> /var/log/khayrkhoh/cron.log 2>&1
 ```
 
 `/etc/logrotate.d/khayrkhoh` rotates `/var/log/khayrkhoh/*.log` weekly

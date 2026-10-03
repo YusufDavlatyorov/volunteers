@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 import os
+import sys
 from pathlib import Path
 
 from django.core.exceptions import ImproperlyConfigured
@@ -413,6 +414,21 @@ TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
 # user knows which chat to open. Not a secret; optional (the UI degrades to a
 # generic "our bot" when unset).
 TELEGRAM_BOT_USERNAME = os.getenv('TELEGRAM_BOT_USERNAME', '')
+# Volunteer community bot (Feature Pack v2, feature 5; docs/COMMUNITY_BOT.md).
+# A second bot created by the owner in @BotFather. Chats: "general:-100…,
+# sogd:-100…" (region codes for per-region groups) or plain ids (= general).
+TELEGRAM_COMMUNITY_BOT_TOKEN = os.getenv('TELEGRAM_COMMUNITY_BOT_TOKEN', '')
+TELEGRAM_COMMUNITY_BOT_USERNAME = os.getenv('TELEGRAM_COMMUNITY_BOT_USERNAME', '')
+TELEGRAM_COMMUNITY_CHAT_IDS = os.getenv('TELEGRAM_COMMUNITY_CHAT_IDS', '')
+COMMUNITY_INVITE_HOURS = int(os.getenv('COMMUNITY_INVITE_HOURS', '24'))
+
+# `manage.py test` must never reach a real Telegram chat, whatever .env holds
+# (a production token on a developer machine): tests that need a token set one
+# with override_settings and mock the HTTP layer. Django already swaps email
+# to the in-memory backend for tests.
+if len(sys.argv) > 1 and sys.argv[1] == 'test':
+    TELEGRAM_BOT_TOKEN = ''
+    TELEGRAM_COMMUNITY_BOT_TOKEN = ''
 
 # Maps — a provider-agnostic layer lives in myapp/services/maps.py.
 #   osm    (default) : free Leaflet tiles + OSRM routing + Nominatim geocoding, no key

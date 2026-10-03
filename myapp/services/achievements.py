@@ -81,8 +81,11 @@ COUNTER_FOR = {
     "versatile": "help_types",
     "donation_courier": "donations_delivered",
     "pet_friend": "pets_reunited",
-    "mentor": "mentor_actions",
 }
+# Awarded by hand by a curator / admin (owner decision, milestone 5) — never by
+# a counter, so no progress is shown: "Наставник" (/mentor in the community
+# chat, or the CRM volunteer card). See award_manual().
+MANUAL_CODES = {"mentor"}
 # Badges whose explanation in the modal carries an extra rule line.
 RULE_KEYS = {
     "milestone": "ach.rule_milestone",
@@ -129,7 +132,6 @@ def counters(user) -> dict:
         "kind_reviews": kind,
         "donations_delivered": delivered,
         "pets_reunited": reunited,
-        "mentor_actions": 0,  # community bot (milestone 5)
     }
 
 
@@ -194,6 +196,29 @@ def _notify(user, achievement):
         logger.exception("achievement notify failed user=%s code=%s", user.pk, achievement.code)
 
 
+def award_manual(staff, user, code, *, send_notifications=True):
+    """A curator / admin awards a hand-given badge (``MANUAL_CODES``) to an
+    active volunteer. Returns ``(UserAchievement|None, code)`` — code ``ok``,
+    ``already``, ``forbidden`` (not staff), ``invalid`` (not a manual badge /
+    inactive / not a volunteer). Idempotent; ID-only log."""
+    from .access import is_staff_user
+
+    if not (staff is not None and getattr(staff, "is_active", False) and is_staff_user(staff)):
+        return None, "forbidden"
+    achievement = Achievement.objects.filter(code=code, is_active=True).first()
+    if code not in MANUAL_CODES or achievement is None or not _eligible(user):
+        return None, "invalid"
+    try:
+        with transaction.atomic():
+            row = UserAchievement.objects.create(user=user, achievement=achievement, progress_snapshot=0)
+    except IntegrityError:
+        return UserAchievement.objects.filter(user=user, achievement=achievement).first(), "already"
+    logger.info("achievement awarded by hand user=%s code=%s by=%s", user.pk, code, staff.pk)
+    if send_notifications:
+        _notify(user, achievement)
+    return row, "ok"
+
+
 def award_safely(user, event="") -> list:
     """Event hook: never raises into the view / service that called it."""
     try:
@@ -219,6 +244,7 @@ def progress_for(user) -> list:
         award = awards.get(achievement.pk)
         if award is None and not achievement.is_active:
             continue
+        manual = achievement.code in MANUAL_CODES
         value = value_for(achievement, numbers)
         threshold = max(achievement.threshold, 1)
         shown = threshold if award else min(value, threshold)
@@ -235,6 +261,7 @@ def progress_for(user) -> list:
             "rule_key": RULE_KEYS.get(achievement.category, ""),
             "review_avg": numbers["review_avg"] if achievement.code == "trusted" else None,
             "coming_soon": not achievement.is_active and award is None,
+            "manual": manual,
         })
     return items
 
@@ -295,9 +322,9 @@ DESCRIPTIONS = {
     "pet_friend": {"en": "Your lost-and-found pet report ended in a happy reunion.",
                    "ru": "Ваше объявление о животном закончилось счастливой встречей.",
                    "tj": "Эълони шумо дар бораи ҳайвон бо вохӯрии хушҳолона анҷом ёфт."},
-    "mentor": {"en": "Helps newcomers in the volunteer community (coming soon).",
-               "ru": "Помогает новичкам в сообществе волонтёров (скоро).",
-               "tj": "Ба навомадагон дар ҷамъияти ихтиёриён кумак мекунад (ба зудӣ)."},
+    "mentor": {"en": "Helps newcomers in the volunteer community. Awarded by a coordinator.",
+               "ru": "Помогает новичкам в сообществе волонтёров. Значок выдаёт координатор.",
+               "tj": "Ба навомадагон дар ҷамъияти ихтиёриён кумак мекунад. Нишонро ҳамоҳангсоз медиҳад."},
 }
 
 UI_STRINGS = {
@@ -312,6 +339,8 @@ UI_STRINGS = {
     "ach.status_earned": {"en": "Earned", "ru": "Получен", "tj": "Гирифта шуд"},
     "ach.status_locked": {"en": "Not earned yet", "ru": "Ещё не получен", "tj": "Ҳанӯз гирифта нашудааст"},
     "ach.coming_soon": {"en": "Coming soon", "ru": "Скоро", "tj": "Ба зудӣ"},
+    "ach.manual": {"en": "Given by a coordinator", "ru": "Выдаёт координатор", "tj": "Ҳамоҳангсоз медиҳад"},
+    "ach.award_mentor": {"en": "Award “Mentor”", "ru": "Выдать «Наставник»", "tj": "Додани «Мураббӣ»"},
     "ach.progress": {"en": "Progress", "ru": "Прогресс", "tj": "Пешрафт"},
     "ach.close": {"en": "Close", "ru": "Закрыть", "tj": "Пӯшидан"},
     "ach.open_hint": {"en": "Tap a badge to see what it is for.", "ru": "Нажмите на значок, чтобы узнать, за что он.",

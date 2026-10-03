@@ -94,6 +94,21 @@
             </div>
             {% endif %}
 
+            {% if community_card %}
+            <div class="card reveal community-card">
+                <div class="section-head"><h3 data-i18n="com.site.title">Сообщество волонтёров</h3></div>
+                <p class="field-hint" data-i18n="com.site.lede">Telegram-группа волонтёров и координаторов: объявления, акции, взаимопомощь. Вход — по личной одноразовой ссылке.</p>
+                {% if community_card.linked %}
+                    <form method="post" action="{% url 'community_invite' %}" class="button-row">
+                        {% csrf_token %}
+                        <button type="submit" class="button primary" data-i18n="com.site.button">Получить приглашение</button>
+                    </form>
+                {% else %}
+                    <a class="button ghost" href="{% url 'telegram_link' %}" data-i18n="com.site.link_first">Сначала привяжите Telegram</a>
+                {% endif %}
+            </div>
+            {% endif %}
+
             <div class="card reveal">
                 <div class="section-head"><h3 data-i18n="profile.quick">Quick Actions</h3></div>
                 <nav class="quick-actions">

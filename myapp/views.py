@@ -44,7 +44,7 @@ from .models import (
 from .models.emergency import STATUS_CHOICES as EMERGENCY_STATUS_CHOICES
 from .notifications import staff_recipients, volunteer_queryset_for_region
 from .realtime import publish
-from .services import achievements, cancellation, chat, feedback, presence, tracking
+from .services import achievements, cancellation, chat, community, feedback, presence, task_actions, tracking
 from .services.notify import notify
 from .services import access, analytics, dispatch, donations, emergency, maps, overdue, pets, stale
 from .services.ai import build_user_context, confirm_action, run_conversation
@@ -330,6 +330,7 @@ def crm_volunteer_detail_view(request, pk):
         "last_activity": last_activity,
         "achievement_items": achievements.progress_for(volunteer),
     }
+    context["mentor_awarded"] = any(i["code"] == "mentor" and i["earned"] for i in context["achievement_items"])
     return render(request, "myapp/crm_volunteer_detail.html", context)
 
 
@@ -484,65 +485,22 @@ def task_cancel_view(request, pk):
     return redirect("task_detail", pk=task.pk)
 
 
-# accept_task_view's per-volunteer critical section. A HelpRequest-level DB
-# constraint was deliberately ruled out here: CRM/admin flows and the
-# matching algorithm's workload scoring (myapp.services.matching) legitimately
-# model a volunteer holding more than one "active" row at once (see e.g.
-# MatchingAlgorithmTests, CrmTasksViewTests) — the "one active task" rule is a
-# self-service-accept-flow rule, not a fact about the data model as a whole,
-# so it must not be baked into schema-level uniqueness.
-ACCEPT_TASK_LOCK_TIMEOUT_SECONDS = 10
+_ACCEPT_BUSY_MESSAGE = "Сначала завершите текущий запрос. Один волонтер работает с одним запросом."
 
 
 @role_required("volunteer")
 @require_POST
 def accept_task_view(request, pk):
+    """Self-accept — the rules (lock, one active task, conditional UPDATE) live
+    in services/task_actions.accept, shared with the Telegram bot."""
     task = get_object_or_404(HelpRequest.objects.select_related("client"), pk=pk)
-
-    # cache.add() only succeeds if the key is absent, which is atomic in
-    # Django's cache backends — so of two concurrent accept_task_view calls
-    # for the *same* volunteer (two different tasks, or the same one), only
-    # one gets past this line at a time; the other is turned away immediately
-    # instead of racing the "do I already have an active task" check below.
-    lock_key = f"accept_task_lock:{request.user.pk}"
-    if not cache.add(lock_key, "1", ACCEPT_TASK_LOCK_TIMEOUT_SECONDS):
-        messages.warning(request, "Сначала завершите текущий запрос. Один волонтер работает с одним запросом.")
-        return redirect("task_list")
-
-    try:
-        if HelpRequest.objects.filter(volunteer=request.user, status="active").exists():
-            messages.warning(request, "Сначала завершите текущий запрос. Один волонтер работает с одним запросом.")
-            return redirect("task_list")
-
-        # Conditional UPDATE, not fetch-then-save: the WHERE clause is
-        # evaluated by the database as part of one atomic statement, so if
-        # two *different* volunteers click "accept" on this same task at the
-        # same time, only the first UPDATE can still see status="pending" —
-        # the second affects zero rows instead of silently overwriting the
-        # first volunteer's acceptance.
-        updated = HelpRequest.objects.filter(pk=task.pk, status="pending").update(
-            volunteer=request.user, status="active", accepted_at=timezone.now(),
-            work_stage=HelpRequest.WORK_STAGE_ASSIGNED,
-        )
-    finally:
-        cache.delete(lock_key)
-
-    if not updated:
+    outcome = task_actions.accept(request.user, task)
+    if outcome.code == task_actions.BUSY:
+        messages.warning(request, _ACCEPT_BUSY_MESSAGE)
+    elif outcome.code == task_actions.TAKEN:
         messages.warning(request, "Этот запрос уже принят другим волонтером.")
-        return redirect("task_list")
-
-    task.refresh_from_db()
-    logger.info("task #%s self-accepted by volunteer #%s", task.id, request.user.pk)
-    presence.on_task_change(task)
-    publish.task_changed(task)
-    notify(
-        [task.client, request.user], "task_accepted",
-        params={"task_id": task.id, "volunteer_name": request.user.username},
-        link=reverse("task_detail", args=[task.id]),
-        dedupe_key=f"task_accepted:{task.id}:{request.user.pk}",
-        extra={"client_name": task.client.username, "phone": task.phone, "address": task.address},
-    )
-    messages.success(request, "Вы приняли запрос. Клиент получил уведомление на email/Telegram.")
+    else:
+        messages.success(request, "Вы приняли запрос. Клиент получил уведомление на email/Telegram.")
     return redirect("task_list")
 
 
@@ -550,31 +508,12 @@ def accept_task_view(request, pk):
 @require_POST
 def complete_task_view(request, pk):
     task = get_object_or_404(HelpRequest, pk=pk, volunteer=request.user, status="active")
-    # Conditional UPDATE, not task.complete() (fetch-then-save): a double-click or
-    # a retried POST would otherwise complete the task twice and award the rating
-    # points twice. Only the request that still sees status="active" wins; the
-    # loser gets 0 rows and bails out before add_points / the client notice.
-    completed = HelpRequest.objects.filter(pk=task.pk, volunteer=request.user, status="active").update(
-        status="completed", completed_at=timezone.now(), updated_at=timezone.now()
-    )
-    if not completed:
+    # services/task_actions.complete: conditional UPDATE — a double-click can't
+    # complete twice or award the rating points twice.
+    outcome = task_actions.complete(request.user, task)
+    if not outcome.ok:
         messages.info(request, "Этот запрос уже завершён.")
         return redirect("task_list")
-
-    task.refresh_from_db()
-    logger.info("task #%s completed by volunteer #%s", task.id, request.user.pk)
-    tracking.end(task)  # stop live location, delete the trail
-    chat.close(task)  # the task chat becomes read-only (system message)
-    presence.on_task_change(task)
-    publish.task_changed(task)
-    profile, _ = Profile.objects.get_or_create(user=request.user)
-    profile.add_points(5 if task.is_urgent else 3)
-    notify(
-        [task.client], "task_completed", params={"task_id": task.id},
-        link=reverse("task_detail", args=[task.id]), dedupe_key=f"task_completed:{task.id}",
-    )
-    feedback.review_request(task)  # "Оцените помощь" prompt to the client
-    achievements.award_safely(request.user, "task_completed")  # never raises
     messages.success(request, "Запрос завершен, рейтинг обновлен.")
     return redirect("task_list")
 
@@ -607,28 +546,9 @@ def create_request_view(request):
     if request.method == "POST":
         form = HelpRequestForm(request.POST)
         if form.is_valid():
-            help_request = form.save(commit=False)
-            help_request.client = request.user
-            help_request.region = request.user.region
-            # If the client didn't drop a pin, try to resolve the typed address
-            # to a point so the request still shows on the operations map.
-            # Best-effort: an un-geocodable address just means no coordinates.
-            if not help_request.has_location and help_request.address:
-                coords = maps.geocode(help_request.address, region=help_request.region)
-                if coords:
-                    help_request.latitude, help_request.longitude = coords
-            help_request.save()
-            # Do-not-disturb (owner decision): volunteers who are "away" don't
-            # get new-task pings — only this type; their own task updates,
-            # broadcasts and events still reach them.
-            volunteers = volunteer_queryset_for_region(request.user.region).filter(presence.not_away_q())
-            notify(
-                volunteers, "task_new_in_region",
-                params={"task_id": help_request.id, "region": help_request.region, "help_type": help_request.help_type},
-                link=reverse("task_detail", args=[help_request.id]),
-                dedupe_key=f"task_new:{help_request.id}",
-                extra={"region_name": request.user.get_region_display(), "description": help_request.description[:180]},
-            )
+            # Region = client's, best-effort geocode, volunteer ping (DND
+            # excluded) — services/task_actions.create_request, shared with the bot.
+            task_actions.create_request(request.user, form)
             messages.success(request, "Запрос создан. Волонтеры вашего региона получили уведомление.")
             return redirect("profile")
     else:
@@ -777,6 +697,7 @@ def create_event_view(request):
                 extra={"description": event.description, "date": f"{event.date:%d.%m.%Y %H:%M}"},
             )
             Event.objects.filter(pk=event.pk).update(notifications_sent=True)
+            community.mirror_event_safely(event)  # pinned post in the volunteer community (if configured)
             messages.success(request, f"Акция создана. Уведомлений отправлено: {sent}.")
             return redirect("admin_panel")
     else:
@@ -789,16 +710,10 @@ def broadcast_view(request):
     if request.method == "POST":
         form = BroadcastForm(request.POST)
         if form.is_valid():
-            broadcast = form.save(commit=False)
-            broadcast.sender = request.user
-            volunteers = volunteer_queryset_for_region(broadcast.region)
-            broadcast.sent_count = notify(
-                volunteers, "broadcast",
-                params={"subject": broadcast.subject, "message": broadcast.message[:300]},
-                link=reverse("broadcast_list"),
-                subject=broadcast.subject, message=broadcast.message,
+            broadcast = task_actions.send_broadcast(
+                request.user, region=form.cleaned_data["region"],
+                subject=form.cleaned_data["subject"], message=form.cleaned_data["message"],
             )
-            broadcast.save()
             messages.success(request, f"Сообщение отправлено. Получателей: {broadcast.sent_count}.")
             return redirect("admin_panel")
     else:
@@ -902,15 +817,9 @@ def volunteer_application_detail_view(request, pk):
 @require_POST
 def volunteer_application_approve_view(request, pk):
     application = get_object_or_404(VolunteerApplication.objects.select_related("user"), pk=pk)
-    if application.status == VolunteerApplication.STATUS_APPROVED:
+    if not task_actions.approve_application(request.user, application).ok:
         messages.info(request, "Заявка уже одобрена.")
         return redirect("volunteer_applications")
-    application.approve(request.user)
-    logger.info(
-        "volunteer application #%s approved by user #%s (applicant #%s)",
-        application.pk, request.user.pk, application.user_id,
-    )
-    notify([application.user], "application_approved", link=reverse("task_list"))
     messages.success(request, f"Заявка пользователя {application.user.username} одобрена.")
     return redirect("volunteer_applications")
 
@@ -919,15 +828,9 @@ def volunteer_application_approve_view(request, pk):
 @require_POST
 def volunteer_application_reject_view(request, pk):
     application = get_object_or_404(VolunteerApplication.objects.select_related("user"), pk=pk)
-    if application.status == VolunteerApplication.STATUS_REJECTED:
+    if not task_actions.reject_application(request.user, application).ok:
         messages.info(request, "Заявка уже отклонена.")
         return redirect("volunteer_applications")
-    application.reject(request.user)
-    logger.info(
-        "volunteer application #%s rejected by user #%s (applicant #%s)",
-        application.pk, request.user.pk, application.user_id,
-    )
-    notify([application.user], "application_rejected", link=reverse("volunteer_application"))
     messages.success(request, f"Заявка пользователя {application.user.username} отклонена.")
     return redirect("volunteer_applications")
 
@@ -1283,40 +1186,15 @@ def task_assign_volunteer_view(request, pk, volunteer_id):
     )
     # Owner rule: a do-not-disturb volunteer may be assigned by hand only after
     # the curator explicitly confirmed the warning in the dispatch card.
-    override = dispatch.is_away_now(volunteer)
-    if override and request.POST.get("confirm_away") != "1":
+    outcome = task_actions.assign(
+        request.user, task, volunteer, confirm_away=request.POST.get("confirm_away") == "1"
+    )
+    if outcome.code == task_actions.AWAY:
         return JsonResponse({
             "success": False, "reason": "volunteer_away", "away_until": _away_last_day_iso(volunteer),
         }, status=409)
-
-    updated = HelpRequest.objects.filter(pk=pk, status="pending").update(
-        volunteer=volunteer, status="active", accepted_at=timezone.now(),
-        work_stage=HelpRequest.WORK_STAGE_ASSIGNED,
-    )
-    if not updated:
+    if not outcome.ok:
         return JsonResponse({"success": False, "reason": "task_not_pending"})
-
-    logger.info(
-        "task #%s assigned to volunteer #%s by user #%s (direct dispatch%s)",
-        task.id, volunteer.pk, request.user.pk, ", do-not-disturb override" if override else "",
-    )
-    task.refresh_from_db()  # fetched before the UPDATE — volunteer/status are stale
-    presence.on_task_change(task)
-    publish.task_changed(task)
-    common = dict(
-        params={"task_id": task.id, "help_type": task.help_type},
-        link=reverse("task_detail", args=[task.id]),
-        dedupe_key=f"task_assigned:{task.id}:{volunteer.pk}",
-        extra={"help_type_name": task.get_help_type_display(), "client_name": task.client.username,
-               "phone": task.phone, "address": task.address},
-    )
-    if override:
-        # The volunteer learns this was an urgent manual assignment despite
-        # do-not-disturb; the client gets the ordinary "assigned" notice.
-        notify([volunteer], "task_assigned", variant="urgent_override", **common)
-        notify([task.client], "task_assigned", **common)
-    else:
-        notify([volunteer, task.client], "task_assigned", **common)
     return JsonResponse({"success": True})
 
 

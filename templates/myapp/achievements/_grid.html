@@ -19,7 +19,7 @@ still shows the title and the progress / earned state.
                         data-earned="{% if item.earned %}1{% else %}0{% endif %}"
                         data-date="{% if item.awarded_at %}{{ item.awarded_at|date:'d.m.Y' }}{% endif %}"
                         data-value="{{ item.value }}" data-threshold="{{ item.threshold }}"
-                        data-rule-key="{{ item.rule_key }}" data-soon="{% if item.coming_soon %}1{% else %}0{% endif %}"
+                        data-rule-key="{{ item.rule_key }}" data-soon="{% if item.coming_soon %}1{% else %}0{% endif %}" data-manual="{% if item.manual %}1{% else %}0{% endif %}"
                         data-avg="{% if item.review_avg is not None %}{{ item.review_avg|floatformat:1 }}{% endif %}"
                         data-icon="{% static item.achievement.icon_path %}"
                         aria-haspopup="dialog">
@@ -31,6 +31,8 @@ still shows the title and the progress / earned state.
                         <span class="badge-tile__meta">{{ item.awarded_at|date:"d.m.Y" }}</span>
                     {% elif item.coming_soon %}
                         <span class="badge-tile__meta" data-i18n="ach.coming_soon">Скоро</span>
+                    {% elif item.manual %}
+                        <span class="badge-tile__meta" data-i18n="ach.manual">Выдаёт координатор</span>
                     {% else %}
                         <span class="badge-tile__meta">{{ item.value }}/{{ item.threshold }}</span>
                         <span class="badge-progress" aria-hidden="true"><span style="width: {{ item.percent }}%"></span></span>

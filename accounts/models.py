@@ -272,6 +272,9 @@ class Profile(models.Model):
     # Last "your saved location is old" reminder (idempotency for
     # `remind_stale_locations`); the saved point is what matching uses.
     location_reminded_at = models.DateTimeField(null=True, blank=True)
+    # Volunteer community (milestone 5): may the weekly "thank you" post name
+    # this volunteer next to a new badge? On by default, switchable in the profile.
+    community_shoutouts = models.BooleanField(default=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

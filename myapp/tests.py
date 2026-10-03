@@ -2714,42 +2714,44 @@ class TelegramLinkRedemptionTests(TestCase):
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
 class TelegramBotCommandTests(TestCase):
     """The bot command dispatch itself: `/link <username>` is gone; `/link
-    <code>` drives the verified redemption; other commands are unchanged."""
+    <code>` drives the verified redemption; other commands are unchanged.
+    (Milestone 5: the bot is myapp/telegram/main_bot — same guarantees.)"""
 
     def setUp(self):
         cache.clear()
-        from myapp.management.commands.run_telegram_bot import Command
+        from myapp.telegram.main_bot import core
 
+        self.core = core
         self.user = Users.objects.create_user(
             username="bot_user", email="bot_user@example.com", password="pass12345", is_client=True,
         )
-        self.cmd = Command()
-        self.sent = []
-        self.cmd._send = lambda chat_id, text: self.sent.append((chat_id, text))
 
     def tearDown(self):
         cache.clear()
 
+    def _say(self, chat_id, text):
+        result = self.core.handle(self.core.Event(chat_id=chat_id, kind="command", text=text))
+        return [r.text for r in result.replies]
+
     def test_link_by_username_no_longer_binds_anything(self):
-        self.cmd._handle_message(4242, "/link bot_user")
+        self._say(4242, "/link bot_user")
         self.user.refresh_from_db()
         self.assertIsNone(self.user.telegram_id)
 
     def test_link_with_a_valid_code_binds_the_sender_chat(self):
         code = self.user.generate_telegram_link_token()
-        self.cmd._handle_message(4242, f"/link {code}")
+        self._say(4242, f"/link {code}")
         self.user.refresh_from_db()
         self.assertEqual(self.user.telegram_id, 4242)
 
     def test_link_without_an_argument_shows_usage(self):
-        self.cmd._handle_message(4242, "/link")
-        self.assertIn("Использование", self.sent[-1][1])
+        texts = self._say(4242, "/link")
+        self.assertIn("Использование", texts[-1])
         self.user.refresh_from_db()
         self.assertIsNone(self.user.telegram_id)
 
     def test_id_command_still_returns_the_chat_id(self):
-        self.cmd._handle_message(4242, "/id")
-        self.assertIn("4242", self.sent[-1][1])
+        self.assertIn("4242", self._say(4242, "/id")[-1])
 
 
 # ============================================================================

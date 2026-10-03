@@ -389,6 +389,12 @@ conditional UPDATE, per-chat throttle) and never raises for an expected failure 
 `RegistrationForm` / `UserUpdateForm` / `update_profile` anymore — don't re-add it. The old
 `/link <username>` command (which bound any account from just a guessable username) is gone.
 `run_telegram_bot` also strips the `@BotName` suffix Telegram appends to group-chat commands.
+Since Feature Pack v2 milestone 5 the bots are python-telegram-bot apps under `myapp/telegram/`:
+`main_bot/core.py` (transport-agnostic, unit-tested without Telegram) + `main_bot/app.py` (thin
+PTB adapter), the same for `community_bot/`; texts in `myapp/telegram/i18n.py`. Bot actions call
+the same services as the website (`services/task_actions.py` holds accept / complete / assign /
+create request / applications / broadcast, extracted from the views). `manage.py test` blanks the
+bot tokens (`server/settings.py`), so a real token in a developer `.env` is never used by tests.
 
 ### AI assistant
 
