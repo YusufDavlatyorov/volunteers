@@ -44,6 +44,7 @@ from django.utils import timezone
 from accounts.models import REGION_CHOICES, Profile, Users
 
 from ..models import (
+    ChatMessage,
     DONATION_CATEGORY_CHOICES,
     DONATION_STATUS_CHOICES,
     HELP_TYPE_CHOICES,
@@ -54,6 +55,7 @@ from ..models import (
     TaskReview,
 )
 from . import notify_texts
+from .chat_flags import CATEGORIES as FLAG_CATEGORIES
 from .geo import is_valid_coordinate
 from .overdue import was_overdue_q
 from .stale import was_stale_q
@@ -431,6 +433,52 @@ def ratings_timeline(f):
             "series": [_series("avg", "an.s.avg_rating", values)]}
 
 
+def _party_messages(f):
+    """Client / volunteer messages in the period (staff and system never flagged)."""
+    qs = ChatMessage.objects.filter(created_at__gte=f.start, created_at__lt=f.end,
+                                    sender__isnull=False, is_staff_post=False)
+    return qs.filter(task__region=f.region) if f.region else qs
+
+
+def _flag_rows(f):
+    """(flags, help_type) of every flagged message in the period — one query;
+    the per-category count happens here because a JSON-list "contains" lookup
+    isn't portable (SQLite)."""
+    return list(_party_messages(f).exclude(flags=[]).values_list("flags", "task__help_type"))
+
+
+def chat_flags_topics(f):
+    """Chat safety flags by topic (a message can carry several), the share of
+    flagged party messages and how many still wait for a curator's review."""
+    rows = _flag_rows(f)
+    counts = {code: 0 for code in FLAG_CATEGORIES}
+    for flags, _ in rows:
+        for code in flags or ():
+            if code in counts:
+                counts[code] += 1
+    total = _party_messages(f).count()
+    unreviewed = _party_messages(f).exclude(flags=[]).filter(reviewed_at__isnull=True).count()
+    return {"kind": "hbar", "labels": list(FLAG_CATEGORIES),
+            "label_keys": [f"an.flag.{c}" for c in FLAG_CATEGORIES],
+            "series": [_series("messages", "an.s.flagged_messages", [counts[c] for c in FLAG_CATEGORIES])],
+            "kpis": {"flagged": len(rows), "messages": total,
+                     "share": round(100 * len(rows) / total, 1) if total else None,
+                     "unreviewed": unreviewed}}
+
+
+def chat_flags_help_types(f):
+    """Flagged messages per type of help, one series per topic — the table view
+    is the help type × topic matrix."""
+    matrix = {(h, c): 0 for h, _ in HELP_TYPE_CHOICES for c in FLAG_CATEGORIES}
+    for flags, help_type in _flag_rows(f):
+        for code in flags or ():
+            if (help_type, code) in matrix:
+                matrix[(help_type, code)] += 1
+    codes = [h for h, _ in HELP_TYPE_CHOICES]
+    return {"kind": "hbar", "labels": codes, "label_keys": [f"an.help.{h}" for h in codes],
+            "series": [_series(c, f"an.flag.{c}", [matrix[(h, c)] for h in codes]) for c in FLAG_CATEGORIES]}
+
+
 def registrations(f):
     dates = bucket_dates(f)
     qs = Users.objects.all()
@@ -466,6 +514,8 @@ CHARTS = {
     "ratings_timeline": ratings_timeline,
     "donations_status": donations_status,
     "donations_category": donations_category,
+    "chat_flags_topics": chat_flags_topics,
+    "chat_flags_help_types": chat_flags_help_types,
     "registrations": registrations,
 }
 
@@ -634,6 +684,21 @@ UI_STRINGS = {
                                 "tj": "Хайрияҳо аз рӯи категория"},
     "an.c.registrations": {"en": "New registrations by role", "ru": "Новые регистрации по ролям",
                            "tj": "Бақайдгириҳои нав аз рӯи нақш"},
+    "an.c.chat_flags_topics": {"en": "Chat safety flags by topic", "ru": "Флаги в чате по темам",
+                               "tj": "Аломатҳо дар чат аз рӯи мавзӯъ"},
+    "an.c.chat_flags_help_types": {"en": "Chat safety flags by type of help", "ru": "Флаги в чате по видам помощи",
+                                   "tj": "Аломатҳо дар чат аз рӯи навъи кумак"},
+    "an.n.chat_flags_topics": {"en": "Flags never block a message. A message can carry several topics.",
+                               "ru": "Флаг не блокирует сообщение. У одного сообщения может быть несколько тем.",
+                               "tj": "Аломат паёмро манъ намекунад. Як паём метавонад якчанд мавзӯъ дошта бошад."},
+    "an.flag_summary": {"en": "Flagged messages: {n} of {total} ({share}%) · not reviewed yet: {open}",
+                        "ru": "Сообщений с флагом: {n} из {total} ({share}%) · ещё не проверено: {open}",
+                        "tj": "Паёмҳои бо аломат: {n} аз {total} ({share}%) · ҳанӯз санҷида нашуда: {open}"},
+    "an.flag.sms_code": {"en": "SMS code / PIN", "ru": "Код из СМС / ПИН", "tj": "Коди SMS / рамз"},
+    "an.flag.money": {"en": "Money and transfers", "ru": "Деньги и переводы", "tj": "Пул ва интиқол"},
+    "an.flag.off_platform": {"en": "Other messenger", "ru": "Другой мессенджер", "tj": "Мессенҷери дигар"},
+    "an.flag.phone": {"en": "Phone number", "ru": "Номер телефона", "tj": "Рақами телефон"},
+    "an.s.flagged_messages": {"en": "Flagged messages", "ru": "Сообщения с флагом", "tj": "Паёмҳои бо аломат"},
     "an.c.heatmap": {"en": "Where requests come from", "ru": "Откуда приходят запросы", "tj": "Дархостҳо аз куҷо меоянд"},
     # chart notes
     "an.n.delays": {"en": "Overdue: in progress longer than 3 h (by accept day). Waiting: no volunteer for over 48 h (by creation day).",

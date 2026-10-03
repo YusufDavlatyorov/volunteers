@@ -319,6 +319,26 @@ class Command(BaseCommand):
                 TaskReview.objects.filter(pk=review.pk).update(created_at=completed + timedelta(hours=2))
         for volunteer in volunteers:
             feedback.recompute_volunteer_stats(volunteer)
+        self._create_flagged_chat()
+
+    def _create_flagged_chat(self):
+        """A few chat lines on recent history tasks, some of them flagged, so the
+        CRM "chat safety flags" charts are not empty locally."""
+        from myapp.models import ChatMessage
+        from myapp.services import chat_flags
+
+        lines = ["Я в пути", "Купил продукты на 85 сомони, чек отдам", "Позвоните мне",
+                 "Напишите мне в WhatsApp", "Мой номер +992 90 123 45 67", "Спасибо!"]
+        recent = HelpRequest.objects.filter(description__startswith="[история]").order_by("-created_at")[:12]
+        for i, task in enumerate(recent):
+            text = lines[i % len(lines)]
+            sender = task.volunteer if i % 2 == 0 else task.client
+            msg, created = ChatMessage.objects.get_or_create(
+                task=task, sender=sender, client_msg_id=f"seed-{task.pk}",
+                defaults={"body": text, "flags": chat_flags.detect(text)},
+            )
+            if created:
+                ChatMessage.objects.filter(pk=msg.pk).update(created_at=task.completed_at - timedelta(minutes=30))
 
     def _award_achievements(self, volunteers):
         """Badges for the demo history — silently, like backfill_achievements."""

@@ -251,7 +251,7 @@ class QueryCountTests(AnalyticsBase):
             _make(f"an_more_vol{i}", is_volunteer=True)
         big = self._count()
         self.assertEqual(small, big)
-        self.assertLessEqual(big, 24)
+        self.assertLessEqual(big, 26)  # 16 + 2 flag charts (+4 queries) + heat; constant is what matters
 
     def test_second_load_is_served_from_cache(self):
         self.seed(2)

@@ -214,6 +214,19 @@ def chat_message_hide_view(request, message_id):
     return redirect("task_chat", pk=message.task_id)
 
 
+@login_required
+@require_POST
+def chat_message_review_view(request, message_id):
+    """Staff "Проверено" on a flagged / reported message (chat.review)."""
+    message = _visible_message(request, message_id)
+    outcome = chat.review(request.user, message)
+    if _wants_json(request):
+        return _outcome_json(request, outcome)
+    if not outcome.ok:
+        flash.error(request, _FLASH.get(outcome.code, _FLASH[chat.INVALID]))
+    return redirect("task_chat", pk=message.task_id)
+
+
 # Elderly-friendly one-tap replies: (i18n key, RU text sent without JS — the
 # JS sends the text in the sender's UI language).
 QUICK_REPLIES = (

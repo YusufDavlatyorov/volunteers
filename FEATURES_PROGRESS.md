@@ -74,28 +74,42 @@ Baseline: 657 tests green at `2467bc5` (main).
   milestone-2 consent dialog), `.kpi-row` phone rule overridden (tiles half-width on phones),
   `seed_demo` created tasks after their accept time. Browser matrix: 5 roles × 390/1280 ×
   light/dark — no horizontal scroll, no JS errors (on ASGI). Result: 1180 tests OK.
+- 2026-10-03 — milestone 4 follow-ups (owner OK + decisions): chat retention option A
+  (`services/chat_retention.py`, `purge_chats` daily; photos 90 d / messages 180 d after the task
+  ended; flagged / reported kept until reviewed + 180 d; settings `CHAT_*_DAYS`; About privacy line);
+  curator "Проверено" on flagged/reported messages (`ChatMessage.reviewed_at/by`, myapp 0022,
+  `chat.review`, also closes open reports); public rating without places/points (region → name,
+  avg + badges, paginated, cache key v2); chat-flag stats in CRM analytics (by topic with share +
+  unreviewed, by help type); compression verified from outside (br + gzip on for static and HTML);
+  deploy runbook + rollback plan `docs/DEPLOY_FEATURE_PACK_V2.md`, rollback rehearsed on
+  postgres:16 — found and fixed: 0021 reverse failed on PostgreSQL (pending trigger events).
 
-## Deploy checklist (accumulated; applied only after the owner writes "deploy")
-- `.env` (server): add `OSRM_BASE_URL=http://osrm_car:5000`, `OSRM_FOOT_BASE_URL=http://osrm_foot:5000`
-  (only with the `osrm` profile). Server `.env` has no `$` values (checked read-only 2026-10-02).
-- Copy `osrm-data/{car,foot}` to `/opt/khayrkhoh/osrm-data/`; `docker compose --profile osrm up -d`;
-  measure `docker stats`.
-- nginx: `location /ws/ { proxy_pass http://127.0.0.1:8001; proxy_http_version 1.1;
-  proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection "upgrade";
-  proxy_set_header Host $host; proxy_set_header X-Forwarded-Proto $scheme;
-  proxy_read_timeout 3600s; }`
-- nginx (private chat photos): `location ^~ /media/chat/ { return 404; }` and
-  `location ^~ /protected-media/ { internal; alias /opt/khayrkhoh/media/; }`
-  (compose sets `DJANGO_MEDIA_X_ACCEL=True` for `web`).
-- crons (deploy user, docker compose exec -T web …): `sweep_availability` */5,
-  `prune_notifications` daily, `purge_tracking` hourly, `remind_stale_locations` daily.
-- nginx: the complete `/ws/` + private-media snippet (with the `map $http_upgrade
-  $connection_upgrade` block) and the read-only verification commands are in DEPLOY.md §10a.
-- After `up -d`: `docker compose exec -T web python manage.py check_realtime` and the same in `ws`
-  (expects `channels_redis…` + `round trip: OK`).
-- Milestone 4: after `migrate` (myapp 0020 + 0021) run once
-  `docker compose run --rm web python manage.py backfill_achievements --dry-run`, then without
-  `--dry-run` (silent — no notifications; `--notify` only if the owner wants them).
-- New static files (collectstatic picks them up): `vendor/chartjs-4.4.7/`, `vendor/leaflet-heat-0.2.0/`,
-  `images/badges/*.svg`, `css/analytics.css`, `js/crm-analytics.js`, `js/achievements.js`.
-- Order: build → migrate → collectstatic → up -d (incl. new `ws`) → nginx reload → verify.
+## Deploy checklist (milestones 1–4 together; only after the owner writes "deploy")
+
+Full runbook with commands, expected output and the rollback plan:
+**`docs/DEPLOY_FEATURE_PACK_V2.md`** (rollback rehearsed on postgres:16, 2026-10-03). Order:
+
+0. Local: full suite green → `git merge --ff-only feature-pack-v2` into `main` → push. Optional:
+   rsync `osrm-data/{car,foot}` to `/opt/khayrkhoh/osrm-data/`.
+1. Server pre-flight (read-only): clean tree at `2467bc5`, `docker compose ps`, disk/RAM,
+   `nginx -t`, `/health/ready/`, no `$` in `.env`.
+2. Backups: `pg_dump -Fc`, `media.tgz`, `docker tag khayrkhoh:latest khayrkhoh:rollback-2467bc5`,
+   `staticfiles.json`, nginx site file, `crontab -l`; copy the dump off the server.
+3. `git pull --ff-only` → `docker compose build` (+ `.env` `OSRM_BASE_URL=http://osrm_car:5000`,
+   `OSRM_FOOT_BASE_URL=http://osrm_foot:5000` only with the `osrm` profile).
+4. `migrate` (accounts 0008–0010, myapp 0016–0022) — then steps 5–7 without a pause
+   (old code can't run on the new schema).
+5. `collectstatic`.
+6. nginx: `map $http_upgrade $connection_upgrade` + `/ws/` + `/media/chat/` 404 +
+   `internal /protected-media/` (DEPLOY.md §10a) → `nginx -t` → reload — **before** `up -d`
+   (`web` now serves chat photos via X-Accel).
+7. `docker compose up -d` (new `ws`; `--profile osrm` optional).
+8. Verify: health/ready, `check_realtime` in `web` and `ws`, `/ws/` handshake 101, logs, `docker stats`.
+9. `backfill_achievements --dry-run`, then without (silent); `purge_chats --dry-run`.
+10. crons (DEPLOY.md §13): `sweep_availability` */5, `purge_tracking` hourly, `prune_notifications`
+    daily, `purge_chats` daily, `remind_stale_locations` daily 05:00 UTC.
+11. Browser check by role (runbook §11); 12. 24 h monitoring.
+
+Rollback: level 0 (switch one feature off), level 1 (migrate `myapp 0015` → `accounts 0007` with the
+NEW image, then old commit + `rollback-2467bc5` image + collectstatic + nginx/crontab backups),
+level 2 (pg_restore of the pre-deploy dump — loses everything written after step 2).

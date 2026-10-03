@@ -203,11 +203,22 @@
         } else {
             if (m.hidden) bubble.appendChild(keyed('span', 'tag muted', 'chat.hidden_tag', 'Hidden'));
             // Staff payloads only carry `flags` (events.for_viewer) — quiet safety marks.
-            if (isStaff && Array.isArray(m.flags) && m.flags.length) {
+            if (isStaff && ((Array.isArray(m.flags) && m.flags.length) || m.open_reports || m.reviewed)) {
                 const flags = el('p', 'chat-msg__flags');
                 flags.title = t('chat.flag.hint', 'Automatic flag — visible to curators only.');
-                m.flags.forEach((code) => flags.appendChild(keyed('span', 'tag urgent', `chat.flag.${code}`, code)));
+                (m.flags || []).forEach((code) => flags.appendChild(keyed('span', 'tag urgent', `chat.flag.${code}`, code)));
+                if (m.open_reports) {
+                    const rep = el('span', 'tag urgent', t('chat.reports_tag', 'Reported: {count}', { count: m.open_reports }));
+                    rep.dataset.i18n = 'chat.reports_tag';
+                    rep.dataset.i18nArgs = JSON.stringify({ count: m.open_reports });
+                    flags.appendChild(rep);
+                }
+                if (m.reviewed) flags.appendChild(keyed('span', 'tag success', 'chat.reviewed_tag', 'Reviewed'));
                 bubble.appendChild(flags);
+            }
+            // The photo was removed by the retention sweep (services/chat_retention.py).
+            if (m.kind === 'image' && !m.image_url) {
+                bubble.appendChild(keyed('p', 'chat-msg__body chat-msg__stub', 'chat.photo_expired', 'The photo was deleted after the storage period.'));
             }
             if (m.image_url) {
                 const a = el('a', 'chat-msg__photo');
@@ -243,6 +254,9 @@
         if (isStaff || (!m.mine && !m.hidden)) {
             const actions = el('div', 'chat-msg__actions');
             if (!m.mine && !isStaff && !m.hidden) actions.appendChild(actionForm('Report', 'chat.report', 'chatReport', () => report(m.id)));
+            if (isStaff && m.needs_review) {
+                actions.appendChild(actionForm('Reviewed', 'chat.mark_reviewed', 'chatReview', () => markReviewed(m.id)));
+            }
             if (isStaff) {
                 actions.appendChild(actionForm(
                     m.hidden ? 'Show' : 'Hide', m.hidden ? 'chat.unhide' : 'chat.hide', 'chatHide',
@@ -343,6 +357,13 @@
 
     function moderate(id, action) {
         post(urlFor(root.dataset.hideUrl, id), { action }).then((data) => {
+            if (data.ok && data.message) upsert(data.message);
+            else if (!data.ok) showError(data.code || 'generic');
+        }).catch(() => showError('generic'));
+    }
+
+    function markReviewed(id) {
+        post(urlFor(root.dataset.reviewMsgUrl, id), {}).then((data) => {
             if (data.ok && data.message) upsert(data.message);
             else if (!data.ok) showError(data.code || 'generic');
         }).catch(() => showError('generic'));
@@ -531,6 +552,13 @@
         f.addEventListener('submit', (e) => {
             e.preventDefault();
             moderate(Number(f.closest('[data-msg-id]').dataset.msgId), f.querySelector('[name=action]').value);
+        });
+    });
+
+    root.querySelectorAll('[data-chat-review]').forEach((f) => {
+        f.addEventListener('submit', (e) => {
+            e.preventDefault();
+            markReviewed(Number(f.closest('[data-msg-id]').dataset.msgId));
         });
     });
 

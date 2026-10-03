@@ -13,6 +13,7 @@ Public API (orchestrator / other services):
 * ``unread_counts(user, task_ids) -> {task_id: int}``  (one query)
 * ``report(user, message, reason="") -> Outcome``
 * ``hide(staff, message)`` / ``unhide(staff, message)`` ``-> Outcome``
+* ``review(staff, message) -> Outcome`` — "Проверено": closes flags + open reports
 * ``close(task) -> ChatMessage | None`` — system "chat closed" message after
   complete / cancel; idempotent; no-op for a task that never had a volunteer.
 * ``message_payload(message, viewer) -> dict`` — the per-viewer shape.
@@ -192,7 +193,17 @@ def internal_payload(message, task=None):
         sender_role=_sender_role(message, task), label_key=label,
         thumb_url=None if hidden else thumb, image_url=None if hidden else full,
     )
-    staff = {"body": message.body, "thumb_url": thumb, "image_url": full, "flags": list(message.flags or [])}
+    flags = list(message.flags or [])
+    open_reports = getattr(message, "open_reports", None)
+    if open_reports is None:
+        open_reports = message.reports.filter(handled_at__isnull=True).count() if message.pk else 0
+    staff = {
+        "body": message.body, "thumb_url": thumb, "image_url": full, "flags": flags,
+        "open_reports": open_reports,
+        "reviewed": message.reviewed_at is not None,
+        # A curator should look: unreviewed flags, or reports nobody handled yet.
+        "needs_review": bool((flags and message.reviewed_at is None) or open_reports),
+    }
     if message.is_staff_post and message.sender_id is not None:
         staff["sender_display"] = display_name(message.sender)
     return events.chat_internal(public, sender_id=message.sender_id, staff=staff)
@@ -291,6 +302,7 @@ def send_message(user, task, *, text=None, image=None, client_msg_id=""):
             raise
         return Outcome(True, OK, previous, created=False)
 
+    message.open_reports = 0  # brand new: nothing reported yet (no extra query)
     publish.send_to_task(task, events.CHAT_MESSAGE, internal_payload(message, task))
     if image is not None:
         _queue_variants(message)
@@ -422,7 +434,8 @@ def history(user, task, *, before_id=None, after_id=None, limit=PAGE_SIZE):
     if not access.can_read_chat(user, task):
         return None
     limit = max(1, min(int(limit or PAGE_SIZE), MAX_PAGE_SIZE))
-    qs = ChatMessage.objects.filter(task=task).select_related("sender__profile")
+    qs = (ChatMessage.objects.filter(task=task).select_related("sender__profile")
+          .annotate(open_reports=Count("reports", filter=Q(reports__handled_at__isnull=True))))
     if after_id is not None:
         rows = list(qs.filter(id__gt=after_id).order_by("id")[: limit + 1])
         has_more = len(rows) > limit
@@ -520,6 +533,8 @@ def report(user, message, reason=""):
     except IntegrityError:
         return Outcome(True, ALREADY, message)
     logger.info("chat message reported message=%s task=%s reporter=%s", message.pk, task.pk, user.pk)
+    message.open_reports = None  # recount for the staff view
+    publish.send_to_task(task, events.CHAT_MESSAGE_UPDATED, internal_payload(message, task))
     reached = notify.notify(
         staff_recipients(), "chat_reported",
         params={"task_id": task.pk, "message_id": message.pk},
@@ -547,6 +562,7 @@ def _set_hidden(staff, message, hide):
         return Outcome(True, OK, message)
     if hide:
         ChatReport.objects.filter(message=message, handled_at__isnull=True).update(handled_at=now, handled_by=staff)
+    message.open_reports = None
     logger.info("chat message %s message=%s task=%s by=%s",
                 "hidden" if hide else "unhidden", message.pk, message.task_id, staff.pk)
     publish.send_to_task(message.task_id, events.CHAT_HIDDEN,
@@ -557,6 +573,29 @@ def _set_hidden(staff, message, hide):
 
 def hide(staff, message):
     return _set_hidden(staff, message, True)
+
+
+def review(staff, message):
+    """A curator looked at a flagged / reported message and closes the case
+    ("Проверено"): stamps ``reviewed_at`` and handles every open report. The
+    message stays visible (hide is the separate moderation step). Starts the
+    CHAT_HOLD_DAYS retention clock (services/chat_retention.py). Idempotent."""
+    if not access.is_staff_user(staff) or not staff.is_active:
+        return Outcome(False, FORBIDDEN)
+    if message.kind == CHAT_KIND_SYSTEM or message.sender_id is None:
+        return Outcome(False, INVALID)
+    now = timezone.now()
+    reviewed = ChatMessage.objects.filter(pk=message.pk, reviewed_at__isnull=True).update(
+        reviewed_at=now, reviewed_by=staff)
+    handled = ChatReport.objects.filter(message=message, handled_at__isnull=True).update(
+        handled_at=now, handled_by=staff)
+    message.refresh_from_db()
+    message.open_reports = 0
+    if reviewed or handled:
+        logger.info("chat message reviewed message=%s task=%s by=%s reports=%s",
+                    message.pk, message.task_id, staff.pk, handled)
+        publish.send_to_task(message.task_id, events.CHAT_MESSAGE_UPDATED, internal_payload(message))
+    return Outcome(True, OK, message, created=bool(reviewed or handled))
 
 
 def unhide(staff, message):
@@ -630,6 +669,12 @@ UI_STRINGS = {
     "chat.flag.money": {"en": "Money?", "ru": "Деньги?", "tj": "Пул?"},
     "chat.flag.off_platform": {"en": "Other messenger?", "ru": "Другой мессенджер?", "tj": "Мессенҷери дигар?"},
     "chat.flag.phone": {"en": "Phone number", "ru": "Номер телефона", "tj": "Рақами телефон"},
+    "chat.mark_reviewed": {"en": "Reviewed", "ru": "Проверено", "tj": "Санҷида шуд"},
+    "chat.reviewed_tag": {"en": "Reviewed", "ru": "Проверено", "tj": "Санҷида шуд"},
+    "chat.reports_tag": {"en": "Reported: {count}", "ru": "Жалоб: {count}", "tj": "Шикоятҳо: {count}"},
+    "chat.photo_expired": {"en": "The photo was deleted after the storage period.",
+                           "ru": "Фото удалено по истечении срока хранения.",
+                           "tj": "Сурат пас аз ба охир расидани мӯҳлати нигоҳдорӣ нест карда шуд."},
     "chat.flag.hint": {"en": "Automatic flag — visible to curators only. The message was not blocked.",
                        "ru": "Автоматический флаг — его видят только кураторы. Сообщение не заблокировано.",
                        "tj": "Аломати худкор — онро танҳо кураторон мебинанд. Паём манъ карда нашудааст."},

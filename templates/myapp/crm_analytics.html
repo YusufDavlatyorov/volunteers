@@ -61,8 +61,11 @@
                     <h3 id="chartTitle-{{ item.name }}" data-i18n="an.c.{{ item.name }}">{{ item.name }}</h3>
                     <a class="button ghost chart-card__csv" href="{% url 'crm_analytics_csv' item.name %}?{{ filters.querystring }}" data-i18n-tooltip="an.csv_hint" data-tooltip="Скачать данные графика (CSV)" aria-label="CSV" download data-csv>CSV</a>
                 </div>
-                {% if item.name == "delays" or item.name == "workload" or item.name == "ratings" or item.name == "availability" %}
+                {% if item.name == "delays" or item.name == "workload" or item.name == "ratings" or item.name == "availability" or item.name == "chat_flags_topics" %}
                     <p class="field-hint chart-card__note" data-i18n="an.n.{{ item.name }}"></p>
+                {% endif %}
+                {% if item.name == "chat_flags_topics" %}
+                    <p class="chart-card__summary" data-i18n="an.flag_summary" data-i18n-args='{"n": {{ flag_kpis.flagged|default:0 }}, "total": {{ flag_kpis.messages|default:0 }}, "share": "{{ flag_kpis.share|default_if_none:"0" }}", "open": {{ flag_kpis.unreviewed|default:0 }}}'>Сообщений с флагом: {{ flag_kpis.flagged|default:0 }} из {{ flag_kpis.messages|default:0 }} ({{ flag_kpis.share|default_if_none:"0" }}%) · ещё не проверено: {{ flag_kpis.unreviewed|default:0 }}</p>
                 {% endif %}
                 <div class="chart-box"><canvas role="img" aria-labelledby="chartTitle-{{ item.name }}"></canvas></div>
                 <p class="chart-empty field-hint" data-i18n="an.no_data" hidden>За этот период данных нет.</p>

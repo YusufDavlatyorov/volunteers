@@ -17,7 +17,8 @@ from .services import analytics_v2
 from .services.notify_texts import LANGS
 from .views import role_required
 
-WIDE_CHARTS = {"requests_timeline", "delays", "registrations", "top_volunteers"}
+WIDE_CHARTS = {"requests_timeline", "delays", "registrations", "top_volunteers",
+               "chat_flags_topics", "chat_flags_help_types"}
 
 
 @role_required("admin", "curator")
@@ -38,6 +39,7 @@ def crm_analytics_view(request):
         "kpis": funnel_kpis,
         "avg_rating": avg_rating,
         "sos_minutes": charts["emergencies"].get("kpis", {}).get("minutes_to_ack"),
+        "flag_kpis": charts["chat_flags_topics"].get("kpis", {}),
         "top_volunteers": charts["top_volunteers"]["rows"],
         "payload": {"charts": charts, "weekly": filters.weekly, "qs": filters.querystring()},
         "generated_at": timezone.now(),

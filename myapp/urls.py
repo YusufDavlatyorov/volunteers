@@ -175,6 +175,7 @@ from .views_chat import (  # noqa: E402
     chat_message_hide_view,
     chat_message_image_view,
     chat_message_report_view,
+    chat_message_review_view,
     task_chat_messages_view,
     task_chat_read_view,
     task_chat_send_view,
@@ -190,6 +191,7 @@ urlpatterns += [
     path('tasks/<int:pk>/chat/read/', task_chat_read_view, name='task_chat_read'),
     path('chat/messages/<int:message_id>/report/', chat_message_report_view, name='chat_message_report'),
     path('chat/messages/<int:message_id>/hide/', chat_message_hide_view, name='chat_message_hide'),
+    path('chat/messages/<int:message_id>/review/', chat_message_review_view, name='chat_message_review'),
     path('chat/messages/<int:message_id>/image/<str:variant>/', chat_message_image_view, name='chat_message_image'),
 ]
 

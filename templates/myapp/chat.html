@@ -25,7 +25,7 @@ text only — never auto-linked. Data hooks: see the header of chat.js.
         </div>
     </header>
 
-    {% url 'chat_message_report' 0 as report_url %}{% url 'chat_message_hide' 0 as hide_url %}
+    {% url 'chat_message_report' 0 as report_url %}{% url 'chat_message_hide' 0 as hide_url %}{% url 'chat_message_review' 0 as review_msg_url %}
     <div class="chat card" data-chat
          data-task-id="{{ task.pk }}"
          data-me="{{ request.user.pk }}"
@@ -41,7 +41,8 @@ text only — never auto-linked. Data hooks: see the header of chat.js.
          data-upload-url="{% url 'task_chat_upload' task.pk %}"
          data-read-url="{% url 'task_chat_read' task.pk %}"
          data-report-url="{{ report_url }}"
-         data-hide-url="{{ hide_url }}"{% if request.user.pk == task.client_id %}
+         data-hide-url="{{ hide_url }}"
+         data-review-msg-url="{{ review_msg_url }}"{% if request.user.pk == task.client_id %}
          data-review-url="{% url 'task_review' task.pk %}"{% endif %}>
 
         <div class="chat__bar">
@@ -82,6 +83,14 @@ text only — never auto-linked. Data hooks: see the header of chat.js.
                             <p class="chat-msg__body chat-msg__stub" data-i18n="chat.hidden_stub">Message hidden by a moderator.</p>
                         {% else %}
                             {% if m.hidden %}<span class="tag muted" data-i18n="chat.hidden_tag">Hidden</span>{% endif %}
+                            {% if is_staff %}{% if m.flags or m.open_reports or m.reviewed %}
+                            <p class="chat-msg__flags" title="Автоматический флаг — его видят только кураторы. Сообщение не заблокировано." data-i18n-tooltip="chat.flag.hint">
+                                {% for code in m.flags %}<span class="tag urgent" data-i18n="chat.flag.{{ code }}">{{ code }}</span>{% endfor %}
+                                {% if m.open_reports %}<span class="tag urgent" data-i18n="chat.reports_tag" data-i18n-args='{"count": {{ m.open_reports }}}'>Жалоб: {{ m.open_reports }}</span>{% endif %}
+                                {% if m.reviewed %}<span class="tag success" data-i18n="chat.reviewed_tag">Проверено</span>{% endif %}
+                            </p>
+                            {% endif %}{% endif %}
+                            {% if m.kind == 'image' and not m.image_url %}<p class="chat-msg__body chat-msg__stub" data-i18n="chat.photo_expired">Фото удалено по истечении срока хранения.</p>{% endif %}
                             {% if m.image_url %}<a class="chat-msg__photo" href="{{ m.image_url }}" target="_blank" rel="noopener" aria-label="Открыть фото целиком" data-photo-link><img class="chat-msg__img" src="{{ m.thumb_url|default:m.image_url }}" alt="Фото из чата" width="320" height="240" loading="lazy" decoding="async"></a>{% endif %}
                             {% if m.body %}<p class="chat-msg__body">{{ m.body }}</p>{% endif %}
                         {% endif %}
@@ -92,6 +101,11 @@ text only — never auto-linked. Data hooks: see the header of chat.js.
                         {% if not m.mine and not is_staff and not m.hidden %}
                         <form method="post" action="{% url 'chat_message_report' m.id %}" data-chat-report>{% csrf_token %}
                             <button type="submit" class="chat-msg__action" data-i18n="chat.report">Report</button>
+                        </form>
+                        {% endif %}
+                        {% if is_staff and m.needs_review %}
+                        <form method="post" action="{% url 'chat_message_review' m.id %}" data-chat-review>{% csrf_token %}
+                            <button type="submit" class="chat-msg__action" data-i18n="chat.mark_reviewed">Проверено</button>
                         </form>
                         {% endif %}
                         {% if is_staff %}

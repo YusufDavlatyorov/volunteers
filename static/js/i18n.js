@@ -52,8 +52,8 @@ const T = {
     "detail.address":"Address","detail.phone":"Phone",
     "detail.not_assigned":"not assigned",
     "rating.title":"Rating",
-    "rating.desc":"Rating grows when a volunteer completes a request. Urgent help gives more points.",
-    "rating.empty":"No volunteers in the rating yet.",
+    "rating.desc":"Our volunteers by region: the clients' average rating and badges. No places and no points — helping is not a contest.",
+    "rating.empty":"No volunteers yet.",
     "admin.title":"Admin Panel",
     "admin.desc":"Here you can see free and busy requests. A busy request is visible only to the assigned volunteer, curator and admin.",
     "admin.broadcast":"Send Message to Volunteers","admin.create_event":"Create Event",
@@ -869,7 +869,23 @@ const T = {
     "an.help.household": "Household chores",
     "an.help.emotional": "Company and support",
     "an.help.documents": "Documents",
-    "an.help.other": "Other"
+    "an.help.other": "Other",
+    // Milestone 4b: chat retention, rating, flag stats
+    "about.privacy_chat": "Chat photos are deleted 90 days and chat messages 180 days after the request ends.",
+    // Milestone 4b: chat review + flag stats
+    "chat.mark_reviewed": "Reviewed",
+    "chat.reviewed_tag": "Reviewed",
+    "chat.reports_tag": "Reported: {count}",
+    "chat.photo_expired": "The photo was deleted after the storage period.",
+    "an.c.chat_flags_topics": "Chat safety flags by topic",
+    "an.c.chat_flags_help_types": "Chat safety flags by type of help",
+    "an.n.chat_flags_topics": "Flags never block a message. A message can carry several topics.",
+    "an.flag_summary": "Flagged messages: {n} of {total} ({share}%) · not reviewed yet: {open}",
+    "an.flag.sms_code": "SMS code / PIN",
+    "an.flag.money": "Money and transfers",
+    "an.flag.off_platform": "Other messenger",
+    "an.flag.phone": "Phone number",
+    "an.s.flagged_messages": "Flagged messages"
   },
   ru: {
     "ploc.title": "Моё местоположение для подбора", "ploc.hint": "По этой сохранённой точке мы подбираем вам ближайшие запросы. Она меняется только по нажатию кнопки — отслеживание во время запроса её не меняет.", "ploc.updated": "Обновлено:", "ploc.stale": "Устарело", "ploc.never": "Ещё не задано", "ploc.button": "Обновить моё местоположение", "ploc.locating": "Определяем местоположение…", "ploc.saved": "Сохранено", "ploc.denied": "Разрешите сайту доступ к местоположению в браузере и попробуйте снова.", "ploc.unavailable": "Не удалось определить местоположение.", "ploc.inaccurate": "Слишком неточно — попробуйте у окна или на улице.", "ploc.error": "Не удалось сохранить местоположение. Попробуйте ещё раз.",
@@ -924,8 +940,8 @@ const T = {
     "detail.address":"Адрес","detail.phone":"Телефон",
     "detail.not_assigned":"не назначен",
     "rating.title":"Рейтинг",
-    "rating.desc":"Рейтинг растёт, когда волонтёр завершает запрос. Срочная помощь даёт больше баллов.",
-    "rating.empty":"Пока нет волонтёров в рейтинге.",
+    "rating.desc":"Наши волонтёры по регионам: средняя оценка клиентов и значки. Без мест и баллов — помощь не соревнование.",
+    "rating.empty":"Пока нет волонтёров.",
     "admin.title":"Админ панель",
     "admin.desc":"Здесь видны свободные и занятые запросы. Занятый запрос видят только назначенный волонтёр, куратор и админ.",
     "admin.broadcast":"Отправить сообщение волонтёрам","admin.create_event":"Создать акцию",
@@ -1741,7 +1757,23 @@ const T = {
     "an.help.household": "Домашние дела",
     "an.help.emotional": "Общение и поддержка",
     "an.help.documents": "Документы",
-    "an.help.other": "Другое"
+    "an.help.other": "Другое",
+    // Milestone 4b: chat retention, rating, flag stats
+    "about.privacy_chat": "Фото из чата удаляются через 90 дней, а сообщения — через 180 дней после завершения запроса.",
+    // Milestone 4b: chat review + flag stats
+    "chat.mark_reviewed": "Проверено",
+    "chat.reviewed_tag": "Проверено",
+    "chat.reports_tag": "Жалоб: {count}",
+    "chat.photo_expired": "Фото удалено по истечении срока хранения.",
+    "an.c.chat_flags_topics": "Флаги в чате по темам",
+    "an.c.chat_flags_help_types": "Флаги в чате по видам помощи",
+    "an.n.chat_flags_topics": "Флаг не блокирует сообщение. У одного сообщения может быть несколько тем.",
+    "an.flag_summary": "Сообщений с флагом: {n} из {total} ({share}%) · ещё не проверено: {open}",
+    "an.flag.sms_code": "Код из СМС / ПИН",
+    "an.flag.money": "Деньги и переводы",
+    "an.flag.off_platform": "Другой мессенджер",
+    "an.flag.phone": "Номер телефона",
+    "an.s.flagged_messages": "Сообщения с флагом"
   },
   tj: {
     "ploc.title": "Ҷойгиршавии ман барои интихоб", "ploc.hint": "Аз рӯи ин нуқтаи захирашуда мо ба шумо дархостҳои наздиктаринро пешниҳод мекунем. Он танҳо бо пахш кардани тугма иваз мешавад — пайгирӣ ҳангоми дархост онро тағйир намедиҳад.", "ploc.updated": "Навсозӣ шуд:", "ploc.stale": "Кӯҳна шудааст", "ploc.never": "Ҳанӯз муайян нашудааст", "ploc.button": "Навсозии ҷойгиршавии ман", "ploc.locating": "Ҷойгиршавӣ муайян карда мешавад…", "ploc.saved": "Захира шуд", "ploc.denied": "Дар браузер ба сайт иҷозати дастрасӣ ба ҷойгиршавиро диҳед ва дубора кӯшиш кунед.", "ploc.unavailable": "Ҷойгиршавиро муайян кардан нашуд.", "ploc.inaccurate": "Хеле ноаниқ — дар назди тиреза ё дар кӯча кӯшиш кунед.", "ploc.error": "Ҷойгиршавиро захира кардан нашуд. Боз кӯшиш кунед.",
@@ -1796,8 +1828,8 @@ const T = {
     "detail.address":"Суроға","detail.phone":"Телефон",
     "detail.not_assigned":"таъин нашудааст",
     "rating.title":"Рейтинг",
-    "rating.desc":"Рейтинг мебаладе, вақте ки волонтёр дархостро анҷом медиҳад. Кӯмаки зарурӣ балҳои бештар медиҳад.",
-    "rating.empty":"Ҳоло дар рейтинг волонтёрон нестанд.",
+    "rating.desc":"Ихтиёриёни мо аз рӯи минтақаҳо: баҳои миёнаи мизоҷон ва нишонҳо. Бе ҷой ва бе хол — кумак мусобиқа нест.",
+    "rating.empty":"Ҳоло ихтиёриён нестанд.",
     "admin.title":"Панели админ",
     "admin.desc":"Дар ин ҷо дархостҳои озод ва банд дида мешаванд. Дархости бандро танҳо волонтёри таъиншуда, куратор ва админ мебинанд.",
     "admin.broadcast":"Ба волонтёрон паём фиристодан","admin.create_event":"Акция сохтан",
@@ -2613,7 +2645,23 @@ const T = {
     "an.help.household": "Корҳои хона",
     "an.help.emotional": "Суҳбат ва дастгирӣ",
     "an.help.documents": "Ҳуҷҷатҳо",
-    "an.help.other": "Дигар"
+    "an.help.other": "Дигар",
+    // Milestone 4b: chat retention, rating, flag stats
+    "about.privacy_chat": "Суратҳои чат пас аз 90 рӯз ва паёмҳо пас аз 180 рӯзи анҷоми дархост нест карда мешаванд.",
+    // Milestone 4b: chat review + flag stats
+    "chat.mark_reviewed": "Санҷида шуд",
+    "chat.reviewed_tag": "Санҷида шуд",
+    "chat.reports_tag": "Шикоятҳо: {count}",
+    "chat.photo_expired": "Сурат пас аз ба охир расидани мӯҳлати нигоҳдорӣ нест карда шуд.",
+    "an.c.chat_flags_topics": "Аломатҳо дар чат аз рӯи мавзӯъ",
+    "an.c.chat_flags_help_types": "Аломатҳо дар чат аз рӯи навъи кумак",
+    "an.n.chat_flags_topics": "Аломат паёмро манъ намекунад. Як паём метавонад якчанд мавзӯъ дошта бошад.",
+    "an.flag_summary": "Паёмҳои бо аломат: {n} аз {total} ({share}%) · ҳанӯз санҷида нашуда: {open}",
+    "an.flag.sms_code": "Коди SMS / рамз",
+    "an.flag.money": "Пул ва интиқол",
+    "an.flag.off_platform": "Мессенҷери дигар",
+    "an.flag.phone": "Рақами телефон",
+    "an.s.flagged_messages": "Паёмҳои бо аломат"
   }
 };
 

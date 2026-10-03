@@ -270,6 +270,12 @@ NOTIFICATION_RETENTION_DAYS = int(os.getenv('NOTIFICATION_RETENTION_DAYS', '90')
 # Chat becomes archived (hidden from lists, kept for staff) this long after the
 # task ended; reviews are editable by the client for this many hours.
 CHAT_ARCHIVE_DAYS = int(os.getenv('CHAT_ARCHIVE_DAYS', '30'))
+# Chat retention (owner decision 2026-10-03, option A): photos are deleted 90 days
+# and messages 180 days after the task ended; a flagged / reported message is kept
+# until a curator reviewed it, then CHAT_HOLD_DAYS more. Daily `purge_chats` cron.
+CHAT_PHOTO_RETENTION_DAYS = int(os.getenv('CHAT_PHOTO_RETENTION_DAYS', '90'))
+CHAT_TEXT_RETENTION_DAYS = int(os.getenv('CHAT_TEXT_RETENTION_DAYS', '180'))
+CHAT_HOLD_DAYS = int(os.getenv('CHAT_HOLD_DAYS', '180'))
 REVIEW_EDIT_HOURS = int(os.getenv('REVIEW_EDIT_HOURS', '24'))
 # Volunteers whose saved profile location is older than this get a reminder.
 LOCATION_STALE_DAYS = int(os.getenv('LOCATION_STALE_DAYS', '30'))

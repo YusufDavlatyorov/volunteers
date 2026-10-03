@@ -35,6 +35,11 @@ class ChatMessage(models.Model):
     # Quiet safety flags (services/chat_flags.py codes) — staff-only, never
     # blocks the message; drives the in-app ``chat_flagged`` staff notice.
     flags = models.JSONField(default=list, blank=True)
+    # A curator looked at a flagged / reported message and closed the case
+    # ("Проверено"). Retention (services/chat_retention.py) keeps flagged or
+    # reported messages until reviewed + CHAT_HOLD_DAYS.
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    reviewed_by = models.ForeignKey(Users, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     # Client-generated id: a retried send (WS reconnect, double tap) is stored once.
     client_msg_id = models.CharField(max_length=64, blank=True)
     hidden_at = models.DateTimeField(null=True, blank=True)  # staff moderation

@@ -34,8 +34,6 @@ def seed_achievements(apps, schema_editor):
         )
 
 
-def unseed_achievements(apps, schema_editor):
-    apps.get_model("myapp", "Achievement").objects.filter(code__in=[row[0] for row in STARTER_SET]).delete()
 
 
 class Migration(migrations.Migration):
@@ -79,5 +77,8 @@ class Migration(migrations.Migration):
                 'constraints': [models.UniqueConstraint(fields=('user', 'achievement'), name='uniq_user_achievement')],
             },
         ),
-        migrations.RunPython(seed_achievements, unseed_achievements),
+        # Reverse = no-op: the tables are dropped right after. Deleting the rows first
+        # (cascading to UserAchievement) leaves deferred FK trigger events and
+        # PostgreSQL then refuses the DROP TABLE (found in the rollback rehearsal).
+        migrations.RunPython(seed_achievements, migrations.RunPython.noop),
     ]

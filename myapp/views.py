@@ -645,23 +645,36 @@ def completed_tasks_view(request):
     return render(request, "myapp/completed_tasks.html", {"page_obj": page_obj})
 
 
-RATING_TTL = 300  # seconds; Profile.add_points() clears it immediately on any rating change
+RATING_TTL = 300  # seconds; Profile.add_points() / review stats clear it at once
+RATING_PAGE_SIZE = 30
+RATING_MAX_ROWS = 2000  # response-size bound, like the map caps
+_REGION_ORDER = {code: index for index, (code, _) in enumerate(REGION_CHOICES)}
 
 
 def _rating_volunteers():
-    return list(
+    """Every active volunteer, by region (REGION_CHOICES order, none last), then
+    by name — no places, no points (owner decision 2026-10-03: helping is not a
+    contest). Names are sorted in Python: SQLite's lower() is ASCII-only, so a
+    DB-side sort would misplace Cyrillic / Tajik names."""
+    profiles = list(
         Profile.objects.filter(user__is_volunteer=True, user__is_active=True)
-        .select_related("user")
-        .order_by("-rating", "user__username")[:30]
+        .select_related("user")[:RATING_MAX_ROWS]
     )
+    profiles.sort(key=lambda p: (
+        _REGION_ORDER.get(p.user.region, len(_REGION_ORDER)),
+        (p.full_name or p.user.username).casefold(),
+        p.user_id,
+    ))
+    return profiles
 
 
 def rating_view(request):
-    # Public page: the top-30 list comes from the shared cache (Redis in prod).
+    # Public page: the list comes from the shared cache (Redis in prod).
     volunteers = cache.get_or_set(RATING_CACHE_KEY, _rating_volunteers, RATING_TTL)
+    page_obj = Paginator(volunteers, RATING_PAGE_SIZE).get_page(request.GET.get("page"))
     # Up to 3 earned badges per card (one query) — the badge only, no counts.
-    badges = achievements.top_badges([p.user_id for p in volunteers])
-    return render(request, "myapp/rating.html", {"volunteers": volunteers, "badges": badges})
+    badges = achievements.top_badges([p.user_id for p in page_obj])
+    return render(request, "myapp/rating.html", {"page_obj": page_obj, "badges": badges})
 
 
 # Role-aware starter prompts shown on the empty chat screen. Kept server-side so

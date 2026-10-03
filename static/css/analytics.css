@@ -91,3 +91,12 @@
     .chart-box, .chart-card--wide .chart-box { height: 14rem; }
     .analytics-heat { height: 18rem; }
 }
+.chart-card__summary { margin: 0; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+/* style.css turns .table-scroll to overflow: visible on phones (its data tables
+   stack into cards there); analytics tables stay tables, so they scroll inside
+   their card instead of widening the page. */
+.chart-card .table-scroll { overflow-x: auto; max-width: 100%; }
+.chart-table { min-width: 0; }
+@media (max-width: 600px) {
+    .analytics-table th { white-space: normal; min-width: 4.5rem; }
+}

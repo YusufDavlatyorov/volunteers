@@ -432,6 +432,22 @@ Add:
 0 * * * * cd /opt/khayrkhoh && flock -n /tmp/khayrkhoh-stale.lock docker compose exec -T web python manage.py check_stale_requests >> /var/log/khayrkhoh/cron.log 2>&1
 ```
 
+Feature Pack v2 adds five more idempotent sweeps (same pattern; times are the
+server clock, UTC — 05:00 UTC = 10:00 in Dushanbe):
+
+```cron
+# Volunteer availability: idle → offline, expired do-not-disturb → off. Every 5 min.
+*/5 * * * * cd /opt/khayrkhoh && flock -n /tmp/khayrkhoh-availability.lock docker compose exec -T web python manage.py sweep_availability >> /var/log/khayrkhoh/cron.log 2>&1
+# Live-tracking trail: delete points of ended tasks / older than 24 h. Hourly.
+20 * * * * cd /opt/khayrkhoh && flock -n /tmp/khayrkhoh-tracking.lock docker compose exec -T web python manage.py purge_tracking >> /var/log/khayrkhoh/cron.log 2>&1
+# In-app notifications older than 90 days. Daily.
+10 3 * * * cd /opt/khayrkhoh && flock -n /tmp/khayrkhoh-notifications.lock docker compose exec -T web python manage.py prune_notifications >> /var/log/khayrkhoh/cron.log 2>&1
+# Chat retention: photos 90 d / messages 180 d after the task ended. Daily.
+30 3 * * * cd /opt/khayrkhoh && flock -n /tmp/khayrkhoh-chats.lock docker compose exec -T web python manage.py purge_chats >> /var/log/khayrkhoh/cron.log 2>&1
+# Remind volunteers whose saved location is older than 30 days. Daily, 10:00 Dushanbe.
+0 5 * * * cd /opt/khayrkhoh && flock -n /tmp/khayrkhoh-location.lock docker compose exec -T web python manage.py remind_stale_locations >> /var/log/khayrkhoh/cron.log 2>&1
+```
+
 `/etc/logrotate.d/khayrkhoh` rotates `/var/log/khayrkhoh/*.log` weekly
 (8 kept, compressed, `su deploy deploy`).
 
@@ -447,6 +463,29 @@ docker compose ps                             # web + telegram_bot "Up"
 Expect `{"status":"ready",...}` with HTTP 200. Also spot-check: load
 `https://khayrkhoh.tj/` in a browser, log in with the admin account created
 in step 9, open the dashboard and the map.
+
+### Compression check (gzip / brotli)
+
+Step 10's config compresses HTML, CSS, JS, JSON and SVG (`gzip on` + `brotli on`,
+`gzip_proxied any` so the HTML that gunicorn returns is compressed too). Checked
+from outside on 2026-10-03 — it is on in production:
+
+```bash
+JS=$(curl -s https://khayrkhoh.tj/ | grep -o '/static/js/i18n[^"]*' | head -1)
+for enc in br gzip identity; do
+  curl -s -o /dev/null -H "Accept-Encoding: $enc" -D - "https://khayrkhoh.tj$JS" \
+    -w "$enc: %{size_download} bytes\n" | grep -i "content-encoding\|bytes"
+done
+curl -s -o /dev/null -H "Accept-Encoding: br" -D - https://khayrkhoh.tj/ | grep -i content-encoding
+```
+
+Expected (2026-10-03): `i18n.js` 120 KB raw → 34 KB gzip → 29 KB brotli; `style.css`
+59 → 16 → 15 KB; the landing HTML 35 → 9 → 8 KB. If `content-encoding` is
+missing: `sudo apt-get install -y libnginx-mod-http-brotli-filter`, make sure the
+`gzip …` / `brotli …` lines of step 10 are inside the `server_name khayrkhoh.tj`
+block (and not overridden by a `gzip off;` in `/etc/nginx/nginx.conf`), then
+`sudo nginx -t && sudo systemctl reload nginx`. Already-compressed media (WebP,
+MP4/WebM, WOFF2) is deliberately not in either list.
 
 ---
 
@@ -465,8 +504,10 @@ Order matters with hashed static files: migrate and collectstatic run in
 one-off containers from the **new** image first, so when `up -d` recreates
 `web` (and `telegram_bot`) the new manifest and schema are already in place —
 the running site never serves new templates against an old `staticfiles.json`.
-`up -d` recreates both containers on the new image, so the bot picks up new
-code automatically.
+`up -d` recreates every app container (`web`, `ws`, `telegram_bot`,
+`celery_worker`) on the new image, so all of them pick up new code automatically.
+A redeploy that changes nginx or crons, or the first Feature Pack v2 rollout,
+follows `docs/DEPLOY_FEATURE_PACK_V2.md` (backups, order, rollback plan).
 
 ## Notes
 
