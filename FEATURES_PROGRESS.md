@@ -83,27 +83,35 @@ Baseline: 657 tests green at `2467bc5` (main).
   unreviewed, by help type); compression verified from outside (br + gzip on for static and HTML);
   deploy runbook + rollback plan `docs/DEPLOY_FEATURE_PACK_V2.md`, rollback rehearsed on
   postgres:16 — found and fixed: 0021 reverse failed on PostgreSQL (pending trigger events).
+- 2026-10-03 — deploy prep (owner: OSRM later, separately): runbook answers how code reaches the
+  server (push `main` to the public GitHub origin), pre-flight memory/disk + size estimates (image
+  ≈ 265 → 300 MB unpacked, amd64 build), backup copy to the Mac + `scripts/verify_backup.sh`
+  (tested end to end). Found: `osrm-data/` was not in `.dockerignore` — a later OSRM deploy would
+  have baked ~0.5 GB into every image; fixed.
 
 ## Deploy checklist (milestones 1–4 together; only after the owner writes "deploy")
 
 Full runbook with commands, expected output and the rollback plan:
 **`docs/DEPLOY_FEATURE_PACK_V2.md`** (rollback rehearsed on postgres:16, 2026-10-03). Order:
 
-0. Local: full suite green → `git merge --ff-only feature-pack-v2` into `main` → push. Optional:
-   rsync `osrm-data/{car,foot}` to `/opt/khayrkhoh/osrm-data/`.
-1. Server pre-flight (read-only): clean tree at `2467bc5`, `docker compose ps`, disk/RAM,
-   `nginx -t`, `/health/ready/`, no `$` in `.env`.
+0. Local: full suite green → `git merge --ff-only feature-pack-v2` into `main` →
+   `git push origin main` (the server pulls from the **public** GitHub repo; `git bundle` + scp is
+   the no-publish alternative). **OSRM is not part of this deploy** (owner, 2026-10-03).
+1. Server pre-flight (read-only): clean tree at `2467bc5`, `docker compose ps`, `nginx -t`,
+   `/health/ready/`, no `$` in `.env`; `free -h`, `df -h`, `docker system df`, DB size, `du -sh media`
+   (need ≥ 2 GB free: ≈ 0.6 GB image/cache + dump + media; RAM "available" noted for the later OSRM deploy).
 2. Backups: `pg_dump -Fc`, `media.tgz`, `docker tag khayrkhoh:latest khayrkhoh:rollback-2467bc5`,
-   `staticfiles.json`, nginx site file, `crontab -l`; copy the dump off the server.
-3. `git pull --ff-only` → `docker compose build` (+ `.env` `OSRM_BASE_URL=http://osrm_car:5000`,
-   `OSRM_FOOT_BASE_URL=http://osrm_foot:5000` only with the `osrm` profile).
+   `staticfiles.json`, nginx site file, `crontab -l`, `SHA256SUMS`; then on the Mac `rsync` the backup
+   to `~/khayrkhoh-backups/` and run `scripts/verify_backup.sh` (checksums + test restore into postgres:16)
+   — no verified copy, no deploy.
+3. `git pull --ff-only` → `docker compose build` (`.env` unchanged).
 4. `migrate` (accounts 0008–0010, myapp 0016–0022) — then steps 5–7 without a pause
    (old code can't run on the new schema).
 5. `collectstatic`.
 6. nginx: `map $http_upgrade $connection_upgrade` + `/ws/` + `/media/chat/` 404 +
    `internal /protected-media/` (DEPLOY.md §10a) → `nginx -t` → reload — **before** `up -d`
    (`web` now serves chat photos via X-Accel).
-7. `docker compose up -d` (new `ws`; `--profile osrm` optional).
+7. `docker compose up -d` (new `ws`; no `osrm` profile this time).
 8. Verify: health/ready, `check_realtime` in `web` and `ws`, `/ws/` handshake 101, logs, `docker stats`.
 9. `backfill_achievements --dry-run`, then without (silent); `purge_chats --dry-run`.
 10. crons (DEPLOY.md §13): `sweep_availability` */5, `purge_tracking` hourly, `prune_notifications`

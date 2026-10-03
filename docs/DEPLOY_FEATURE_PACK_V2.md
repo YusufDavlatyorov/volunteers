@@ -12,12 +12,12 @@ Runbook для совместного деплоя на `khayrkhoh.tj` (31.25.23
 | Что | Подробно |
 |---|---|
 | Новый контейнер `ws` | uvicorn, `127.0.0.1:8001`, лимит 256 МБ (≈ 70 МБ в простое) |
-| Опционально `osrm_car` / `osrm_foot` | профиль `osrm`, по ≈ 220–260 МБ |
+| `osrm_car` / `osrm_foot` | **в этом деплое не включаем** (решение владельца 2026-10-03) — отдельным деплоем позже; до тех пор маршруты по текущему `OSRM_BASE_URL` из `.env` и запасной расчёт по прямой |
 | Миграции | `accounts` 0008–0010, `myapp` 0016–0022: только добавление столбцов/таблиц, без удаления данных |
 | nginx | `map $http_upgrade`, `location /ws/`, `/media/chat/` → 404, `internal` `/protected-media/` (DEPLOY.md §10a) |
 | cron | 5 новых задач (DEPLOY.md §13) |
 | Однократно | `backfill_achievements` |
-| `.env` | обязательных новых переменных нет; `OSRM_*` — только с профилем `osrm` |
+| `.env` | не меняется (новых обязательных переменных нет) |
 
 Отрепетировано 2026-10-03 на `postgres:16` в Docker: схема `main` + демо-данные → миграции ветки
 вперёд → откат миграций → старый код снова работает, данные сохранены → повторный накат. Во время
@@ -27,13 +27,28 @@ Runbook для совместного деплоя на `khayrkhoh.tj` (31.25.23
 
 ## 0. До сессии деплоя (локально, на Mac)
 
+**Как код попадает на сервер.** Сервер — это клон `https://github.com/YusufDavlatyorov/volunteers.git`
+(DEPLOY.md §2) и обновляется командой `git pull` из `origin/main`. Значит, коммиты нужно
+**отправить на GitHub в `main`**. Ветка `feature-pack-v2` (сейчас 8 локальных коммитов поверх
+`2467bc5`) вливается в `main` перемоткой (fast-forward), без merge-коммита.
+
+Репозиторий **публичный** (API GitHub отвечает без авторизации). Всё, что отправляем, станет
+видно всем. Проверено 2026-10-03: в диффе нет секретов (`.env`, дампы, `osrm-data/` в git не
+попадают; в тестах только фиктивный токен `123:abc`). Если публиковать не хочется, есть вариант
+без GitHub: `git bundle create fp2.bundle main` → `scp` на сервер → `git pull fp2.bundle main`.
+
 1. Полный набор тестов зелёный: `python manage.py test --parallel 4`.
-2. В сессии деплоя, после «deploy»: влить `feature-pack-v2` в `main` и отправить —
-   `git checkout main && git merge --ff-only feature-pack-v2 && git push origin main`.
-   Записать новый хеш: `NEW=$(git rev-parse --short HEAD)`.
-3. Опционально (OSRM): данные `osrm-data/{car,foot}` (~440 МБ) скопировать заранее, приложение
-   их не трогает, пока не включён профиль:
-   `rsync -a --info=progress2 osrm-data/ deploy@31.25.236.54:/opt/khayrkhoh/osrm-data/`.
+2. В сессии деплоя, после «deploy»:
+
+```bash
+git checkout main
+git merge --ff-only feature-pack-v2      # ошибка = в main появилось что-то новое → остановиться и разобраться
+git push origin main
+git rev-parse --short HEAD               # записать как NEW
+git push origin feature-pack-v2          # необязательно: копия ветки на GitHub
+```
+
+OSRM в этом деплое не включаем, поэтому данные `osrm-data/` на сервер пока не копируем.
 
 ## 1. Предварительная проверка (на сервере, только чтение)
 
@@ -42,11 +57,41 @@ cd /opt/khayrkhoh
 git status --short                     # должно быть пусто
 git rev-parse --short HEAD             # ожидаем 2467bc5 — это ROLLBACK_COMMIT
 docker compose ps                      # web, telegram_bot, celery_worker, redis — Up
-df -h / ; free -m                      # ≥ 3 ГБ на диске, ≥ 1 ГБ свободной памяти
 sudo nginx -t
 curl -fsS https://khayrkhoh.tj/health/ready/
 grep -c '\$' .env                      # 0 — без "$" в значениях (проверено 2026-10-02)
+
+# память и диск
+free -h                                # смотреть столбец "available"
+df -h / /var/lib/docker /var/backups 2>/dev/null
+docker system df                       # образы / build cache / тома
+docker image ls khayrkhoh              # текущий образ
+set -a; . ./.env; set +a
+docker exec shared_postgres psql -U "$DJANGO_DB_USER" -d "$DJANGO_DB_NAME" -Atc \
+  "select pg_size_pretty(pg_database_size(current_database()))"
+du -sh media staticfiles
+docker stats --no-stream --format "table {{.Name}}\t{{.MemUsage}}"
 ```
+
+**Сколько займёт диск** (оценка; точные числа дадут команды выше):
+
+| Что | Оценка | Откуда |
+|---|---|---|
+| `db.dump` | 20–40 % от `pg_database_size` (формат custom сжимает); для текущих объёмов — единицы–десятки МБ | демо-база на 53 запроса: 128 КБ |
+| `media.tgz` | ≈ размер `media/` (JPEG/WebP почти не сжимаются) | `du -sh media` |
+| Новый образ | ≈ 300 МБ в распакованном виде против ≈ 265 МБ сейчас (Python-пакеты 126 → 155 МБ: channels, uvicorn). Старый остаётся тегом `rollback-2467bc5`, общий базовый слой не дублируется, поэтому прирост ≈ 200 МБ | сборка `linux/amd64` 2026-10-03 |
+| Build cache | до ≈ 300 МБ, можно почистить после деплоя (`docker builder prune`) | — |
+| Статика | + ≈ 1 МБ (Chart.js, значки, новые JS/CSS) | — |
+
+**Итого нужно ≈ 0,6 ГБ + размер дампа и media.** Продолжаем, если свободно **не меньше 2 ГБ**
+(запас на логи и повторную сборку); если меньше 1 ГБ — сначала `docker image prune`
+(удаляет только неиспользуемые образы) и разобраться.
+
+**Память — на будущее, для OSRM.** После этого деплоя добавится `ws` (≈ 70–130 МБ). Для
+следующего деплоя с OSRM нужно ещё ≈ 0,5 ГБ RAM (замеры: `osrm_car` 223 МиБ + `osrm_foot`
+261 МиБ, лимиты по 400 МБ) и ≈ 0,5 ГБ на диске под данные. Ориентир: если после этого деплоя
+и суток работы в `free -h` столбец «available» **больше 1,2 ГБ**, OSRM помещается с запасом;
+если меньше 0,8 ГБ — включать только `osrm_car` (пешие маршруты останутся расчётом по прямой).
 
 ## 2. Бэкапы — без них не продолжать
 
@@ -64,10 +109,32 @@ docker tag khayrkhoh:latest khayrkhoh:rollback-2467bc5
 cp staticfiles/staticfiles.json "$B/staticfiles.json"
 sudo cp /etc/nginx/sites-available/khayrkhoh "$B/nginx-khayrkhoh.conf"
 crontab -l > "$B/crontab.txt"
-echo "$B"                              # запомнить путь к бэкапу
+# 2.4 контрольные суммы — по ним Mac проверит, что копия совпадает побайтно
+(cd "$B" && sha256sum db.dump media.tgz > SHA256SUMS && cat SHA256SUMS)
+ls -lh "$B"; echo "$B"                 # запомнить путь (TS) к бэкапу
 ```
 
-Копию `db.dump` сразу забрать с сервера (`scp` на Mac) — бэкап на том же диске не переживёт его потерю.
+### 2.5 Копия на Mac и проверка — в отдельном окне терминала на Mac
+
+Бэкап на том же диске не переживёт его потерю, поэтому **без проверенной копии на Mac дальше не идём**:
+
+```bash
+TS=<как в пути из шага 2.4, например 2026-10-07-0830>
+mkdir -p ~/khayrkhoh-backups
+rsync -av --progress deploy@31.25.236.54:/var/backups/khayrkhoh/pre-fp2-$TS ~/khayrkhoh-backups/
+cd ~/Desktop/volunteers && scripts/verify_backup.sh ~/khayrkhoh-backups/pre-fp2-$TS
+```
+
+`scripts/verify_backup.sh` (нужен запущенный Docker Desktop):
+1. сверяет контрольные суммы с `SHA256SUMS` с сервера;
+2. проверяет, что `media.tgz` читается целиком, и считает файлы;
+3. **пробно восстанавливает `db.dump`** во временный `postgres:16` (та же мажорная версия, что
+   `shared_postgres`) и печатает число пользователей, запросов и применённых миграций; потом
+   удаляет контейнер. Ничего никуда не отправляется.
+
+Ожидаемый конец вывода: `OK: the dump restores and the tables are readable.` Число пользователей
+и запросов должно совпадать с админ-панелью. Скрипт проверен 2026-10-03 на полной цепочке
+`pg_dump` → `rsync` → проверка; подменённый файл ловится на шаге контрольных сумм.
 
 ## 3. Код и сборка
 
@@ -75,11 +142,11 @@ echo "$B"                              # запомнить путь к бэка
 git fetch origin && git checkout main && git pull --ff-only
 git rev-parse --short HEAD             # = NEW из шага 0
 docker compose build                   # 3–6 мин на 1 vCPU
-# опционально OSRM: добавить в .env
-#   OSRM_BASE_URL=http://osrm_car:5000
-#   OSRM_FOOT_BASE_URL=http://osrm_foot:5000
-# и docker compose --profile osrm pull
+docker image ls khayrkhoh              # latest (новый) + rollback-2467bc5 (старый)
+df -h /                                # сверить с оценкой из шага 1
 ```
+
+`.env` не трогаем: OSRM в этом деплое не включается.
 
 Работающий сайт продолжает обслуживать старый образ: `build` контейнеры не пересоздаёт.
 
@@ -129,8 +196,7 @@ curl -fsS https://khayrkhoh.tj/health/ready/                                    
 
 ```bash
 docker compose up -d                       # пересоздаёт web/telegram_bot/celery_worker, поднимает ws
-# или с маршрутами: docker compose --profile osrm up -d
-docker compose ps                          # web, ws, telegram_bot, celery_worker, redis (+ osrm_*) — Up
+docker compose ps                          # web, ws, telegram_bot, celery_worker, redis — Up (osrm_* не запускаются: профиль не включён)
 ```
 
 Простой — примерно 10–20 секунд, пока пересоздаётся `web`.
@@ -146,9 +212,8 @@ curl -sk -o /dev/null -w "%{http_code}\n" --http1.1 -m 5 \
   -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" -H "Origin: https://khayrkhoh.tj" \
   https://khayrkhoh.tj/ws/                                     # 101 (exit 28 после 5 с — норма)
 docker compose logs --since 5m web ws celery_worker | grep -iE "error|traceback" | head
-docker stats --no-stream                                       # ws ≈ 70–130 МБ, суммарно < 1 ГБ (+ OSRM)
-# OSRM (если включён): маршрут из Душанбе внутри города
-docker compose exec -T web python -c "import requests;print(requests.get('http://osrm_car:5000/route/v1/driving/68.78,38.56;68.80,38.58',timeout=5).json()['code'])"   # Ok
+docker stats --no-stream                                       # ws ≈ 70–130 МБ, всё вместе < 1 ГБ
+free -h                                                        # записать "available" — понадобится для решения по OSRM
 ```
 
 ## 9. Однократные команды
@@ -205,7 +270,6 @@ crontab -e
 | Проблема | Действие | Что видит пользователь |
 |---|---|---|
 | WebSocket / `ws` падает | `docker compose stop ws` | страницы переходят на опрос раз в 10–30 с; уведомления, чат и трекинг работают медленнее |
-| Маршруты OSRM | убрать `OSRM_*` из `.env`, затем `docker compose up -d web ws` и `docker compose --profile osrm stop` | маршрут по прямой с оценкой времени (haversine) |
 | Мешает одна cron-задача | закомментировать её в `crontab -e` | — |
 | Ошибка в «Аналитике» | страница только для сотрудников, ничего не ломает | — |
 
