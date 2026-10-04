@@ -31,6 +31,34 @@ Runbook для совместного деплоя на `khayrkhoh.tj` (31.25.23
 14 миграций вперёд → откат всех 14 (1 с) → старый код создаёт пользователя и запрос, профиль,
 рейтинг, «О нас», карточка запроса, админ-панель, фотоотчёты — 200 → повторный накат.
 
+**Генеральная репетиция всего runbook — 2026-10-04.** Копия «сервера» на Mac: клон из локального
+«GitHub» на `2467bc5`, тот же `docker-compose.yml`, образы `linux/amd64` (как на сервере, под
+эмуляцией), `shared_postgres` = `postgres:16`, nginx 1.27 с живым конфигом из DEPLOY.md §10 и
+самоподписанным сертификатом для `khayrkhoh.tj`, `.env` с `DEBUG=False`. Старый код наполнен
+демо-данными и фото с GPS. Пройдено по порядку: шаги 0–11, откат уровня 1, повторный накат, откат
+уровня 2. **Нашлось и исправлено три ошибки, каждая остановила бы или испортила настоящий деплой:**
+1. `collectstatic` падал на производственном хранилище (вендорный Chart.js ссылался на
+   несуществующий `.map`). Исправлено; шаг статики перенесён **до** миграций; тест.
+2. У `celery_worker` и `telegram_bot` не было `./media` — все WebP-варианты падали с
+   `FileNotFoundError`, а фото из чата бота сохранялись бы внутри контейнера. Исправлено в
+   `docker-compose.yml`; тест.
+3. Откат уровня 2 (`pg_restore --clean`) не восстанавливал данные и оставлял базу испорченной при
+   зелёном `/health/ready/`. Переписан (ниже); проверен.
+
+Остальное прошло как написано. 14 миграций вперёд за 26 с. Простой при `up -d` — около 30 с (под
+эмуляцией; на сервере ожидаем 10–20 с). Шаг 8: `check_realtime` OK в `web` и `ws`, WS 101, чужой
+Origin 403, ошибок в логах нет. Все 9 cron-команд выполняются (код 0). `--force-recreate`
+перечитывает `.env`, а `restart` — нет (шаг 10a). Сквозная проверка в браузере через nginx:
+- клиент создал запрос; волонтёр не видит телефон до принятия и видит после;
+- чат в обе стороны в реальном времени по WS;
+- фото чата: приватный адрес, X-Accel, 2560 px, без GPS; постороннему — 404;
+- аватар: случайное имя, 2560 px, без GPS, WebP-варианты от celery, `/media/` с кэшем 30 дней и
+  `nosniff`;
+- обход всех ссылок за клиента, волонтёра, куратора и админа: 24–70 страниц, все 200, ошибок JS нет.
+
+Откат уровня 1 — 83 с: старый код пишет и читает, данные, созданные на новой версии, сохранились.
+Повторный накат — значки созданы заново. Уровень 2 (исправленный) — 30 с, ровно данные дампа.
+
 ---
 
 ## 0. До сессии деплоя (локально, на Mac)
@@ -73,6 +101,13 @@ curl -fsS https://khayrkhoh.tj/health/ready/
 grep -c '\$' .env                      # 0 — без "$" в значениях (проверено 2026-10-02)
 grep -c 'DJANGO_BEHIND_TLS_PROXY=True' .env   # 1 — с этапа 6 по нему же читается IP посетителя
 sudo grep -n "X-Real-IP" /etc/nginx/sites-available/khayrkhoh   # есть в location / (иначе IP посетителя подделывается)
+
+# права на схему для отката уровня 2 (DROP SCHEMA public) — только чтение
+set -a; . ./.env; set +a
+docker exec shared_postgres psql -U "$DJANGO_DB_USER" -d "$DJANGO_DB_NAME" -Atc \
+  "select rolsuper from pg_roles where rolname = current_user; select pg_get_userbyid(nspowner) from pg_namespace where nspname = 'public'"
+#   ожидаем: t (суперпользователь, как создаёт DEPLOY.md §4) и pg_database_owner. Если f — сказать мне до деплоя:
+#   тогда уровень 2 делается через dropdb/createdb от суперпользователя postgres.
 
 # демо-пароль seed_demo публичный (README, GitHub) — он не должен подходить ни к одному аккаунту.
 # Только чтение: сравнение без пересохранения хеша; печатает только логины. ≈ 0,1–1 с на аккаунт.
@@ -450,8 +485,16 @@ EXIF — старый код показывает их как обычно. Оч
 cd /opt/khayrkhoh
 docker compose stop web ws telegram_bot celery_worker
 set -a; . ./.env; set +a
-docker exec -i shared_postgres pg_restore --clean --if-exists --no-owner \
+# Сначала очистить схему ТОЛЬКО нашей базы ($DJANGO_DB_NAME; другие базы в shared_postgres не трогаются),
+# потом восстановить с остановкой на первой ошибке.
+docker exec shared_postgres psql -U "$DJANGO_DB_USER" -d "$DJANGO_DB_NAME" -v ON_ERROR_STOP=1 \
+  -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+docker exec -i shared_postgres pg_restore --no-owner --exit-on-error \
   -U "$DJANGO_DB_USER" -d "$DJANGO_DB_NAME" < "$B/db.dump"
+echo "restore rc=$?"                           # 0 — иначе СТОП, не запускать сайт
+docker exec shared_postgres psql -U "$DJANGO_DB_USER" -d "$DJANGO_DB_NAME" -Atc \
+  "select count(*) from accounts_users; select max(name) from django_migrations where app='myapp'"
+#   число пользователей = как в шаге 2.5 (verify_backup.sh); миграция myapp = 0015_…
 git checkout 2467bc5 && docker tag khayrkhoh:rollback-2467bc5 khayrkhoh:latest
 docker compose run --rm web python manage.py collectstatic --noinput
 docker compose up -d --remove-orphans
@@ -459,6 +502,15 @@ sudo cp "$B/nginx-khayrkhoh.conf" /etc/nginx/sites-available/khayrkhoh && sudo n
 crontab "$B/crontab.txt"
 curl -fsS https://khayrkhoh.tj/health/ready/
 ```
+
+**Почему не `pg_restore --clean`** (так было здесь до 2026-10-04). Генеральная репетиция показала:
+`--clean` удаляет только объекты из дампа, а таблицы новых функций (уведомления, чат, отзывы,
+значки…) остаются и своими внешними ключами не дают удалить `accounts_users` и
+`myapp_helprequest`. Итог — 12 ошибок, пользователи и запросы **не** восстановлены, в
+`django_migrations` снова 0015, а новые столбцы (`cancel_reason NOT NULL`) остались. При этом
+`/health/ready/` отвечал 200, то есть база была тихо испорчена. Вариант выше проверен на том же
+стенде: `rc=0`, ровно данные дампа (25 пользователей, 8 запросов), 0015, таблиц новых функций нет,
+старый код пишет и читает, весь обход страниц — 200. Заняло 30 с.
 
 ### После отката
 

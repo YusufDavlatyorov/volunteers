@@ -183,6 +183,31 @@ Baseline: 657 tests green at `2467bc5` (main).
   `create_initial_production_accounts` refuses the demo password before creating anything; local
   `.env.production`'s four `INITIAL_*_PASSWORD` are not the demo password; the production DB itself is
   checked read-only in runbook §1 (one-liner, old code) and §9 (`check_demo_password`).
+- **Full deploy rehearsal (2026-10-04)** of the whole runbook on a Mac copy of the server (clone of a
+  local "GitHub" at `2467bc5`, real compose file, linux/amd64 images under qemu, `postgres:16` as
+  `shared_postgres`, nginx 1.27 with the live DEPLOY.md §10 config + self-signed cert for khayrkhoh.tj,
+  DEBUG=False; old code seeded with demo data + GPS photos): steps 0–11 → rollback level 1 → roll forward
+  again → rollback level 2. **Three real deploy bugs found and fixed:** (1) `collectstatic` with
+  ManifestStaticFilesStorage failed on vendored Chart.js's dangling `sourceMappingURL` → comment removed,
+  collectstatic moved **before** migrate in the runbook + DEPLOY.md, `ProductionCollectstaticTests`;
+  (2) `celery_worker` / `telegram_bot` had no `./media` mount → every WebP variant failed with
+  FileNotFoundError and bot chat photos would land inside the bot container → mounted,
+  `ComposeMediaMountTests`; (3) rollback level 2 (`pg_restore --clean`) left the new tables, whose FKs
+  blocked dropping `accounts_users` / `myapp_helprequest` → 12 errors, data not restored, migrations
+  back at 0015 with new NOT NULL columns still present, `/health/ready/` green → rewritten as
+  `DROP SCHEMA public CASCADE; CREATE SCHEMA public` + `pg_restore --exit-on-error` (rehearsed: rc 0,
+  exact dump data, 30 s); pre-flight now checks the DB role can do that. Everything else as written:
+  14 migrations in 26 s, ~30 s downtime under qemu, check_realtime/WS 101/foreign Origin 403, all 9 cron
+  commands rc 0, `--force-recreate` (not `restart`) re-reads `.env`; Playwright through nginx — request
+  → phone hidden until accept → WS chat both ways → private chat photo via X-Accel (2560 px, no GPS,
+  404 for others) → avatar (random name, 2560, no GPS, celery WebP, `/media/` 30 d + nosniff) → link
+  crawl for all 4 roles (24–70 pages each, all 200, 0 JS errors); level 1 in 83 s (old code reads and
+  writes, post-deploy rows kept); re-forward recreates the starter badges. Rehearsal-only deviations:
+  redis arm64 (amd64 redis segfaults under qemu), telegram_bot off (no token; tested via docs/TEST_BOT.md).
+  Incident: the first browser script used Playwright's `context.request`, which bypasses the browser's
+  host mapping — ~7 anonymous requests went to the real khayrkhoh.tj (3 GETs → 404, 2 POSTs to
+  `/update-profile/` → redirected to login, nothing stored). Script fixed to browser-only requests with
+  an abort if any khayrkhoh.tj response is not from 127.0.0.1.
 
 ## Deploy checklist (milestones 1–6 together = milestone 7; only after the owner writes "deploy")
 
@@ -192,7 +217,8 @@ Full runbook with commands, expected output and the rollback plan:
 0. Local: full suite green → `git merge --ff-only feature-pack-v2` into `main` →
    `git push origin main` (the server pulls from the **public** GitHub repo; `git bundle` + scp is
    the no-publish alternative). **OSRM is not part of this deploy** (owner, 2026-10-03).
-1. Server pre-flight (read-only): clean tree at `2467bc5`, `docker compose ps`, `nginx -t`,
+1. Server pre-flight (read-only): DB role is superuser (`rolsuper = t`, needed by rollback level 2);
+   clean tree at `2467bc5`, `docker compose ps`, `nginx -t`,
    `/health/ready/`, no `$` in `.env`; `DJANGO_BEHIND_TLS_PROXY=True` in `.env` and
    `proxy_set_header X-Real-IP $remote_addr` in nginx `location /` (milestone 6: rate limits read
    the visitor IP from it); demo password accepts no account (read-only `shell -c` one-liner); `free -h`, `df -h`, `docker system df`, DB size, `du -sh media`
@@ -231,4 +257,6 @@ Cloudflare (owner switches NS at navjucloud — `docs/CLOUDFLARE.md`; then `DJAN
 
 Rollback: level 0 (switch one feature off), level 1 (migrate `myapp 0015` → `accounts 0007` with the
 NEW image — rehearsed again on postgres:16.15 with milestone 6's 0012/0024, 14 migrations back in 1 s, then old commit + `rollback-2467bc5` image + collectstatic + nginx/crontab backups),
-level 2 (pg_restore of the pre-deploy dump — loses everything written after step 2).
+level 2 (`DROP SCHEMA public CASCADE; CREATE SCHEMA public` + `pg_restore --exit-on-error` of the
+pre-deploy dump — loses everything written after step 2; the old `pg_restore --clean` silently failed
+in the 2026-10-04 rehearsal). Whole runbook rehearsed end-to-end 2026-10-04 (see log).
