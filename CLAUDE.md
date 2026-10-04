@@ -42,7 +42,8 @@ python manage.py test myapp.tests.MatchingAlgorithmTests.test_closer_volunteer_r
 python manage.py test accounts                           # one app
 # Same suite in the production image (Linux, linux/amd64 like the server; base image pinned in the
 # Dockerfile). On Linux, Python 3.14 starts workers with forkserver, which Django 5.2 can't clone a
-# SQLite test DB for — so either no --parallel, or --parallel against a postgres:16 container:
+# SQLite test DB for — and even against postgres:16 its forkserver workers die with AppRegistryNotReady
+# (2026-10-04) — so either no --parallel, or the fork variant below (works with SQLite and postgres:16):
 docker build --platform linux/amd64 -t khayrkhoh:test . && docker run --rm --platform linux/amd64 \
   -e DJANGO_SECRET_KEY=x -e DJANGO_DEBUG=True -e DJANGO_ALLOWED_HOSTS='*' khayrkhoh:test python manage.py test
 # (or force the pre-3.14 Linux default: python -c "import multiprocessing as m,sys,runpy; m.set_start_method('fork');

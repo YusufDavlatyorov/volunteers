@@ -225,6 +225,12 @@ Baseline: 657 tests green at `2467bc5` (main).
   output of old vs new `seed_demo` compared row by row: identical), runbook §1/§3a/§9/§12 + "found →
   delete nothing, tell the owner"; `seed_demo` refuses with `DEBUG=False`. Rollback level 2 now also
   restores `media.tgz` (the dump references the pre-rename names).
+  Full suite in the production image built from `git archive 6e3b220` (python:3.14.8-slim-trixie,
+  linux/amd64 under qemu) against `postgres:16.15` (amd64): **1347 tests OK (skipped=1), 2831 s**,
+  `--parallel 8` with the `fork` start method — the default `forkserver` workers die with
+  AppRegistryNotReady even on PostgreSQL (CLAUDE.md corrected). Also rehearsed on postgres:16 with the
+  `2467bc5` schema + demo data: new code 503 before migrate, 200 after; `check_demo_data` finds every
+  kind of demo row on the old schema; `rename_legacy_uploads` 9 → 0 on the second run.
 
 ## Deploy checklist (milestones 1–6 together = milestone 7; only after the owner writes "deploy")
 
