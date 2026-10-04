@@ -169,7 +169,27 @@ df -h /                                # сверить с оценкой из �
 
 Работающий сайт продолжает обслуживать старый образ: `build` контейнеры не пересоздаёт.
 
-## 4. Миграции (новым образом, до перезапуска)
+## 4. Статика — до миграций
+
+```bash
+docker compose run --rm web python manage.py collectstatic --noinput
+#   последняя строка: "N static files copied to '/app/staticfiles', M post-processed."
+```
+
+**Если здесь ошибка — СТОП, деплой не продолжать.** Ничего ещё не изменено: схема БД старая,
+работающий `web` держит старый манифест в памяти. Разобраться локально и начать с шага 3. Шаг
+стоит **до** миграций именно поэтому: на репетиции 2026-10-04 `collectstatic` упал
+(`chart.umd.js.map could not be found` — вендорный Chart.js ссылался на несуществующую карту),
+а при старом порядке это случилось бы уже после миграций. Исправлено, и тест
+`myapp.tests_m7_prep.ProductionCollectstaticTests` теперь прогоняет `collectstatic` с
+производственным хранилищем при каждом запуске тестов.
+
+Новые файлы: `vendor/chartjs-4.4.7/`, `vendor/leaflet-heat-0.2.0/`, `images/badges/*.svg`,
+`css/analytics.css`, `js/{realtime,live-ui,chat,task-route,profile-location,achievements,crm-analytics}.js`
+и другие. Ни один старый файл не удалён, старые хешированные копии остаются — поэтому и откат
+статики, и случайный перезапуск старого `web` между шагами 4 и 7 безопасны.
+
+## 5. Миграции (новым образом, до перезапуска)
 
 ```bash
 docker compose run --rm web python manage.py showmigrations accounts myapp | grep '\[ \]'
@@ -178,19 +198,10 @@ docker compose run --rm web python manage.py migrate --noinput
 docker compose run --rm web python manage.py showmigrations accounts myapp | grep -c '\[ \]'   # 0
 ```
 
-Старый код **не работает** на новой схеме (новые столбцы `NOT NULL`, например `Profile.is_away`;
-на репетиции это проверено). Поэтому шаги 4 → 7 идут подряд, без пауз. Если `migrate` упал на
+Старый код на новой схеме открывает страницы (репетиция 2026-10-04: главная, вход, «О нас»,
+`/health/ready/` — 200), но **не может записывать** в изменённые таблицы (новые столбцы `NOT NULL`,
+например `Profile.is_away`). Поэтому шаги 5 → 7 идут подряд, без пауз. Если `migrate` упал на
 середине — сразу «Откат», уровень 1, с шага 1.2.
-
-## 5. Статика
-
-```bash
-docker compose run --rm web python manage.py collectstatic --noinput
-```
-
-Новые файлы: `vendor/chartjs-4.4.7/`, `vendor/leaflet-heat-0.2.0/`, `images/badges/*.svg`,
-`css/analytics.css`, `js/{realtime,live-ui,chat,task-route,profile-location,achievements,crm-analytics}.js`
-и другие. Старые хешированные файлы остаются, поэтому откат статики безопасен.
 
 ## 6. nginx — до `up -d`
 

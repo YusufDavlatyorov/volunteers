@@ -1,19 +1,26 @@
-"""Milestone 7 prep — demo credentials can never reach production.
+"""Milestone 7 prep — deploy safety nets.
 
 * ``check_demo_password``: read-only audit of every account against seed_demo's
   public password + demo usernames.
 * ``create_initial_production_accounts`` refuses the demo password before it
   creates anything.
+* ``collectstatic`` with the production storage (``ManifestStaticFilesStorage``)
+  succeeds — found by the 2026-10-04 deploy rehearsal: the vendored Chart.js
+  ended with ``//# sourceMappingURL=chart.umd.js.map`` but the map was not
+  vendored, so collectstatic failed at runbook step 5, *after* the migrations.
 """
 
 import io
+import json
 import os
+import tempfile
+from pathlib import Path
 from unittest import mock
 
 from django.contrib.auth.hashers import PBKDF2PasswordHasher
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from accounts.models import Users
 from myapp.management.commands.seed_demo import PASSWORD as DEMO_PASSWORD
@@ -92,3 +99,25 @@ class BootstrapRefusesDemoPasswordTests(TestCase):
         self.assertEqual(Users.objects.count(), 4)
         out, error = run_check()
         self.assertIsNone(error, out)
+
+
+MANIFEST_STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.ManifestStaticFilesStorage"},
+}
+
+
+class ProductionCollectstaticTests(SimpleTestCase):
+    """The exact production static pipeline (DJANGO_STATIC_MANIFEST=True): every
+    url(...) in CSS and every sourceMappingURL in JS/CSS must resolve to a real
+    file, or collectstatic raises and the deploy stops halfway."""
+
+    def test_collectstatic_with_manifest_storage(self):
+        with tempfile.TemporaryDirectory(prefix="m7-static-") as root:
+            with override_settings(STATIC_ROOT=root, STORAGES=MANIFEST_STORAGES):
+                call_command("collectstatic", interactive=False, verbosity=0)
+                manifest = json.loads((Path(root) / "staticfiles.json").read_text())["paths"]
+                for name in ("vendor/chartjs-4.4.7/chart.umd.min.js", "vendor/leaflet-1.9.4/leaflet.js",
+                             "js/i18n.js", "js/realtime.js", "js/chat.js", "css/style.css"):
+                    self.assertIn(name, manifest)
+                    self.assertTrue((Path(root) / manifest[name]).is_file())

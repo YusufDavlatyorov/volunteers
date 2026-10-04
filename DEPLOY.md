@@ -513,13 +513,15 @@ MP4/WebM, WOFF2) is deliberately not in either list.
 cd /opt/khayrkhoh
 git pull
 docker compose build
+docker compose run --rm web python manage.py collectstatic --noinput   # first: touches no data — if it fails, stop here
 docker compose run --rm web python manage.py migrate --noinput
-docker compose run --rm web python manage.py collectstatic --noinput
 docker compose up -d
 ```
 
-Order matters with hashed static files: migrate and collectstatic run in
-one-off containers from the **new** image first, so when `up -d` recreates
+Order matters with hashed static files: collectstatic and migrate run in
+one-off containers from the **new** image first (collectstatic before migrate:
+a static error then stops the redeploy before the schema changes — the
+2026-10-04 rehearsal hit exactly that), so when `up -d` recreates
 `web` (and `telegram_bot`) the new manifest and schema are already in place —
 the running site never serves new templates against an old `staticfiles.json`.
 `up -d` recreates every app container (`web`, `ws`, `telegram_bot`,

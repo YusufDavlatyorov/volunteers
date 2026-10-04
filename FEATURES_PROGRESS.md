@@ -202,9 +202,10 @@ Full runbook with commands, expected output and the rollback plan:
    to `~/khayrkhoh-backups/` and run `scripts/verify_backup.sh` (checksums + test restore into postgres:16)
    — no verified copy, no deploy.
 3. `git pull --ff-only` → `docker compose build` (`.env` unchanged).
-4. `migrate` (accounts 0008–0012, myapp 0016–0024 — 14 migrations) — then steps 5–7 without a pause
-   (old code can't run on the new schema).
-5. `collectstatic`.
+4. `collectstatic` — **before** migrate (touches no data; on error stop, nothing changed yet —
+   the 2026-10-04 rehearsal caught a manifest error here).
+5. `migrate` (accounts 0008–0012, myapp 0016–0024 — 14 migrations) — then steps 6–7 without a pause
+   (old code reads but can't write on the new schema).
 6. nginx: `map $http_upgrade $connection_upgrade` + `/ws/` + `/media/chat/` 404 +
    `internal /protected-media/` (DEPLOY.md §10a); milestone 6: `open_file_cache` (4 lines) +
    new `location /media/` (30 d, `nosniff`, `sendfile`) from DEPLOY.md §10 → `nginx -t` → reload —
