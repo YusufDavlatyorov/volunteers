@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load static assets %}
+{% load static assets responsive %}
 {% block title %}{{ report.get_report_type_display }}: {{ report.display_name }} - KhayrKhoh{% endblock %}
 {% block extra_css %}
 {% if show_location_map %}
@@ -45,7 +45,7 @@
     {% if report.image %}
     <div class="card reveal">
         <div class="section-head"><h2 data-i18n="pet.photo_title">Photo</h2></div>
-        <img class="report-img" src="{{ report.image.url }}" alt="{{ report.display_name }}">
+        {% responsive_image report.image report.image_variants sizes="(max-width: 820px) 92vw, 760px" class="report-img" alt=report.display_name width=800 height=600 decoding="async" %}
     </div>
     {% endif %}
 

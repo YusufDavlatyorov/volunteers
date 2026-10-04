@@ -13,8 +13,9 @@
     --surface-2: #eef2fb;
     --text: #0b1220;
     --text-2: #33404f;
-    --muted: #6b7280;
+    --muted: #5b6473;          /* ≥ 4.8:1 on every light plate (was #6b7280: 3.9 on --cta-bg) */
     --primary: #1e40af;
+    --on-primary: #ffffff;     /* text on filled primary / teal / danger buttons, tabs, pills */
     --primary-hover: #17337f;
     --primary-2: #006a61;
     --primary-2-hover: #00544d;
@@ -62,6 +63,9 @@
     --text-2: #c7cede;
     --muted: #8b93a7;
     --primary: #7da2f0;
+    /* The dark theme's fills are light (#7da2f0 / #3fb0a3 / #e08871): white
+       text on them was 2.5:1. Dark ink reads ≥ 5.9:1 on all of them. */
+    --on-primary: #0b1220;
     --primary-hover: #6b90de;
     --primary-2: #3fb0a3;
     --primary-2-hover: #57bcb0;
@@ -153,6 +157,10 @@ img { max-width: 100%; display: block; }
 /* <picture> only chooses a source (WebP/srcset) — it must not add a box of
    its own, so the <img> lays out exactly as if it were a direct child. */
 picture { display: contents; }
+/* …and its <source> must not become an empty flex/grid item either: under
+   display: contents it would take a `gap` (avatars in .row-rank / .profile-head
+   shifted 16 px when milestone 6 wrapped them in <picture>). */
+picture > source { display: none; }
 
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; scroll-behavior: auto !important; }
@@ -166,7 +174,7 @@ picture { display: contents; }
     padding: 0.7rem 1.1rem;
     border-radius: 8px;
     background: var(--primary);
-    color: white;
+    color: var(--on-primary);
     font-weight: 700;
     transition: top 0.2s ease;
 }
@@ -308,10 +316,10 @@ p { color: var(--muted); line-height: 1.65; transition: color 0.3s ease; }
 .nav-links a:hover { color: var(--primary); background: var(--surface-2); }
 /* Current page — a filled primary pill with white text (set via aria-current
    in base.html from the resolved url name). */
-.nav-links a[aria-current="page"] { color: #fff; background: var(--primary); }
-.nav-links a.nav-cta { color: white; background: var(--primary); }
-.nav-links a.nav-cta:hover { color: white; background: var(--primary-hover); }
-.nav-links a.nav-cta[aria-current="page"] { color: white; background: var(--primary-hover); }
+.nav-links a[aria-current="page"] { color: var(--on-primary); background: var(--primary); }
+.nav-links a.nav-cta { color: var(--on-primary); background: var(--primary); }
+.nav-links a.nav-cta:hover { color: var(--on-primary); background: var(--primary-hover); }
+.nav-links a.nav-cta[aria-current="page"] { color: var(--on-primary); background: var(--primary-hover); }
 /* Logout sits among text links — keep it quiet, not a filled button. */
 .nav-links .nav-logout-form { display: flex; align-items: center; }
 .nav-links .nav-logout {
@@ -370,7 +378,7 @@ p { color: var(--muted); line-height: 1.65; transition: color 0.3s ease; }
     border-radius: 50%;
     overflow: hidden;
     background: var(--primary);
-    color: #fff;
+    color: var(--on-primary);
     font-weight: 700;
     font-size: 0.9rem;
     transition: box-shadow 0.2s ease, transform 0.2s ease;
@@ -398,7 +406,7 @@ p { color: var(--muted); line-height: 1.65; transition: color 0.3s ease; }
     min-height: unset;
 }
 .lang-btn:hover { color: var(--primary); }
-.lang-btn.active { background: var(--primary); color: white; }
+.lang-btn.active { background: var(--primary); color: var(--on-primary); }
 
 /* ===== BUTTONS =====
    Fully rounded (pill), generous padding, flat fills — no gradient shimmer.
@@ -420,13 +428,13 @@ p { color: var(--muted); line-height: 1.65; transition: color 0.3s ease; }
 }
 /* Class selectors already outrank the bare `a { color: inherit }` tag rule,
    so these don't need !important — kept free of it on purpose. */
-.primary { color: white; background: var(--primary); }
+.primary { color: var(--on-primary); background: var(--primary); }
 .primary:hover { transform: translateY(-1px); background: var(--primary-hover); box-shadow: 0 6px 18px var(--primary-glow); }
-.secondary { color: white; background: var(--primary-2); }
+.secondary { color: var(--on-primary); background: var(--primary-2); }
 .secondary:hover { transform: translateY(-1px); background: var(--primary-2-hover); box-shadow: 0 6px 18px var(--ok-glow); }
 .ghost { color: var(--primary); background: transparent; border-color: var(--line); }
 .ghost:hover { border-color: var(--primary); background: var(--surface-2); }
-.danger { color: white; background: var(--danger); }
+.danger { color: var(--on-primary); background: var(--danger); }
 .danger:hover { transform: translateY(-1px); box-shadow: 0 6px 18px var(--danger-glow); }
 .button:disabled, button:disabled { opacity: 0.55; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
 .button-row { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-top: var(--space-4); }
@@ -806,7 +814,7 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
 .rating-region:first-child { margin-top: 0; }
 .request-row .row-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 .row-rank { display: flex; align-items: center; gap: var(--space-4); min-width: 0; }
-.row-rank > .avatar, .row-rank > .rank-num { flex: none; }
+.row-rank > .avatar, .row-rank > picture > .avatar, .row-rank > .rank-num { flex: none; }
 .row-rank > div { min-width: 0; }
 /* Names in list rows: one line, ellipsis (the full name is on the profile). */
 .row-rank h3 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -936,7 +944,7 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
 .tab-bar a .tab-count { color: var(--muted); font-variant-numeric: tabular-nums; }
 .tab-bar a:hover { color: var(--primary); background: var(--surface); }
 .tab-bar a.is-active,
-.tab-bar a[aria-current="page"] { background: var(--primary); color: #fff; }
+.tab-bar a[aria-current="page"] { background: var(--primary); color: var(--on-primary); }
 .tab-bar a.is-active .tab-count,
 .tab-bar a[aria-current="page"] .tab-count { color: rgba(255,255,255,0.75); }
 
@@ -1043,7 +1051,7 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
 .profile-head { display: flex; gap: var(--space-4); align-items: center; }
 /* Let the text column shrink and wrap a long email instead of forcing the
    card (and, on a phone, the page) wider than the viewport. */
-.profile-head > :not(.avatar) { min-width: 0; }
+.profile-head > :not(.avatar, picture) { min-width: 0; }
 .profile-head p,
 .profile-head h1,
 .profile-head h2,
@@ -1102,7 +1110,7 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
     height: 56px;
     border-radius: 50%;
     background: var(--primary);
-    color: #fff;
+    color: var(--on-primary);
     box-shadow: var(--shadow-hover);
     transition: transform 0.22s ease, box-shadow 0.22s ease;
 }
@@ -1469,7 +1477,7 @@ a.emergency-banner--link:hover { background: var(--surface-2); }
     padding: 0 0.3rem;
     border-radius: 999px;
     background: var(--danger);
-    color: #fff;
+    color: var(--on-primary);
     font-size: 0.66rem;
     font-weight: 800;
     line-height: 1.15rem;
@@ -1760,7 +1768,7 @@ a.emergency-banner--link:hover { background: var(--surface-2); }
     padding: 0.15rem 0.55rem;
     border-radius: 999px;
     background: var(--danger);
-    color: #fff;
+    color: var(--on-primary);
     font-size: 0.78rem;
     font-weight: 800;
     line-height: 1.35;

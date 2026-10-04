@@ -11,6 +11,7 @@ class PhotoReport(models.Model):
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True)
     image = models.ImageField(upload_to="reports/", validators=[validate_file_size])
+    image_variants = models.JSONField(default=dict, blank=True)  # WebP thumb/medium (services/images.py)
     region = models.CharField(max_length=100, choices=REGION_CHOICES, blank=True)
     event = models.ForeignKey(Event, on_delete=models.SET_NULL, null=True, blank=True, related_name="photo_reports")
     help_request = models.ForeignKey(

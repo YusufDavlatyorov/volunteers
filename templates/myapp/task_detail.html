@@ -47,7 +47,11 @@
                 <div><span class="meta-label" data-i18n="detail.client">Client</span><p>{{ task.client.username }}</p></div>
                 <div><span class="meta-label" data-i18n="detail.volunteer">Volunteer</span><p>{{ task.volunteer|default_if_none:"—" }}</p></div>
                 <div><span class="meta-label" data-i18n="detail.address">Address</span><p>{{ task.address }}</p></div>
+                {% if show_client_phone %}
                 <div><span class="meta-label" data-i18n="detail.phone">Phone</span><p>{{ task.phone }}</p></div>
+                {% else %}
+                <div><span class="meta-label" data-i18n="detail.phone">Phone</span><p class="muted" data-i18n="detail.phone_after_accept">Shown after you accept the request</p></div>
+                {% endif %}
             </div>
             {% if user.is_volunteer and task.status == "pending" %}
                 <div class="button-row">

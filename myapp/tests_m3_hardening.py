@@ -8,8 +8,6 @@
 """
 
 import io
-import shutil
-import tempfile
 from unittest import mock
 
 from django.core import mail
@@ -21,6 +19,7 @@ from django.urls import reverse
 from PIL import Image
 
 from accounts.models import Profile, Users
+from myapp.testing import TempMediaRoot
 from myapp.models import ChatMessage, HelpRequest, Notification
 from myapp.realtime import events
 from myapp.services import chat, chat_flags, feedback
@@ -28,11 +27,12 @@ from myapp.services import notify as notify_service
 
 LOCMEM = "django.core.mail.backends.locmem.EmailBackend"
 PASSWORD = "M3-Hardening-2026!"
-_MEDIA = tempfile.mkdtemp(prefix="gc-m3h-tests-")
+_MEDIA_ROOT = TempMediaRoot("gc-m3h-tests-")  # fork-safe (myapp/testing.py)
+_MEDIA = _MEDIA_ROOT.path
 
 
 def tearDownModule():
-    shutil.rmtree(_MEDIA, ignore_errors=True)
+    _MEDIA_ROOT.cleanup()
 
 
 def _make(username, **flags):

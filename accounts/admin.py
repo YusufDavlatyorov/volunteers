@@ -1,4 +1,6 @@
 from django.contrib import admin
+from myapp.services.images import CleanImageAdminMixin
+
 from .models import Users, Profile
 
 
@@ -10,7 +12,7 @@ class ProfileInline(admin.StackedInline):
 
 
 @admin.register(Users)
-class MyUserAdmin(admin.ModelAdmin):
+class MyUserAdmin(CleanImageAdminMixin, admin.ModelAdmin):
     list_display = (
         'username', 'email', 'role',
         'region', 'is_email_verified',
@@ -56,7 +58,7 @@ class MyUserAdmin(admin.ModelAdmin):
 
 
 @admin.register(Profile)
-class ProfileAdmin(admin.ModelAdmin):
+class ProfileAdmin(CleanImageAdminMixin, admin.ModelAdmin):
     list_display = ('user', 'full_name', 'rating', 'age', 'created_at')
     search_fields = ('user__username', 'full_name')
     list_filter = ('created_at',)

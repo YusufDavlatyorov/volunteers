@@ -90,7 +90,9 @@ fresh checkout boots; replace it with a real key.
 | `DJANGO_DEBUG` | Debug mode (`True`/`False`) | `False` |
 | `DJANGO_ALLOWED_HOSTS` | Comma-separated hosts | `localhost,127.0.0.1` (a `*` wildcard is refused once `DEBUG=False`). Production: `khayrkhoh.tj,www.khayrkhoh.tj` |
 | `DJANGO_CSRF_TRUSTED_ORIGINS` | Full HTTPS origins allowed to POST | empty. Production: `https://khayrkhoh.tj,https://www.khayrkhoh.tj` |
-| `DJANGO_BEHIND_TLS_PROXY` | Trust `X-Forwarded-Proto` from a reverse proxy | `False`. Production (behind nginx): `True` |
+| `DJANGO_BEHIND_TLS_PROXY` | Trust `X-Forwarded-Proto` from a reverse proxy; rate limits read the visitor IP from nginx's `X-Real-IP` | `False`. Production (behind nginx): `True` |
+| `DJANGO_BEHIND_CLOUDFLARE` | Visitor IP from `CF-Connecting-IP` when the request came from a Cloudflare range (`docs/CLOUDFLARE.md`) | `False` |
+| `DJANGO_CLOUDFLARE_IP_RANGES` | Override the built-in Cloudflare CIDR list (comma-separated) | empty = built-in list |
 | `DJANGO_DB_NAME` / `DJANGO_DB_USER` / `DJANGO_DB_PASSWORD` / `DJANGO_DB_HOST` / `DJANGO_DB_PORT` | PostgreSQL connection — **required in production**, see "Docker deployment" | SQLite (dev only) |
 | `DJANGO_REDIS_URL` | Redis cache (rate limits, cached sessions, public-page aggregates) | unset. Production: `redis://redis:6379/0`, set by `docker-compose.yml` (wins over `DJANGO_DB_CACHE`) |
 | `CELERY_BROKER_URL` | Celery broker for background email/Telegram delivery | unset → tasks run inline. Production: `redis://redis:6379/1`, set by `docker-compose.yml` |
@@ -150,6 +152,10 @@ Requires `TELEGRAM_BOT_TOKEN` in `.env`:
 ```bash
 python manage.py run_telegram_bot
 ```
+
+Locally, use a **separate test bot** from @BotFather — never the production token (a second
+process with the same token steals the production bot's updates). Step-by-step for the owner:
+`docs/TEST_BOT.md`. A DEBUG run with a bot token or SMTP login in `.env` prints a warning banner.
 
 ## Background jobs (production)
 
@@ -216,7 +222,7 @@ support `--dry-run`, and log every alert (and any zero-recipient failure, at
 ## Running tests
 
 ```bash
-python manage.py test            # full suite (579 tests, ~160s)
+python manage.py test --parallel 4   # full suite (current count: FEATURES_PROGRESS.md)
 python manage.py test myapp      # one app
 python manage.py test myapp.tests.MatchingAlgorithmTests   # one class
 ```
@@ -227,6 +233,9 @@ services, the CRM dashboards, emergency/SOS, overdue and stale-request monitorin
 donation offers, the Lost & Found board, the health endpoints, external-service failure
 handling, list-view pagination bounds, and a set of concurrency / IDOR / rate-limit regression
 tests.
+
+To run it in the production image (Linux, `linux/amd64`), see the Docker command in `CLAUDE.md`
+→ Commands (no `--parallel` with SQLite there — Python 3.14's forkserver start method).
 
 ## Demo data — NEVER in production
 
@@ -403,6 +412,12 @@ disk does not survive a disk loss. For SQLite (dev only) the equivalent is copyi
 `media/` is append-mostly application data, not a cache. Back it up with the same cadence as the
 DB (`rsync -a --delete media/ /var/backups/gc/media/`, or a filesystem/volume snapshot). A DB
 restore without the matching media leaves image URLs pointing at missing files.
+
+Since Feature Pack v2 milestone 6 every avatar / photo report / pet photo has WebP variants next
+to it (`<name>_thumb.webp`, `<name>_medium.webp`, listed in the row's `image_variants`). They can
+always be rebuilt from the originals: `python manage.py backfill_image_variants`.
+
+**CDN:** putting Cloudflare in front of the site is an owner step — `docs/CLOUDFLARE.md`.
 
 ### Restore / disaster recovery
 

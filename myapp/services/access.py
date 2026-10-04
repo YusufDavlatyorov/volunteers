@@ -41,6 +41,22 @@ def can_view_task(user, task) -> bool:
     return False
 
 
+def can_see_client_phone(user, task) -> bool:
+    """Who may see the client's phone on a task (site + bot share this rule).
+
+    Staff always; the client (it is their own number); the volunteer only once
+    the task is theirs. A volunteer browsing a still-pending request sees the
+    address but not the phone — it appears after accepting.
+    """
+    if user is None or not getattr(user, "is_authenticated", False):
+        return False
+    if user.is_superuser or user.is_curator:
+        return True
+    if task.client_id == user.id:
+        return True
+    return bool(task.volunteer_id) and task.volunteer_id == user.id
+
+
 def can_view_emergency(user, report) -> bool:
     """Staff, or the volunteer who raised the report."""
     if user is None or not getattr(user, "is_authenticated", False):

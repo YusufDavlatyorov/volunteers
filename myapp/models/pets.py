@@ -99,6 +99,7 @@ class PetReport(models.Model):
     # Tajik number, stored normalized as +992XXXXXXXXX (myapp/validators.py).
     contact_phone = models.CharField(max_length=30, blank=True, validators=[validate_tj_phone])
     image = models.ImageField(upload_to="pets/", blank=True, validators=[validate_file_size])
+    image_variants = models.JSONField(default=dict, blank=True)  # WebP thumb/medium (services/images.py)
     status = models.CharField(
         max_length=20, choices=PET_STATUS_CHOICES, default=STATUS_OPEN, db_index=True
     )

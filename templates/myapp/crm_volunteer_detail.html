@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% load assets realtime_ui reviews achievements_ui %}
+{% load assets realtime_ui reviews achievements_ui responsive %}
 {% block title %}{{ profile.full_name|default:volunteer.username }} - KhayrKhoh{% endblock %}
 {% block content %}
 <section class="section">
     <div class="card detail-card reveal">
         <div class="profile-head">
             {% if profile.image %}
-                <img class="avatar" src="{{ profile.image.url }}" alt="">
+                {% responsive_image profile.image profile.image_variants variant="thumb" class="avatar" alt="" %}
             {% else %}
                 <div class="avatar avatar-fallback">{{ profile.full_name|default:volunteer.username|first|upper }}</div>
             {% endif %}

@@ -236,6 +236,13 @@ server {
 
     client_max_body_size 6M;   # uploads are capped at 5 MB by the app
 
+    # Keep open file descriptors / stat() results of static + media files
+    # (many small files on every page) instead of re-opening them per request.
+    open_file_cache max=2000 inactive=60s;
+    open_file_cache_valid 120s;
+    open_file_cache_min_uses 2;
+    open_file_cache_errors on;
+
     # text/html is always compressed once gzip is on; add the static types.
     gzip on;
     gzip_vary on;
@@ -277,10 +284,17 @@ server {
         access_log off;
     }
 
+    # Uploads. Since milestone 6 every upload gets a random name and its WebP
+    # variants are <name>_thumb/_medium.webp, so a URL never changes content —
+    # a month of browser/CDN cache is safe. nosniff: user files are served as
+    # their image type only. No cookies here (nginx serves them directly).
     location /media/ {
         alias /opt/khayrkhoh/media/;
-        expires 7d;
+        expires 30d;
         add_header Cache-Control "public";
+        add_header X-Content-Type-Options "nosniff";
+        sendfile on;
+        tcp_nopush on;
     }
 
     location / {

@@ -12,6 +12,7 @@ from .models import (
     Product,
     VolunteerApplication,
 )
+from .services.images import CleanImageAdminMixin
 from .services.notify import notify
 
 
@@ -83,7 +84,7 @@ class DonationAdmin(admin.ModelAdmin):
 
 
 @admin.register(PetReport)
-class PetReportAdmin(admin.ModelAdmin):
+class PetReportAdmin(CleanImageAdminMixin, admin.ModelAdmin):
     list_display = ("id", "report_type", "species", "pet_name", "status", "region", "reporter", "created_at")
     list_filter = ("report_type", "species", "status", "region", "created_at")
     search_fields = ("pet_name", "breed", "description", "reporter__username")
@@ -100,7 +101,7 @@ class PetReportAdmin(admin.ModelAdmin):
 
 
 @admin.register(PhotoReport)
-class PhotoReportAdmin(admin.ModelAdmin):
+class PhotoReportAdmin(CleanImageAdminMixin, admin.ModelAdmin):
     list_display = ("title", "author", "region", "created_at")
     list_filter = ("region", "created_at")
     search_fields = ("title", "description")

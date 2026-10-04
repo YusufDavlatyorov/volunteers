@@ -11,8 +11,6 @@ import io
 import json
 import logging
 import re
-import shutil
-import tempfile
 from datetime import timedelta
 from unittest import mock
 
@@ -22,6 +20,7 @@ from django.utils import timezone
 from PIL import Image
 
 from accounts.models import Profile, Users
+from myapp.testing import TempMediaRoot
 from myapp.models import (
     ChatMessage,
     Donation,
@@ -38,11 +37,12 @@ from myapp.telegram.main_bot.core import Event
 
 PASSWORD = "Tg-Main-Tests-2026!"
 LOCMEM = "django.core.mail.backends.locmem.EmailBackend"
-_MEDIA = tempfile.mkdtemp(prefix="gc-tg-tests-")
+_MEDIA_ROOT = TempMediaRoot("gc-tg-tests-")  # fork-safe (myapp/testing.py)
+_MEDIA = _MEDIA_ROOT.path
 
 
 def tearDownModule():
-    shutil.rmtree(_MEDIA, ignore_errors=True)
+    _MEDIA_ROOT.cleanup()
 
 
 def _make(username, tg=None, **flags):

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load reviews achievements_ui %}
+{% load reviews achievements_ui responsive %}
 {% block content %}
 <section class="section">
     {% include "partials/_page_header.html" with title="Rating" title_i18n="rating.title" lede="Our volunteers by region: the clients' average rating and badges. No places and no points — helping is not a contest." lede_i18n="rating.desc" %}
@@ -12,7 +12,7 @@
                 <div class="request-row reveal">
                     <div class="row-rank">
                         {% if profile.image %}
-                            <img class="avatar avatar-sm" src="{{ profile.image.url }}" alt="Фото волонтёра {{ profile.full_name|default:profile.user.username }}" width="44" height="44" loading="lazy" decoding="async">
+                            {% with name=profile.full_name|default:profile.user.username %}{% responsive_image profile.image profile.image_variants variant="thumb" class="avatar avatar-sm" alt="Фото волонтёра "|add:name width=44 height=44 loading="lazy" decoding="async" %}{% endwith %}
                         {% else %}
                             <div class="avatar avatar-fallback avatar-sm">{{ profile.full_name|default:profile.user.username|first|upper }}</div>
                         {% endif %}

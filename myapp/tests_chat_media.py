@@ -2,8 +2,6 @@
 (X-Accel-Redirect in production), never by a guessable /media/ URL."""
 
 import io
-import shutil
-import tempfile
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
@@ -11,11 +9,13 @@ from django.urls import reverse
 from PIL import Image
 
 from accounts.models import Users
+from myapp.testing import TempMediaRoot
 from myapp.models import ChatMessage, HelpRequest
 from myapp.services import chat
 
 PASSWORD = "Chat-Media-2026!"
-MEDIA_TMP = tempfile.mkdtemp(prefix="chat-media-tests-")
+_MEDIA_ROOT = TempMediaRoot("chat-media-tests-")  # fork-safe (myapp/testing.py)
+MEDIA_TMP = _MEDIA_ROOT.path
 
 
 def _png():
@@ -35,7 +35,7 @@ class ChatImageAccessTests(TestCase):
     @classmethod
     def tearDownClass(cls):
         super().tearDownClass()
-        shutil.rmtree(MEDIA_TMP, ignore_errors=True)
+        _MEDIA_ROOT.cleanup()
 
     def setUp(self):
         self.client_user = _make("cm_client", is_client=True)

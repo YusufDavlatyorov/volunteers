@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load static assets %}
+{% load static assets responsive %}
 {% block extra_css %}<link rel="stylesheet" href="{% asset 'css/home.css' %}">{% endblock %}
 {% block content %}
 <section class="hero">
@@ -215,7 +215,7 @@
     {% if reports %}
     <div class="grid">
         {% for report in reports %}
-            <div class="card reveal"><img class="report-img" src="{{ report.image.url }}" alt="Фотоотчёт: {{ report.title }}" width="800" height="600" loading="lazy" decoding="async"><h3>{{ report.title }}</h3><p class="clamp-text">{{ report.description }}</p></div>
+            <div class="card reveal">{% responsive_image report.image report.image_variants sizes="(max-width: 700px) 92vw, 380px" class="report-img" alt="Фотоотчёт: "|add:report.title width=800 height=600 loading="lazy" decoding="async" %}<h3>{{ report.title }}</h3><p class="clamp-text">{{ report.description }}</p></div>
         {% endfor %}
     </div>
     {% else %}

@@ -6,8 +6,6 @@ another thread); everything else is a plain TestCase. Media goes to a temp dir.
 """
 
 import io
-import shutil
-import tempfile
 from datetime import timedelta
 from unittest import mock
 
@@ -22,6 +20,7 @@ from django.utils import timezone
 from PIL import Image
 
 from accounts.models import Profile, Users
+from myapp.testing import TempMediaRoot
 from myapp.models import ChatMessage, ChatReadState, ChatReport, HelpRequest, Notification
 from myapp.realtime import consumers, events, publish
 from myapp.services import access, chat, images, notify as notify_service, notify_texts
@@ -29,11 +28,12 @@ from myapp.tests_realtime import CLIENT_PHONE, _LayerMixin, _connect, _make, ass
 from myapp.tests_realtime_tracking import collect, subscribe, types_of
 
 LOCMEM = "django.core.mail.backends.locmem.EmailBackend"
-_MEDIA = tempfile.mkdtemp(prefix="gc-chat-tests-")
+_MEDIA_ROOT = TempMediaRoot("gc-chat-tests-")  # fork-safe (myapp/testing.py)
+_MEDIA = _MEDIA_ROOT.path
 
 
 def tearDownModule():
-    shutil.rmtree(_MEDIA, ignore_errors=True)
+    _MEDIA_ROOT.cleanup()
 
 
 def _image_bytes(fmt="PNG", size=(400, 200), color=(200, 30, 30), exif=None):

@@ -79,7 +79,7 @@
     white-space: pre-wrap;
     animation: aiMsgIn 0.2s ease;
 }
-.ai-msg--user .ai-msg-bubble { border-radius: 14px 14px 4px 14px; background: var(--primary); color: #fff; }
+.ai-msg--user .ai-msg-bubble { border-radius: 14px 14px 4px 14px; background: var(--primary); color: var(--on-primary); }
 @keyframes aiMsgIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 
 .ai-typing { display: flex; align-items: flex-end; gap: 0.5rem; margin-bottom: var(--space-4); }
@@ -91,7 +91,7 @@
 
 .ai-chat-input { display: flex; align-items: flex-end; gap: 0.6rem; padding: var(--space-4) var(--space-5); border-top: 1px solid var(--line); flex-shrink: 0; }
 .ai-chat-input textarea { flex: 1; min-height: 2.75rem; max-height: 7.5rem; padding-top: 0.72rem; resize: none; overflow-y: auto; }
-.ai-send-btn { flex-shrink: 0; width: 2.75rem; height: 2.75rem; min-height: unset; padding: 0; border-radius: 50%; color: white; background: var(--primary); }
+.ai-send-btn { flex-shrink: 0; width: 2.75rem; height: 2.75rem; min-height: unset; padding: 0; border-radius: 50%; color: var(--on-primary); background: var(--primary); }
 .ai-send-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 18px var(--primary-glow); }
 .ai-send-btn svg { width: 18px; height: 18px; }
 

@@ -78,8 +78,26 @@ SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
 # HTTP on the loopback hop, so request.is_secure() is False and SECURE_SSL_REDIRECT
 # would loop forever. Opt in ONLY when the proxy is trusted to set (and to strip
 # any client-supplied) X-Forwarded-Proto — see the nginx snippet in README.
-if env_bool('DJANGO_BEHIND_TLS_PROXY', False):
+BEHIND_TLS_PROXY = env_bool('DJANGO_BEHIND_TLS_PROXY', False)
+if BEHIND_TLS_PROXY:
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+# Client IP for rate limits (server/client_ip.py): behind our nginx the visitor's
+# address comes from X-Real-IP; behind Cloudflare (docs/CLOUDFLARE.md) from
+# CF-Connecting-IP, believed only when nginx saw a Cloudflare address.
+# Ranges: https://www.cloudflare.com/ips-v4 + ips-v6 (fetched 2026-10-03);
+# DJANGO_CLOUDFLARE_IP_RANGES (comma-separated) overrides without a release.
+BEHIND_CLOUDFLARE = env_bool('DJANGO_BEHIND_CLOUDFLARE', False)
+CLOUDFLARE_IP_RANGES = [
+    r.strip() for r in os.getenv('DJANGO_CLOUDFLARE_IP_RANGES', '').split(',') if r.strip()
+] or [
+    '173.245.48.0/20', '103.21.244.0/22', '103.22.200.0/22', '103.31.4.0/22',
+    '141.101.64.0/18', '108.162.192.0/18', '190.93.240.0/20', '188.114.96.0/20',
+    '197.234.240.0/22', '198.41.128.0/17', '162.158.0.0/15', '104.16.0.0/13',
+    '104.24.0.0/14', '172.64.0.0/13', '131.0.72.0/22',
+    '2400:cb00::/32', '2606:4700::/32', '2803:f800::/32', '2405:b500::/32',
+    '2405:8100::/32', '2a06:98c0::/29', '2c0f:f248::/32',
+]
 
 # Full origins (scheme://host[:port]) that may send unsafe (POST/PUT/…) requests.
 # Django 4+ requires the production HTTPS origin(s) here for CSRF to pass; the
@@ -430,6 +448,12 @@ if len(sys.argv) > 1 and sys.argv[1] == 'test':
     TELEGRAM_BOT_TOKEN = ''
     TELEGRAM_COMMUNITY_BOT_TOKEN = ''
 
+# A local (DEBUG) run must not hold the production SMTP login / bot tokens —
+# shout in the Terminal if it does (names only, never values).
+from server.dev_safety import warn_if_real_keys  # noqa: E402
+
+warn_if_real_keys(debug=DEBUG)
+
 # Maps — a provider-agnostic layer lives in myapp/services/maps.py.
 #   osm    (default) : free Leaflet tiles + OSRM routing + Nominatim geocoding, no key
 #   mapbox / google  : drop-in, requires MAPS_API_KEY
@@ -455,11 +479,21 @@ LOGGING = {
     'formatters': {
         'standard': {'format': '[{asctime}] {levelname} {name}: {message}', 'style': '{'},
     },
+    # Telegram puts the bot token in the URL; this filter cuts it out of every
+    # line and traceback that reaches stderr (server/log_filters.py).
+    'filters': {
+        'redact_secrets': {'()': 'server.log_filters.RedactSecretsFilter'},
+    },
     'handlers': {
-        'console': {'class': 'logging.StreamHandler', 'formatter': 'standard'},
+        'console': {'class': 'logging.StreamHandler', 'formatter': 'standard',
+                    'filters': ['redact_secrets']},
     },
     'root': {'handlers': ['console'], 'level': 'WARNING'},
     'loggers': {
+        # httpx (python-telegram-bot's HTTP client) logs every request URL —
+        # with the bot token in it — at INFO. Pin it to WARNING explicitly so a
+        # lower root level can never turn that on.
+        'httpx': {'level': 'WARNING'},
         # Server errors (500s) to stderr; 4xx (Not Found / Method Not Allowed,
         # logged at WARNING) stay quiet so they don't drown the signal.
         'django.request': {'handlers': ['console'], 'level': 'ERROR', 'propagate': False},

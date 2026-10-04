@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load static assets realtime_ui %}
+{% load static assets realtime_ui responsive %}
 {% block title %}Dashboard - KhayrKhoh{% endblock %}
 {% block extra_css %}<link rel="stylesheet" href="{% asset 'css/dashboard.css' %}">{% endblock %}
 {% block content %}
@@ -55,7 +55,7 @@
             <div class="card reveal">
                 <div class="profile-head">
                     {% if profile.image %}
-                        <img class="avatar" src="{{ profile.image.url }}" alt="{{ user.username }}">
+                        {% responsive_image profile.image profile.image_variants variant="thumb" class="avatar" alt=user.username %}
                     {% else %}
                         <div class="avatar avatar-fallback">{{ profile.full_name|default:user.username|first|upper }}</div>
                     {% endif %}

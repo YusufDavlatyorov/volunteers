@@ -5,7 +5,11 @@
 # as separate one-off commands against this image (see README → "Docker
 # deployment"), not automatically on container start.
 
-FROM python:3.14-slim
+# Exact patch + Debian release pinned (not the floating `3.14-slim`): the
+# server builds this image itself at deploy time, so a floating tag would give
+# it whatever Python was newest that day — not the one the suite was run on
+# (milestone 6: full suite green in this image, built for linux/amd64).
+FROM python:3.14.8-slim-trixie
 
 # Fail fast + smaller image: no .pyc cache, unbuffered logs to stdout/stderr
 # (so `docker logs` / journald capture them, matching server/settings.py LOGGING).

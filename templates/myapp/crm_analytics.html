@@ -114,7 +114,7 @@
                 <h3 id="chartTitle-heat" data-i18n="an.c.heatmap">Откуда приходят запросы</h3>
             </div>
             <p class="field-hint chart-card__note" data-i18n="an.n.heatmap">Координаты округлены примерно до 100 м.</p>
-            <div class="analytics-heat" id="analyticsHeat" data-url="{% url 'crm_analytics_heat' %}?{{ filters.querystring }}" role="img" aria-labelledby="chartTitle-heat"></div>
+            <div class="analytics-heat" id="analyticsHeat" data-url="{% url 'crm_analytics_heat' %}?{{ filters.querystring }}" role="region" aria-labelledby="chartTitle-heat"></div>
         </section>
     </div>
 </section>

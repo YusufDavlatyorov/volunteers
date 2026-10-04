@@ -3,8 +3,8 @@
 Runbook для совместного деплоя на `khayrkhoh.tj` (31.25.236.54, `/opt/khayrkhoh`, пользователь
 `deploy`). Сейчас в продакшене `main` @ `2467bc5`. Решение владельца (2026-10-03): **всё выкатывается
 одним деплоем после завершения всех 8 этапов**. Runbook дополняется на каждом этапе; сейчас он
-покрывает этапы 1–5: WebSocket, уведомления, доступность, трекинг и маршруты, чат и отзывы,
-достижения и аналитика, Telegram-боты.
+покрывает этапы 1–6: WebSocket, уведомления, доступность, трекинг и маршруты, чат и отзывы,
+достижения и аналитика, Telegram-боты, лёгкие WebP-фото и подготовка к Cloudflare.
 
 Ничего из этого не выполняется без явного «deploy» от владельца. Команды ниже — для сессии деплоя.
 
@@ -12,19 +12,24 @@ Runbook для совместного деплоя на `khayrkhoh.tj` (31.25.23
 
 | Что | Подробно |
 |---|---|
-| Новый контейнер `ws` | uvicorn, `127.0.0.1:8001`, лимит 256 МБ (≈ 70 МБ в простое) |
+| Новый контейнер `ws` | uvicorn, `127.0.0.1:8001`, лимит 256 МБ (≈ 70–90 МБ в простое, 137 МиБ при 300 открытых сокетах — нагрузочный тест этапа 6) |
+| `celery_worker` | теперь ещё строит WebP-варианты фото; одно фото за раз + JPEG `draft`: 4 одновременные загрузки 12 Мп — пик ≈ 120 МБ (без этого было ≈ 690 МБ при лимите 300 МБ) |
 | `osrm_car` / `osrm_foot` | **в этом деплое не включаем** (решение владельца 2026-10-03) — отдельным деплоем позже; до тех пор маршруты по текущему `OSRM_BASE_URL` из `.env` и запасной расчёт по прямой |
-| Миграции | `accounts` 0008–0011, `myapp` 0016–0023: только добавление столбцов/таблиц, без удаления данных |
+| Миграции | `accounts` 0008–0012, `myapp` 0016–0024 (14 штук): только добавление столбцов/таблиц, без удаления данных |
+| Образ | базовый образ закреплён: `python:3.14.8-slim-trixie` (раньше плавающий `3.14-slim`); на нём прогнан весь набор тестов, сборка `linux/amd64` |
 | `telegram_bot` | та же команда `run_telegram_bot`, но теперь это бот на python-telegram-bot с меню по ролям (этап 5); память ≈ 90 МиБ (было 61 МБ, лимит 300 МБ) |
 | Новый `community_bot` | бот сообщества волонтёров, профиль `community` — **в этом деплое не запускается**; включается отдельно, когда владелец создаст бота и группу (`docs/COMMUNITY_BOT.md`); ≈ 90 МиБ, лимит 200 МБ |
-| nginx | `map $http_upgrade`, `location /ws/`, `/media/chat/` → 404, `internal` `/protected-media/` (DEPLOY.md §10a) |
+| nginx | `map $http_upgrade`, `location /ws/`, `/media/chat/` → 404, `internal` `/protected-media/` (DEPLOY.md §10a); этап 6: `open_file_cache`, `/media/` — кэш 30 дней + `nosniff` (DEPLOY.md §10) |
 | cron | 7 новых задач (DEPLOY.md §13); две задачи сообщества ничего не делают, пока оно не настроено |
-| Однократно | `backfill_achievements` |
-| `.env` | не меняется (новых обязательных переменных нет) |
+| Однократно | `backfill_achievements`; `backfill_image_variants` (WebP-варианты старых фото; с `--strip-metadata` — ещё и убрать GPS из старых оригиналов) |
+| `.env` | новых обязательных переменных нет; **после деплоя меняется `TELEGRAM_BOT_TOKEN`** — новый токен через @BotFather (шаг 10a) |
 
 Отрепетировано 2026-10-03 на `postgres:16` в Docker: схема `main` + демо-данные → миграции ветки
 вперёд → откат миграций → старый код снова работает, данные сохранены → повторный накат. Во время
-репетиции нашёлся и исправлен откат миграции 0021 (подробнее — в разделе «Откат»).
+репетиции нашёлся и исправлен откат миграции 0021 (подробнее — в разделе «Откат»). Этап 6
+(accounts 0012 + myapp 0024) отрепетирован так же 2026-10-03 на `postgres:16.15`: `main` + демо-данные →
+14 миграций вперёд → откат всех 14 (1 с) → старый код создаёт пользователя и запрос, профиль,
+рейтинг, «О нас», карточка запроса, админ-панель, фотоотчёты — 200 → повторный накат.
 
 ---
 
@@ -63,6 +68,8 @@ docker compose ps                      # web, telegram_bot, celery_worker, redis
 sudo nginx -t
 curl -fsS https://khayrkhoh.tj/health/ready/
 grep -c '\$' .env                      # 0 — без "$" в значениях (проверено 2026-10-02)
+grep -c 'DJANGO_BEHIND_TLS_PROXY=True' .env   # 1 — с этапа 6 по нему же читается IP посетителя
+sudo grep -n "X-Real-IP" /etc/nginx/sites-available/khayrkhoh   # есть в location / (иначе IP посетителя подделывается)
 
 # память и диск
 free -h                                # смотреть столбец "available"
@@ -157,7 +164,7 @@ df -h /                                # сверить с оценкой из �
 
 ```bash
 docker compose run --rm web python manage.py showmigrations accounts myapp | grep '\[ \]'
-#   accounts 0008 … 0011; myapp 0016 … 0023 — ровно 12 строк
+#   accounts 0008 … 0012; myapp 0016 … 0024 — ровно 14 строк
 docker compose run --rm web python manage.py migrate --noinput
 docker compose run --rm web python manage.py showmigrations accounts myapp | grep -c '\[ \]'   # 0
 ```
@@ -186,7 +193,11 @@ docker compose run --rm web python manage.py collectstatic --noinput
 2. В `/etc/nginx/sites-available/khayrkhoh`, в блоке `server_name khayrkhoh.tj` (443), **выше**
    `location /media/` и `location /`, вставить `location /ws/`, `location ^~ /media/chat/` и
    `location ^~ /protected-media/` из DEPLOY.md §10a.
-3. Проверить и перезагрузить:
+3. Этап 6, в том же блоке 443: после `client_max_body_size` добавить 4 строки `open_file_cache…`, а
+   `location /media/` заменить новой версией (`expires 30d`, `nosniff`, `sendfile`) — обе из DEPLOY.md §10
+   (проверено на `nginx:1.27-alpine` 2026-10-03). Убедиться, что в `location /` есть
+   `proxy_set_header X-Real-IP $remote_addr;`.
+4. Проверить и перезагрузить:
 
 ```bash
 sudo nginx -t && sudo systemctl reload nginx
@@ -225,7 +236,17 @@ free -h                                                        # записат�
 docker compose exec -T web python manage.py backfill_achievements --dry-run    # посмотреть, сколько значков выдастся
 docker compose exec -T web python manage.py backfill_achievements              # тихо, без уведомлений
 docker compose exec -T web python manage.py purge_chats --dry-run              # 0/0 — чатов ещё нет
+# Этап 6: WebP-варианты старых фото (аватары, фотоотчёты, животные). Бэкап media уже есть (шаг 2).
+docker compose exec -T web python manage.py backfill_image_variants --dry-run --strip-metadata
+docker compose exec -T web python manage.py backfill_image_variants --strip-metadata   # решение владельца — см. ниже
+docker compose exec -T web python manage.py backfill_image_variants                    # повторно: "total: variants 0, stripped 0, failed 0"
+curl -s https://khayrkhoh.tj/ | grep -c 'type="image/webp"'                    # > 0, если есть фотоотчёты
 ```
+
+`--strip-metadata` перезаписывает **старые** оригиналы, в которых остались EXIF/GPS, по тому же
+пути (адреса не меняются, качество JPEG 90). Новые загрузки очищаются сами с этапа 6. Без флага
+команда только строит варианты. Строки `failed` — файл записи пропал с диска; это не ошибка
+деплоя, страница покажет запись без фото, как и раньше.
 
 ## 10. cron
 
@@ -242,6 +263,65 @@ crontab -e
   настроено, они только пишут «community not configured».
 
 Через 5–10 минут проверить `tail -n 30 /var/log/khayrkhoh/cron.log` — без трейсбеков.
+
+## 10a. Новый токен основного бота (обязательно, сразу после шагов 8–10)
+
+**Зачем.** До этапа 5 при ошибке отправки в Telegram код писал в лог текст ошибки вместе с
+адресом запроса, а в адресе есть токен бота. Исправлено на этапе 5 (и дополнительно на этапе 6:
+фильтр `server/log_filters.py` вырезает токен из любой строки лога). Но **старые логи на сервере
+могут содержать прежний токен** (`docker logs` контейнеров, journald, `/var/log/khayrkhoh/cron.log`).
+Новый токен делает старый бесполезным — чистить логи не нужно.
+
+**Важно:** после `/revoke` старый токен перестаёт работать **сразу** — бот и уведомления в Telegram
+молчат, пока новый токен не вписан и контейнеры не пересозданы. Делаем шаги 1–4 подряд (≈ 3 минуты).
+
+0. (Для отчёта, только чтение — сколько строк старых логов содержали токен; сам токен не печатается.)
+
+   ```bash
+   cd /opt/khayrkhoh
+   for c in web telegram_bot celery_worker; do
+     printf "%s: " $c; docker compose logs --no-color $c 2>/dev/null | grep -cE "bot[0-9]{5,}:[A-Za-z0-9_-]{30,}"
+   done
+   ```
+
+1. **На телефоне/компьютере в Telegram** (аккаунт владельца бота): открыть **@BotFather** →
+   отправить `/revoke` → выбрать основного бота (тот же, что `TELEGRAM_BOT_USERNAME`) → BotFather
+   пришлёт **новый токен** вида `1234567890:AA…`. Никому его не пересылать, в чат со мной не вставлять.
+   Имя бота, его чаты и привязки пользователей не меняются — меняется только ключ.
+
+2. **На сервере** вписать новый токен (редактор `nano`; токен не печатается в терминал):
+
+   ```bash
+   cd /opt/khayrkhoh
+   cp -p .env /var/backups/khayrkhoh/pre-fp2-<TS>/env-before-token-rotation   # права 600, как у .env
+   nano .env            # строка TELEGRAM_BOT_TOKEN=… → заменить значение на новый токен; Ctrl+O, Enter, Ctrl+X
+   grep -c '^TELEGRAM_BOT_TOKEN=[0-9]\{5,\}:' .env   # 1 — строка есть и похожа на токен
+   grep -c '\$' .env                                  # 0 — без "$"
+   ```
+
+3. **Пересоздать контейнеры, которые читают токен.** `docker compose restart` **не** перечитывает
+   `.env` — нужен `up -d --force-recreate`. Токен использует не только бот: `celery_worker`
+   доставляет уведомления в Telegram, а `web`/`ws` отправляют сами, если очередь Redis недоступна.
+
+   ```bash
+   docker compose up -d --force-recreate telegram_bot celery_worker web ws   # web ≈ 10–20 с простоя
+   docker compose ps                                                          # все Up
+   docker compose logs --since 2m telegram_bot | tail -n 20                    # без "Unauthorized" / "InvalidToken"
+   ```
+
+4. **Проверить уведомления** (вместе, на телефоне владельца):
+   - в боте отправить `/start` — бот отвечает меню роли (значит, токен рабочий);
+   - Telegram владельца привязан к начальной учётке **волонтёра**; в браузере под учёткой
+     **клиента** (та же область) создать запрос «тест, не выполнять» → волонтёру в Telegram за ≤ 10 с
+     приходит «Новый запрос помощи». (Если волонтёр в режиме «не беспокоить», он такие уведомления
+     не получает — тогда админ → «Рассылки» → область волонтёра → короткий текст.) Потом отменить
+     тестовый запрос под клиентом;
+   - `docker compose exec -T redis redis-cli -n 1 llen celery` → `0` (очередь пуста — всё доставлено);
+   - `docker compose logs --since 5m celery_worker | grep -c "Telegram send failed"` → `0`.
+
+Если бот не отвечает: проверить, что в `.env` нет пробела/кавычек вокруг токена, и повторить шаг 3.
+Откат этого шага невозможен (старый токен уже отозван) — только вписать актуальный токен ещё раз.
+Бот сообщества (`TELEGRAM_COMMUNITY_BOT_TOKEN`) в этом деплое не запущен и в логах не был — его не трогаем.
 
 ## 11. Проверка в браузере (вдвоём, 15–20 мин)
 
@@ -320,7 +400,7 @@ curl -fsS https://khayrkhoh.tj/health/ready/
 docker compose run --rm web python manage.py showmigrations accounts myapp | grep -c '\[ \]'   # 0
 ```
 
-Займёт около 5–10 минут. На репетиции (`postgres:16`) откат 10 миграций прошёл за секунды,
+Займёт около 5–10 минут. На репетиции (`postgres:16`) откат 14 миграций прошёл за секунды,
 и после этого старый код создавал пользователей и запросы и открывал профиль, рейтинг, «О нас»,
 карточку запроса и админ-панель.
 
@@ -328,6 +408,11 @@ docker compose run --rm web python manage.py showmigrations accounts myapp | gre
 (`make_chat_image_variants`): старый воркер запишет «unregistered task» и отбросит её — это
 безвредно. Фото чата в `media/chat/` останутся файлами без записей в БД; их можно удалить вручную.
 Ключи channel layer в Redis DB 2 истекают сами через 60 секунд.
+Этап 6: файлы `*_thumb.webp` / `*_medium.webp` рядом с фото остаются на диске (старый код их не
+видит, место — десятки КБ на фото). Фото, загруженные после деплоя, имеют случайные имена и без
+EXIF — старый код показывает их как обычно. Очистка GPS из старых оригиналов (`--strip-metadata`)
+откатом не возвращается; оригиналы с метаданными есть в `media.tgz` из шага 2. Строку
+`open_file_cache` и новый `location /media/` старый код не замечает — nginx можно не откатывать.
 
 Найдено на репетиции и исправлено (2026-10-03): на PostgreSQL откат миграции 0021 падал с
 `cannot DROP TABLE "myapp_achievement" because it has pending trigger events` — удаление

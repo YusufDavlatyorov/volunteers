@@ -46,7 +46,7 @@ from .notifications import staff_recipients, volunteer_queryset_for_region
 from .realtime import publish
 from .services import achievements, cancellation, chat, community, feedback, presence, task_actions, tracking
 from .services.notify import notify
-from .services import access, analytics, dispatch, donations, emergency, maps, overdue, pets, stale
+from .services import access, analytics, dispatch, donations, emergency, images, maps, overdue, pets, stale
 from .services.ai import build_user_context, confirm_action, run_conversation
 from .services.ai import actions as ai_actions
 from .services.ai.prompts import detect_lang
@@ -446,6 +446,7 @@ def task_detail_view(request, pk):
             "task": task,
             "chat_readable": chat_readable,
             "chat_unread": chat_unread,
+            "show_client_phone": access.can_see_client_phone(user, task),
             "show_route": show_route,
             "show_recommendations": show_recommendations,
             "show_location_map": show_location_map,
@@ -735,9 +736,15 @@ def photo_reports_view(request):
             report.author = request.user
             if not report.region:
                 report.region = request.user.region
-            report.save()
-            messages.success(request, "Фотоотчет добавлен.")
-            return redirect("photo_reports")
+            clean, err = images.clean_original(form.cleaned_data["image"])
+            if err:
+                form.add_error("image", images.UPLOAD_ERROR_TEXT)
+            else:
+                report.image = clean
+                report.save()
+                images.queue_variants(report)
+                messages.success(request, "Фотоотчет добавлен.")
+                return redirect("photo_reports")
     else:
         form = PhotoReportForm(user=request.user)
     # Visible to every authenticated user and grows without bound — paginate.
@@ -1637,6 +1644,11 @@ def pet_list_view(request):
 def pet_report_create_view(request):
     if request.method == "POST":
         form = PetReportForm(request.POST, request.FILES)
+        image = None
+        if form.is_valid() and form.cleaned_data.get("image"):
+            image, err = images.clean_original(form.cleaned_data["image"])
+            if err:
+                form.add_error("image", images.UPLOAD_ERROR_TEXT)
         if form.is_valid():
             cd = form.cleaned_data
             report = pets.create_pet_report(
@@ -1650,8 +1662,9 @@ def pet_report_create_view(request):
                 latitude=cd.get("latitude"),
                 longitude=cd.get("longitude"),
                 contact_phone=cd.get("contact_phone", ""),
-                image=cd.get("image"),
+                image=image,
             )
+            images.queue_variants(report)
             messages.success(request, "Объявление опубликовано. Координаторы уведомлены.")
             return redirect("pet_report_detail", pk=report.pk)
     else:
@@ -1702,8 +1715,15 @@ def pet_report_edit_view(request, pk):
 
     if request.method == "POST":
         form = PetReportForm(request.POST, request.FILES, instance=report)
+        if form.is_valid() and "image" in form.changed_data and form.cleaned_data.get("image"):
+            clean, err = images.clean_original(form.cleaned_data["image"])
+            if err:
+                form.add_error("image", images.UPLOAD_ERROR_TEXT)
+            else:
+                form.instance.image = clean
         if form.is_valid():
-            form.save()
+            report = form.save()
+            images.queue_variants(report)
             messages.success(request, "Объявление обновлено.")
             return redirect("pet_report_detail", pk=pk)
     else:

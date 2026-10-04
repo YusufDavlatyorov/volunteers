@@ -77,6 +77,20 @@ def make_chat_image_variants(message_id):
         return None
 
 
+@shared_task(name="images.make_variants", ignore_result=True)
+def make_image_variants(label, pk):
+    """WebP thumb + medium for an avatar / photo report / pet photo
+    (services/images.apply_variants). A broken source is logged (id only); the
+    original stays in use — templates fall back to it."""
+    from .services import images
+
+    try:
+        return images.apply_variants(label, pk)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("image variants failed model=%s id=%s error=%s", label, pk, type(exc).__name__)
+        return None
+
+
 @shared_task(name="community.revoke", ignore_result=True)
 def community_revoke_task(user_id, reason="not_eligible"):
     """Remove a no-longer-eligible user from the volunteer community chats

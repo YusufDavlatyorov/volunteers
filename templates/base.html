@@ -1,4 +1,4 @@
-{% load static assets realtime_ui %}
+{% load static assets realtime_ui responsive %}
 <!doctype html>
 <html lang="ru" data-theme="light">
 <head>
@@ -138,7 +138,7 @@
                 </div>
             </div>
             <a class="nav-avatar" href="{% url 'profile' %}" data-i18n-tooltip="nav.profile" data-tooltip="Profile" aria-label="Profile">
-                {% if user.profile.image %}<img src="{{ user.profile.image.url }}" alt="">{% else %}{{ user.username|first|upper }}{% endif %}
+                {% if user.profile.image %}{% responsive_image user.profile.image user.profile.image_variants variant="thumb" alt="" %}{% else %}{{ user.username|first|upper }}{% endif %}
             </a>
         {% endif %}
     </div>

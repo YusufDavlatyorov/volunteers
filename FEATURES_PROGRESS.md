@@ -10,8 +10,8 @@ Design: `FEATURES_PLAN.md`. Brief: `FEATURES_SPEC.md`.
 | 2 | Tracking (7) + routes/navigation (2) + self-hosted OSRM + DND manual assign | ✅ done 2026-10-02 (`a3b65b7`) |
 | 3 | Chat (8) + feedback (9) + profile location button | ✅ done 2026-10-02 (`a1e8244`); owner follow-ups done in milestone 4 |
 | 4 | Achievements (6) + CRM charts (10) + milestone-3 follow-ups | ✅ done 2026-10-02/03 (`56f2d6d`, `0186dae`, `95cf18b`) |
-| 5 | Telegram main bot (4) + community bot (5) | ✅ done 2026-10-03 — waiting for owner OK |
-| 6 | Speed (1) + full QA + docs | ⏸ |
+| 5 | Telegram main bot (4) + community bot (5) | ✅ done 2026-10-03 (`bb810a7`); follow-ups in milestone 6 |
+| 6 | Speed (1) + full QA + docs | ✅ done 2026-10-03 — waiting for owner OK |
 | 7 | Deploy (after "deploy") | ⏸ |
 
 Baseline: 657 tests green at `2467bc5` (main).
@@ -114,7 +114,60 @@ Baseline: 657 tests green at `2467bc5` (main).
   PG16 rehearsal incl. accounts 0011 + myapp 0023: forward → rollback (12 migrations) → old code
   OK → forward. Result: 1281 tests OK.
 
-## Deploy checklist (milestones 1–4 together; only after the owner writes "deploy")
+- 2026-10-03 — milestone 5 follow-ups (owner): client phone hidden on the site from a volunteer
+  until they accept (`access.can_see_client_phone`, same rule as the bot); runbook §10a — new main-bot
+  token via @BotFather `/revoke` after the deploy (old logs may hold the old one); local `.env` cleared
+  of SMTP + both bot tokens (backup `~/khayrkhoh-backups/env-backup-2026-10-03`, never printed),
+  `server/dev_safety.py` banner if a DEBUG run sees delivery keys, `export` step removed from
+  docs/LOCAL_RUN.md; `docs/TEST_BOT.md` (separate test bot, scenario per role). Suite run in the
+  production image: base pinned to `python:3.14.8-slim-trixie` (the server builds the image itself — a
+  floating tag would give it whatever Python was newest that day), built `linux/amd64`.
+  Found: Python 3.14 on Linux defaults to `forkserver`, Django 5.2 can't clone SQLite test DBs for it
+  (`--parallel` errors) and on PG the forkserver workers hung under qemu — run serial or force `fork`.
+  Found & fixed: a log filter (`server/log_filters.py`) now cuts bot tokens out of every log line and
+  traceback; `httpx` pinned to WARNING (PTB logs request URLs with the token at INFO).
+- 2026-10-03 — milestone 6. Speed: WebP thumb 320 / medium 960 for avatars, photo reports, pet
+  photos (accounts 0012 + myapp 0024 `image_variants`), Celery `images.make_variants`,
+  `{% responsive_image %}` (`<picture>` + WebP srcset, original as fallback — old iOS),
+  `backfill_image_variants [--strip-metadata]`. Measured (QA data, 12 MP phone-like photos):
+  landing 9.1 MB → 0.14 MB of images, rating 12.3 MB → 0.06 MB (44 px avatars were full originals),
+  photo reports 13.8 MB → 0.2 MB, profile 1.5 MB → 8 KB; image geometry identical with/without
+  variants (54 images, 12 pages). nginx (verified on nginx:1.27): `open_file_cache`, media 30 d +
+  `nosniff`; static already 1 y immutable, brotli/gzip, HTTP/2. CDN-ready: `server/client_ip.py`
+  (X-Real-IP from our nginx, CF-Connecting-IP only from Cloudflare ranges, `DJANGO_BEHIND_CLOUDFLARE`),
+  `docs/CLOUDFLARE.md` (owner steps, NS at navjucloud, Full (strict), rollback).
+  Found & fixed: (1) **production bug** — rate limits used `REMOTE_ADDR`, which behind nginx+Docker
+  is the bridge gateway for everyone: 20 failed logins (5 password resets) from anyone locked
+  everyone out for 15 min; (2) **privacy** — avatars / photo reports / pet photos kept EXIF GPS and
+  the user's file name (photo reports are public on the landing page): now re-encoded without
+  metadata, random names, also via the Django admin; `--strip-metadata` for old files; (3) four
+  concurrent 12 MP uploads peaked at ~690 MB in the 300 MB celery_worker (OOM loop with acks_late):
+  JPEG draft + one decode at a time → 119 MB; (4) `<source>` inside `display: contents` `<picture>`
+  became a flex item and shifted avatars by the gap; (5) WCAG contrast: 135 axe-core serious
+  findings → 0 (`--on-primary` token: dark ink on the dark theme's light fills; `--muted` #5b6473);
+  chat log list semantics, heat-map role; (6) `update_profile` accepted non-image files as avatars.
+  QA: browser matrix 288/288 (anon, client, volunteer, curator, admin × 390/1280 × light/dark + TJ/EN
+  at 390; on uvicorn/ASGI; no h-scroll, no JS errors, no broken images); Lighthouse (local, mobile):
+  accessibility 100, best practices 100, SEO 100, performance 72 (dev server without compression);
+  WS reconnect in a browser: server killed → connecting → poll, restarted → back on WS in 9 s,
+  re-subscribed, events from another process through Redis arrive. PG16 rehearsal: 14 migrations
+  forward → back (1 s) → old code OK → forward.
+  Load sanity (2026-10-04, production settings DEBUG=False, gunicorn 3 workers + uvicorn ws +
+  postgres:16 + redis, **all pinned to one CPU core**, compose memory limits, native arm64 image;
+  virtual users with 0.2–0.8 s think time, half signed in): 10 users → 19.5 rps, p50 11 / p95 40 /
+  p99 67 ms; + 150 WebSockets → same latency, all 150 open; 25 users + 300 WS → 47 rps, p95 36 /
+  p99 86 ms; saturation 80 users + 300 WS → 142 rps, p95 53 / p99 340 ms, max 4.4 s, the core ≈ 70 %
+  busy; 0 errors, every response 200 in all phases. RSS: web 234 → 245 MiB (limit 700), ws 89 →
+  137 MiB with 300 sockets (limit 256), redis 18 → 22 MiB, postgres 76 MiB. Caveat: an Apple M-series
+  core is faster than the server's vCPU — expect lower throughput there, same headroom shape.
+  Suite in the production image (Python 3.14.8, linux/amd64 under qemu, 8 workers, `fork`): first
+  run found a **test-only race** — six modules made one temp MEDIA_ROOT at import and deleted it in
+  `tearDownModule`; forked workers share that path, so one worker deleted it under another
+  (never on macOS, where `spawn` re-imports per worker). Fixed with `myapp/testing.py::TempMediaRoot`
+  (only the creating process removes it). Note: without `tblib` one failure in a Linux parallel run
+  aborts the whole run ("cannot pickle 'traceback'") — run serially to see a traceback.
+
+## Deploy checklist (milestones 1–6 together; only after the owner writes "deploy")
 
 Full runbook with commands, expected output and the rollback plan:
 **`docs/DEPLOY_FEATURE_PACK_V2.md`** (rollback rehearsed on postgres:16, 2026-10-03). Order:
@@ -123,29 +176,40 @@ Full runbook with commands, expected output and the rollback plan:
    `git push origin main` (the server pulls from the **public** GitHub repo; `git bundle` + scp is
    the no-publish alternative). **OSRM is not part of this deploy** (owner, 2026-10-03).
 1. Server pre-flight (read-only): clean tree at `2467bc5`, `docker compose ps`, `nginx -t`,
-   `/health/ready/`, no `$` in `.env`; `free -h`, `df -h`, `docker system df`, DB size, `du -sh media`
+   `/health/ready/`, no `$` in `.env`; `DJANGO_BEHIND_TLS_PROXY=True` in `.env` and
+   `proxy_set_header X-Real-IP $remote_addr` in nginx `location /` (milestone 6: rate limits read
+   the visitor IP from it); `free -h`, `df -h`, `docker system df`, DB size, `du -sh media`
    (need ≥ 2 GB free: ≈ 0.6 GB image/cache + dump + media; RAM "available" noted for the later OSRM deploy).
 2. Backups: `pg_dump -Fc`, `media.tgz`, `docker tag khayrkhoh:latest khayrkhoh:rollback-2467bc5`,
    `staticfiles.json`, nginx site file, `crontab -l`, `SHA256SUMS`; then on the Mac `rsync` the backup
    to `~/khayrkhoh-backups/` and run `scripts/verify_backup.sh` (checksums + test restore into postgres:16)
    — no verified copy, no deploy.
 3. `git pull --ff-only` → `docker compose build` (`.env` unchanged).
-4. `migrate` (accounts 0008–0011, myapp 0016–0023 — 12 migrations) — then steps 5–7 without a pause
+4. `migrate` (accounts 0008–0012, myapp 0016–0024 — 14 migrations) — then steps 5–7 without a pause
    (old code can't run on the new schema).
 5. `collectstatic`.
 6. nginx: `map $http_upgrade $connection_upgrade` + `/ws/` + `/media/chat/` 404 +
-   `internal /protected-media/` (DEPLOY.md §10a) → `nginx -t` → reload — **before** `up -d`
-   (`web` now serves chat photos via X-Accel).
+   `internal /protected-media/` (DEPLOY.md §10a); milestone 6: `open_file_cache` (4 lines) +
+   new `location /media/` (30 d, `nosniff`, `sendfile`) from DEPLOY.md §10 → `nginx -t` → reload —
+   **before** `up -d` (`web` now serves chat photos via X-Accel).
 7. `docker compose up -d` (new `ws`; `telegram_bot` now runs the PTB bot — same command; no `osrm`
    and no `community` profile this time — the community bot is enabled separately, docs/COMMUNITY_BOT.md).
 8. Verify: health/ready, `check_realtime` in `web` and `ws`, `/ws/` handshake 101, logs, `docker stats`.
-9. `backfill_achievements --dry-run`, then without (silent); `purge_chats --dry-run`.
+9. `backfill_achievements --dry-run`, then without (silent); `purge_chats --dry-run`;
+   `backfill_image_variants --dry-run --strip-metadata`, then with `--strip-metadata` (owner
+   decision; media backup from step 2 exists), then once more → `variants 0, stripped 0`.
 10. crons (DEPLOY.md §13): `sweep_availability` */5, `purge_tracking` hourly, `prune_notifications`
     daily, `purge_chats` daily, `remind_stale_locations` daily 05:00 UTC, `community_sweep` hourly,
     `community_weekly` Mondays 05:00 UTC (both no-op until the community is configured).
+10a. **New main-bot token** (runbook §10a): before milestone 5 a Telegram send error logged the URL
+    with the token, so old server logs may hold it → @BotFather `/revoke` → new token into `.env`
+    (`nano`, never printed) → `up -d --force-recreate telegram_bot celery_worker web ws` (restart
+    doesn't re-read `.env`) → `/start` + a real notification arrives, celery queue 0.
 11. Browser + Telegram check by role (runbook §11); 12. 24 h monitoring.
-Later, separately: community bot (`.env` TELEGRAM_COMMUNITY_*, `--profile community`), OSRM.
+Later, separately: community bot (`.env` TELEGRAM_COMMUNITY_*, `--profile community`), OSRM,
+Cloudflare (owner switches NS at navjucloud — `docs/CLOUDFLARE.md`; then `DJANGO_BEHIND_CLOUDFLARE=True`
++ `up -d --force-recreate web ws`).
 
 Rollback: level 0 (switch one feature off), level 1 (migrate `myapp 0015` → `accounts 0007` with the
-NEW image, then old commit + `rollback-2467bc5` image + collectstatic + nginx/crontab backups),
+NEW image — rehearsed again on postgres:16.15 with milestone 6's 0012/0024, 14 migrations back in 1 s, then old commit + `rollback-2467bc5` image + collectstatic + nginx/crontab backups),
 level 2 (pg_restore of the pre-deploy dump — loses everything written after step 2).

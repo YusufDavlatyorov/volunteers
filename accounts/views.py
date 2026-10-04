@@ -18,7 +18,8 @@ from .models import Profile, REGION_CHOICES, Users, hash_token, validate_file_si
 from myapp.models import VolunteerApplication
 from myapp.notifications import queue_email
 from myapp.services.notify import notify
-from myapp.services import dashboard
+from myapp.services import dashboard, images
+from server.client_ip import client_ip
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,9 @@ PASSWORD_RESET_WINDOW_SECONDS = 15 * 60
 
 
 def _client_ip(request):
-    return request.META.get("REMOTE_ADDR", "unknown")
+    # Behind nginx/Docker REMOTE_ADDR is the bridge gateway for everyone —
+    # the shared helper reads the trusted proxy headers (server/client_ip.py).
+    return client_ip(request)
 
 
 def _too_many_attempts(cache_key, limit):
@@ -169,9 +172,18 @@ def edit_profile_view(request):
     profile, _ = Profile.objects.get_or_create(user=request.user)
     user_form = UserUpdateForm(request.POST or None, instance=request.user)
     profile_form = ProfileForm(request.POST or None, request.FILES or None, instance=profile)
+    if (request.method == "POST" and profile_form.is_valid() and "image" in profile_form.changed_data
+            and profile_form.cleaned_data.get("image")):
+        # A new avatar: stored without EXIF/GPS under a random name (images.clean_original).
+        clean, err = images.clean_original(profile_form.cleaned_data["image"])
+        if err:
+            profile_form.add_error("image", images.UPLOAD_ERROR_TEXT)
+        else:
+            profile_form.instance.image = clean
     if request.method == "POST" and user_form.is_valid() and profile_form.is_valid():
         user_form.save()
-        profile_form.save()
+        profile = profile_form.save()
+        images.queue_variants(profile)
         messages.success(request, "Профиль обновлен")
         return redirect("profile")
     return render(request, "accounts/edit_profile.html", {"user_form": user_form, "profile_form": profile_form})
@@ -276,11 +288,16 @@ def update_profile(request):
     # profile.save() below does not run field validators, so the upload-size
     # cap (a disk-exhaustion DoS guard) is enforced explicitly and up front,
     # before any partial write — exactly as ProfileForm does for edit-profile.
+    clean_image = None
     if "image" in request.FILES:
         try:
             validate_file_size(request.FILES["image"])
         except ValidationError as exc:
             return JsonResponse({"success": False, "error": exc.messages[0]}, status=400)
+        # A real image, stored without EXIF/GPS under a random name.
+        clean_image, err = images.clean_original(request.FILES["image"])
+        if err:
+            return JsonResponse({"success": False, "error": images.UPLOAD_ERROR_TEXT}, status=400)
 
     profile, _ = Profile.objects.get_or_create(user=request.user)
 
@@ -311,9 +328,10 @@ def update_profile(request):
         if 0 < age <= 120:
             profile.age = age
     profile.bio = request.POST.get("bio", profile.bio)
-    if "image" in request.FILES:
-        profile.image = request.FILES["image"]
+    if clean_image is not None:
+        profile.image = clean_image
     profile.save()
+    images.queue_variants(profile)  # WebP thumb/medium in the background
     return JsonResponse({"success": True})
 
 

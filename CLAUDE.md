@@ -26,16 +26,26 @@ python manage.py runserver           # dev server → http://127.0.0.1:8000/
 python manage.py migrate             # apply migrations
 python manage.py seed_demo           # demo data: admins/curators/volunteers/clients/tasks (also: coords, availability, priority, one overdue task, one stale pending request, a needed-items catalogue + in-kind donation offers, a lost/found pet board)
 python manage.py run_telegram_bot    # long-polling Telegram bot (separate process, not part of the request cycle)
+python manage.py backfill_image_variants [--dry-run --strip-metadata]   # WebP thumb/medium for avatars / photo reports / pet photos uploaded before milestone 6 (+ strip EXIF/GPS from old originals in place); idempotent, run once at deploy
 python manage.py geocode_missing [--limit N --dry-run --profiles]   # backfill lat/lng for HelpRequests (and --profiles) via Nominatim; sleeps 1.1s/row for the usage policy
 python manage.py check_overdue_tasks [--dry-run]        # alert curators/admins about tasks overdue past 3h; idempotent, runs on cron (see README "Background jobs")
 python manage.py check_stale_requests [--dry-run]       # mirror of the above for the *pending* side: alert about requests waiting >48h without a volunteer; idempotent, hourly cron
 python manage.py create_initial_production_accounts    # prod-only bootstrap: exactly 4 accounts (admin/curator/volunteer/client) from INITIAL_<ROLE>_* env vars; idempotent, never seeds business data — see README "Initial production accounts"
 curl -s localhost:8000/health/ ; curl -s localhost:8000/health/ready/   # liveness / readiness (server/health.py) — public, no secrets
 
-python manage.py test                                    # full suite (657 tests, ~160s)
+python manage.py test --parallel 4                       # full suite (see FEATURES_PROGRESS.md for the current count)
 python manage.py test myapp.tests.MatchingAlgorithmTests  # one test class
 python manage.py test myapp.tests.MatchingAlgorithmTests.test_closer_volunteer_ranks_higher  # one test
 python manage.py test accounts                           # one app
+# Same suite in the production image (Linux, linux/amd64 like the server; base image pinned in the
+# Dockerfile). On Linux, Python 3.14 starts workers with forkserver, which Django 5.2 can't clone a
+# SQLite test DB for — so either no --parallel, or --parallel against a postgres:16 container:
+docker build --platform linux/amd64 -t khayrkhoh:test . && docker run --rm --platform linux/amd64 \
+  -e DJANGO_SECRET_KEY=x -e DJANGO_DEBUG=True -e DJANGO_ALLOWED_HOSTS='*' khayrkhoh:test python manage.py test
+# (or force the pre-3.14 Linux default: python -c "import multiprocessing as m,sys,runpy; m.set_start_method('fork');
+#  sys.argv=['manage.py','test','--parallel','8']; runpy.run_path('manage.py', run_name='__main__')" — ~30 min under qemu)
+# Test modules that need a temp MEDIA_ROOT use myapp/testing.py::TempMediaRoot, never mkdtemp + rmtree in
+# tearDownModule: forked workers share that path and one would delete it under another.
 ```
 
 No linter/formatter is configured in this repo.
@@ -144,10 +154,36 @@ A hardening pass added a cross-cutting layer that is easy to regress — keep it
   compose service; sessions are `cached_db` then) — set in `docker-compose.yml`, overriding
   `DJANGO_DB_CACHE`, which stays only as a dependency-free fallback. Without either, `CACHES` is
   the process-local `LocMemCache` (dev/tests), where the web throttles only bite within one worker.
+  **The IP comes from `server/client_ip.py::client_ip()` — never `REMOTE_ADDR` directly**: inside
+  Docker behind nginx `REMOTE_ADDR` is the bridge gateway for everyone (milestone 6 fix — all
+  visitors shared one login/password-reset bucket). It trusts nginx's `X-Real-IP` only with
+  `DJANGO_BEHIND_TLS_PROXY=True` and a loopback/private peer, and `CF-Connecting-IP` only with
+  `DJANGO_BEHIND_CLOUDFLARE=True` and an address in `CLOUDFLARE_IP_RANGES` (`docs/CLOUDFLARE.md`).
+- **Secrets never reach logs.** `server/log_filters.py::RedactSecretsFilter` (on the `console`
+  handler) cuts Telegram bot tokens (`<id>:<secret>` — they live in the API URL) out of every log
+  line and traceback; `httpx` (python-telegram-bot's client, logs URLs at INFO) is pinned to
+  WARNING. Never log a `requests`/`httpx` exception object itself (its text has the URL).
+- **Local `.env` holds no delivery keys.** `server/dev_safety.py` prints a banner on every
+  DEBUG run whose env has `SMTP_USER/PASSWORD` or a Telegram bot token (names only, never
+  values); bot testing uses a separate test bot (`docs/TEST_BOT.md`).
 - **Upload size cap.** `accounts.models.validate_file_size` (`MAX_UPLOAD_SIZE_MB` = 5) guards
   every `ImageField` (avatars, photo reports). `update_profile` calls it explicitly because
   `Model.save()` skips field validators. `update_profile` also validates `region` against
   `REGION_CHOICES` and coerces `age` (it has no ModelForm).
+- **Uploaded photos carry no metadata (milestone 6).** Every avatar / photo-report / pet upload
+  goes through `services/images.py::clean_original()` before it is stored — decoded (a non-image is
+  rejected), re-encoded without EXIF/GPS/XMP, saved as `<uuid>.<ext>` (the user's file name can be
+  their real name; media URLs are public). Photo reports appear on the anonymous landing page, so a
+  phone original would publish where it was taken. Views: `update_profile`, `edit_profile_view`,
+  `photo_reports_view`, `pet_report_create/edit_view`; Django admin via
+  `images.CleanImageAdminMixin`. Chat photos had this since milestone 3 (`chat.send_message`).
+  After saving, `images.queue_variants(obj)` builds WebP `thumb` 320 / `medium` 960 in Celery
+  (`image_variants` JSON on `Profile`, `PhotoReport`, `PetReport`); templates render them with
+  `{% responsive_image %}` (`myapp/templatetags/responsive.py`: `<picture>` + WebP `srcset`, the
+  original stays the `<img>` fallback, so no variants yet = the old markup).
+- **A volunteer sees the client's phone only after accepting** — `access.can_see_client_phone`
+  (staff always, the client, the assigned volunteer); `task_detail.html` shows "appears after you
+  accept" otherwise. The bot's `_task_card(show_contacts=…)` follows the same rule.
 - **Coordinate validation.** `myapp.services.geo.is_valid_coordinate` enforces real WGS84
   ranges in `HelpRequestForm` / `ProfileForm`, in `PetReport.clean()` (closes the Django-admin
   edit path), and in `pets.possible_matches()` before any `haversine_km` (never trust a stored
@@ -582,6 +618,11 @@ Stage 9 polish conventions (in `style.css`):
 - **`.clamp-text`** (line-clamp, `--clamp` default 3) + `.card__more` (a "View full →" link,
   i18n key `common.view_full`) replace `|truncatechars` so a long description can't stretch a
   card.
+- **Contrast tokens (milestone 6, axe-core WCAG AA clean):** text on a filled `--primary` /
+  `--primary-2` / `--danger` surface (buttons, active tabs/pills, lang switch) uses
+  `color: var(--on-primary)` — white in light, dark ink `#0b1220` in dark (the dark fills are
+  light; white on them was 2.5:1). Never hard-code `white`/`#fff` there. `--muted` is `#5b6473`
+  in light (≥ 4.8:1 on every tinted plate).
 - **Theme toggle** (`.theme-toggle` in `base.html`): two inline SVG icons (no emoji — their
   glyph boxes sit off-centre per OS font), chosen by `[data-theme]` in CSS; `min-height: 0` +
   `padding: 0` + `aspect-ratio: 1` keep it a true 2.3rem circle (the global `button` rule's

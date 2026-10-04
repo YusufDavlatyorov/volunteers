@@ -8,8 +8,6 @@
 """
 
 import io
-import shutil
-import tempfile
 from datetime import timedelta
 
 from django.core.cache import cache
@@ -22,16 +20,18 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import Profile, Users
+from myapp.testing import TempMediaRoot
 from myapp.models import ChatMessage, ChatReadState, ChatReport, HelpRequest, TaskReview
 from myapp.services import analytics_v2, chat, chat_retention
 
 LOCMEM = "django.core.mail.backends.locmem.EmailBackend"
 PASSWORD = "M4-Followups-2026!"
-_MEDIA = tempfile.mkdtemp(prefix="gc-m4f-tests-")
+_MEDIA_ROOT = TempMediaRoot("gc-m4f-tests-")  # fork-safe (myapp/testing.py)
+_MEDIA = _MEDIA_ROOT.path
 
 
 def tearDownModule():
-    shutil.rmtree(_MEDIA, ignore_errors=True)
+    _MEDIA_ROOT.cleanup()
 
 
 def _make(username, **flags):

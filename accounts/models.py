@@ -226,6 +226,9 @@ class Profile(models.Model):
     full_name = models.CharField(max_length=255, blank=True, validators=[MaxLengthValidator(Users.FULL_NAME_MAX_LENGTH)])
     age = models.PositiveIntegerField(null=True, blank=True)
     image = models.ImageField(upload_to="avatars/", blank=True, validators=[validate_file_size])
+    # WebP thumb/medium next to the original (myapp/services/images.py,
+    # built by Celery after upload; {"thumb": path, "medium": path}).
+    image_variants = models.JSONField(default=dict, blank=True)
     bio = models.TextField(blank=True)
     rating = models.PositiveIntegerField(default=0)
 

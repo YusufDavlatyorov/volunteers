@@ -64,10 +64,10 @@ text only — never auto-linked. Data hooks: see the header of chat.js.
             </p>
         {% endif %}
 
-        <div class="chat__scroll" data-chat-scroll tabindex="0" aria-labelledby="chatLogLabel">
+        <div class="chat__scroll" data-chat-scroll tabindex="0" role="log" aria-live="polite" aria-labelledby="chatLogLabel">
             <span id="chatLogLabel" class="visually-hidden" data-i18n="chat.title">Chat</span>
             {% if page.has_more %}<button type="button" class="chat__older button ghost" data-chat-older data-i18n="chat.load_older">Show earlier messages</button>{% endif %}
-            <ol class="chat-log" data-chat-log role="log" aria-live="polite">
+            <ol class="chat-log" data-chat-log>
                 {% for row in rows %}{% with m=row.p %}
                 <li class="chat-msg{% if m.kind == 'system' %} is-system{% elif m.mine %} is-mine{% else %} is-theirs{% endif %}{% if m.is_staff_post %} is-staff{% endif %}{% if m.hidden %} is-hidden{% endif %}" data-msg-id="{{ m.id }}">
                     {% if m.kind == 'system' %}
