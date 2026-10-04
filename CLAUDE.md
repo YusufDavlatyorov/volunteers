@@ -24,7 +24,7 @@ which now exist. Verify anything from it against the actual code before relying 
 source .venv/bin/activate            # venv already present in repo (Python 3.14)
 python manage.py runserver           # dev server → http://127.0.0.1:8000/
 python manage.py migrate             # apply migrations
-python manage.py seed_demo           # demo data: admins/curators/volunteers/clients/tasks (also: coords, availability, priority, one overdue task, one stale pending request, a needed-items catalogue + in-kind donation offers, a lost/found pet board)
+python manage.py seed_demo           # refuses with DEBUG=False (prod); demo data: admins/curators/volunteers/clients/tasks (also: coords, availability, priority, one overdue task, one stale pending request, a needed-items catalogue + in-kind donation offers, a lost/found pet board)
 python manage.py run_telegram_bot    # long-polling Telegram bot (separate process, not part of the request cycle)
 python manage.py backfill_image_variants [--dry-run --strip-metadata]   # WebP thumb/medium for avatars / photo reports / pet photos uploaded before milestone 6 (+ strip EXIF/GPS from old originals in place); idempotent, run once at deploy
 python manage.py geocode_missing [--limit N --dry-run --profiles]   # backfill lat/lng for HelpRequests (and --profiles) via Nominatim; sleeps 1.1s/row for the usage policy
@@ -32,6 +32,8 @@ python manage.py check_overdue_tasks [--dry-run]        # alert curators/admins 
 python manage.py check_stale_requests [--dry-run]       # mirror of the above for the *pending* side: alert about requests waiting >48h without a volunteer; idempotent, hourly cron
 python manage.py create_initial_production_accounts    # prod-only bootstrap: exactly 4 accounts (admin/curator/volunteer/client) from INITIAL_<ROLE>_* env vars; idempotent, never seeds business data, refuses the demo password — see README "Initial production accounts"
 python manage.py check_demo_password                   # read-only audit: accounts accepting seed_demo's public password + demo usernames present; exit 1 if any (deploy runbook §1/§9)
+python manage.py check_demo_data                       # read-only: everything seed_demo writes (accounts, rows, byte-identical demo photos in media/); ids/counts only; exit 1 if any — found = tell the owner, delete nothing (runbook §3a/§9/§12)
+python manage.py rename_legacy_uploads [--dry-run --delete-unreferenced]   # pre-milestone-6 avatars/reports/pet photos under personal file names → <uuid>.<ext>, rows updated, old files removed; once at deploy, after migrate, before backfill_image_variants
 curl -s localhost:8000/health/ ; curl -s localhost:8000/health/ready/   # liveness / readiness (server/health.py) — public, no secrets
 
 python manage.py test --parallel 4                       # full suite (see FEATURES_PROGRESS.md for the current count)
@@ -397,7 +399,10 @@ fallback.
 ### Health checks & operational logging
 
 - **`server/health.py`** — `GET /health/` (liveness, zero I/O, always 200) and
-  `GET /health/ready/` (readiness: DB `SELECT 1` + config + shared-cache round-trip → 200/503).
+  `GET /health/ready/` (readiness: DB `SELECT 1` + **migrations** (all applied, none applied that the
+  code lacks — `MigrationExecutor`) + **schema** (one `UNION ALL` of `SELECT cols FROM t WHERE 1 = 0`
+  probes over every model table — SQLite probes use `[brackets]`: it reads an unknown `"quoted"`
+  name as a string literal) + config + shared-cache round-trip → 200/503).
   Public, no secrets, no tracebacks, `Cache-Control: no-store`. External services are **not**
   readiness dependencies (the app degrades without them). A failing readiness poll logs one
   `WARNING` line and sets `response._has_been_logged` so Django's request logger doesn't repeat it.

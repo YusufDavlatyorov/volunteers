@@ -4,7 +4,7 @@ from pathlib import Path
 
 from django.contrib.auth import get_user_model
 from django.conf import settings
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from accounts.models import Profile
@@ -102,26 +102,111 @@ REPORT_PHOTOS = [
 ]
 
 
+# Demo texts — module level so check_demo_data recognises exactly what this command writes.
+DEMO_EVENTS = [
+    ("Субботник у городского парка", "Команда убирает аллею, красит лавочки и помогает пожилым жителям района.", "dushanbe"),
+    ("Посадка деревьев", "Волонтеры высаживают молодые деревья рядом с домом ветеранов.", "sogd"),
+    ("Теплый визит", "Кураторы собирают волонтеров для общения, доставки продуктов и проверки бытовых нужд.", "khatlon"),
+    ("День цифровой помощи", "Обучаем пожилых людей пользоваться телефоном, мессенджерами и онлайн-услугами.", "rrp"),
+    ("Региональная акция заботы", "Общая акция для всех регионов с фотоотчетами и рейтингом участников.", "all"),
+]
+
+DEMO_REQUESTS = [
+    ("grocery", "Купить продукты на неделю и занести домой.", "ул. Рудаки 12", "dushanbe", "completed"),
+    ("medical", "Сопроводить в поликлинику утром.", "пр. Исмоили Сомони 44", "sogd", "active"),
+    ("household", "Помочь переставить мебель и проверить лампочки.", "ул. Бохтар 7", "khatlon", "pending"),
+    ("documents", "Помочь заполнить документы и отправить заявление.", "ул. Ленина 19", "gbao", "completed"),
+    ("emotional", "Прийти поговорить и помочь настроить телефон.", "мкр. 82, дом 5", "rrp", "pending"),
+    ("transport", "Отвезти на рынок и помочь донести сумки.", "ул. Айни 3", "dushanbe", "active"),
+    ("grocery", "Купить лекарства по списку и хлеб.", "ул. Сино 15", "sogd", "pending"),
+    ("other", "Помочь подготовиться к семейному мероприятию.", "ул. Вахдат 21", "khatlon", "completed"),
+]
+
+DEMO_REPORTS = [
+    ("После субботника", "Команда привела в порядок аллею и собрала 18 мешков мусора.", "dushanbe"),
+    ("Доставка продуктов", "Волонтер доставил продукты и помог разобрать покупки дома.", "sogd"),
+    ("Новые деревья", "Участники посадили деревья возле дома ветеранов.", "khatlon"),
+    ("Цифровая помощь", "Пожилые жители научились отправлять сообщения и звонить по видео.", "rrp"),
+    ("Помощь с документами", "Волонтер помог клиенту подготовить заявление и копии документов.", "gbao"),
+    ("Теплый визит", "Команда провела вечер общения и проверила бытовые нужды.", "dushanbe"),
+    ("Маршрут заботы", "Волонтеры закрыли несколько адресов за один день.", "sogd"),
+    ("Акция региона", "Куратор собрал отчет по помощи пожилым людям.", "khatlon"),
+]
+
+DEMO_CATALOGUE = [
+    ("Продуктовый набор на неделю", "Крупы, масло, консервы и хлеб для одного клиента.", "food", "наборов"),
+    ("Набор средств гигиены", "Мыло, зубная паста, шампунь, средства ухода.", "hygiene", "наборов"),
+    ("Тёплый плед", "Для пожилых клиентов в холодный сезон.", "blankets", "шт"),
+    ("Зимняя куртка", "Тёплая верхняя одежда, разные размеры.", "clothing", "шт"),
+    ("Школьный набор", "Тетради, ручки, рюкзак для детей из семей клиентов.", "school", "наборов"),
+]
+
+DEMO_BROADCASTS = [
+    ("Большой субботник в эту субботу", "Берем перчатки, воду и хорошее настроение. Сбор в 09:00 у парка.", "dushanbe", 12),
+    ("Акция помощи пожилым людям", "На этой неделе проверяем заявки, помогаем с продуктами и делаем фотоотчеты.", "all", 25),
+]
+
+DEMO_EMERGENCY_REASONS = (
+    "Клиент не открывает дверь, соседи говорят о шуме внутри.",
+    "Плохое самочувствие клиента.",
+)
+
+DEMO_DONATION_ORGS = ("Пекарня «Нон»", "Магазин «Баракат»")
+
+# reporter (role, index), type, name, species, breed, region, description, status
+DEMO_PETS = [
+    (("client", 0), "lost", "Барсик", "cat", "дворовая", "dushanbe",
+     "Серый кот, белые лапы, убежал во дворе на Рудаки. Отзывается на кличку.", "open"),
+    (("volunteer", 0), "found", "", "cat", "", "dushanbe",
+     "Серый кот с белыми лапами возле парка. Ухоженный, ласковый, ждёт хозяина.", "open"),
+    (("client", 1), "lost", "Рекс", "dog", "овчарка", "sogd",
+     "Молодая овчарка, тёмный окрас, синий ошейник. Потерялся у рынка в Худжанде.", "matched"),
+    (("volunteer", 2), "found", "", "dog", "", "khatlon",
+     "Небольшая рыжая собака без ошейника, дружелюбная. Найдена в Бохтаре.", "open"),
+    (("client", 2), "lost", "Кеша", "bird", "попугай", "rrp",
+     "Волнистый попугай, зелёный. Улетел с балкона. Воссоединён с хозяином.", "resolved"),
+]
+
+DEMO_EMAIL_DOMAIN = "gc.local"
+DEMO_HISTORY_PREFIX = "[история] Демо-запрос #"
+DEMO_CHAT_MSG_ID_PREFIX = "seed-"
+DEMO_REPORT_IMAGE_PREFIX = "reports/report_"
+
+
 class Command(BaseCommand):
-    help = "Заполняет проект демонстрационными пользователями, акциями, запросами и фотоотчетами."
+    help = ("Заполняет проект демонстрационными пользователями, акциями, запросами и фотоотчетами. "
+            "Только для локальной разработки — НИКОГДА в продакшене.")
+
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--allow-without-debug", action="store_true",
+            help="Run although DEBUG is False — only for a local rehearsal stand. NEVER on production.",
+        )
 
     def handle(self, *args, **options):
+        # Production runs with DEBUG=False (settings default; docker-compose.yml).
+        # Demo accounts share a public password, so this must never get there.
+        if not settings.DEBUG and not options["allow_without_debug"]:
+            raise CommandError(
+                "seed_demo refuses to run with DEBUG=False: demo data must never reach production. "
+                "Local rehearsal stand only: --allow-without-debug."
+            )
         settings.EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
         self.media_root = Path(settings.MEDIA_ROOT)
         self.static_images_root = Path(settings.BASE_DIR) / "static" / "images"
         (self.media_root / "reports").mkdir(parents=True, exist_ok=True)
 
-        admin = self._upsert_user("admin_demo", "Админ KhayrKhoh", "admin@gc.local", "dushanbe", is_superuser=True)
+        admin = self._upsert_user("admin_demo", "Админ KhayrKhoh", f"admin@{DEMO_EMAIL_DOMAIN}", "dushanbe", is_superuser=True)
         curators = [
-            self._upsert_user(username, full_name, f"{username}@gc.local", region, is_curator=True)
+            self._upsert_user(username, full_name, f"{username}@{DEMO_EMAIL_DOMAIN}", region, is_curator=True)
             for username, full_name, region in CURATORS
         ]
         volunteers = [
-            self._upsert_user(username, full_name, f"{username}@gc.local", region, is_volunteer=True, bio=bio, age=age)
+            self._upsert_user(username, full_name, f"{username}@{DEMO_EMAIL_DOMAIN}", region, is_volunteer=True, bio=bio, age=age)
             for username, full_name, region, bio, age in VOLUNTEERS
         ]
         clients = [
-            self._upsert_user(username, full_name, f"{username}@gc.local", region, is_client=True, age=age)
+            self._upsert_user(username, full_name, f"{username}@{DEMO_EMAIL_DOMAIN}", region, is_client=True, age=age)
             for username, full_name, region, age in CLIENTS
         ]
 
@@ -195,15 +280,8 @@ class Command(BaseCommand):
         return 18 + (sum(ord(char) for char in username) % 72)
 
     def _create_events(self, curators):
-        data = [
-            ("Субботник у городского парка", "Команда убирает аллею, красит лавочки и помогает пожилым жителям района.", "dushanbe"),
-            ("Посадка деревьев", "Волонтеры высаживают молодые деревья рядом с домом ветеранов.", "sogd"),
-            ("Теплый визит", "Кураторы собирают волонтеров для общения, доставки продуктов и проверки бытовых нужд.", "khatlon"),
-            ("День цифровой помощи", "Обучаем пожилых людей пользоваться телефоном, мессенджерами и онлайн-услугами.", "rrp"),
-            ("Региональная акция заботы", "Общая акция для всех регионов с фотоотчетами и рейтингом участников.", "all"),
-        ]
         events = []
-        for idx, (title, description, region) in enumerate(data):
+        for idx, (title, description, region) in enumerate(DEMO_EVENTS):
             event, _ = Event.objects.update_or_create(
                 title=title,
                 defaults={
@@ -218,20 +296,10 @@ class Command(BaseCommand):
         return events
 
     def _create_requests(self, clients, volunteers):
-        request_data = [
-            ("grocery", "Купить продукты на неделю и занести домой.", "ул. Рудаки 12", "dushanbe", "completed"),
-            ("medical", "Сопроводить в поликлинику утром.", "пр. Исмоили Сомони 44", "sogd", "active"),
-            ("household", "Помочь переставить мебель и проверить лампочки.", "ул. Бохтар 7", "khatlon", "pending"),
-            ("documents", "Помочь заполнить документы и отправить заявление.", "ул. Ленина 19", "gbao", "completed"),
-            ("emotional", "Прийти поговорить и помочь настроить телефон.", "мкр. 82, дом 5", "rrp", "pending"),
-            ("transport", "Отвезти на рынок и помочь донести сумки.", "ул. Айни 3", "dushanbe", "active"),
-            ("grocery", "Купить лекарства по списку и хлеб.", "ул. Сино 15", "sogd", "pending"),
-            ("other", "Помочь подготовиться к семейному мероприятию.", "ул. Вахдат 21", "khatlon", "completed"),
-        ]
         # idx 1 (active medical) -> emergency + overdue; idx 5,6 -> high.
         priority_by_idx = {1: "emergency", 5: "high", 6: "high"}
         result = []
-        for idx, (help_type, description, address, region, status) in enumerate(request_data):
+        for idx, (help_type, description, address, region, status) in enumerate(DEMO_REQUESTS):
             client = clients[idx % len(clients)]
             volunteer = volunteers[idx % len(volunteers)] if status in {"active", "completed"} else None
             priority = priority_by_idx.get(idx, "normal")
@@ -303,7 +371,7 @@ class Command(BaseCommand):
             region = regions[i % len(regions)]
             lat, lng = _coords_for(region, f"history-{i}")
             task, _ = HelpRequest.objects.update_or_create(
-                client=client, description=f"[история] Демо-запрос #{i + 1}",
+                client=client, description=f"{DEMO_HISTORY_PREFIX}{i + 1}",
                 defaults={"volunteer": volunteer, "help_type": help_types[i % len(help_types)],
                           "address": "демо", "phone": "+992 90 200 00 00", "region": region,
                           "status": "completed", "priority": "high" if i % 9 == 0 else "normal",
@@ -329,12 +397,12 @@ class Command(BaseCommand):
 
         lines = ["Я в пути", "Купил продукты на 85 сомони, чек отдам", "Позвоните мне",
                  "Напишите мне в WhatsApp", "Мой номер +992 90 123 45 67", "Спасибо!"]
-        recent = HelpRequest.objects.filter(description__startswith="[история]").order_by("-created_at")[:12]
+        recent = HelpRequest.objects.filter(description__startswith=DEMO_HISTORY_PREFIX).order_by("-created_at")[:12]
         for i, task in enumerate(recent):
             text = lines[i % len(lines)]
             sender = task.volunteer if i % 2 == 0 else task.client
             msg, created = ChatMessage.objects.get_or_create(
-                task=task, sender=sender, client_msg_id=f"seed-{task.pk}",
+                task=task, sender=sender, client_msg_id=f"{DEMO_CHAT_MSG_ID_PREFIX}{task.pk}",
                 defaults={"body": text, "flags": chat_flags.detect(text)},
             )
             if created:
@@ -358,7 +426,7 @@ class Command(BaseCommand):
             volunteer=open_task.volunteer,
             status=EmergencyReport.STATUS_OPEN,
             defaults={
-                "reason": "Клиент не открывает дверь, соседи говорят о шуме внутри.",
+                "reason": DEMO_EMERGENCY_REASONS[0],
                 "region": open_task.region,
                 "latitude": open_task.latitude,
                 "longitude": open_task.longitude,
@@ -372,7 +440,7 @@ class Command(BaseCommand):
                 volunteer=done_task.volunteer,
                 status=EmergencyReport.STATUS_RESOLVED,
                 defaults={
-                    "reason": "Плохое самочувствие клиента.",
+                    "reason": DEMO_EMERGENCY_REASONS[1],
                     "region": done_task.region,
                     "notified_at": timezone.now() - timedelta(hours=2),
                     "acknowledged_at": timezone.now() - timedelta(hours=2),
@@ -387,15 +455,8 @@ class Command(BaseCommand):
         """A small catalogue of needed items + a few in-kind offers across the
         lifecycle (including one from a local business and one already assigned
         to a volunteer), so the donor history and the staff ledger aren't empty."""
-        catalogue = [
-            ("Продуктовый набор на неделю", "Крупы, масло, консервы и хлеб для одного клиента.", "food", "наборов"),
-            ("Набор средств гигиены", "Мыло, зубная паста, шампунь, средства ухода.", "hygiene", "наборов"),
-            ("Тёплый плед", "Для пожилых клиентов в холодный сезон.", "blankets", "шт"),
-            ("Зимняя куртка", "Тёплая верхняя одежда, разные размеры.", "clothing", "шт"),
-            ("Школьный набор", "Тетради, ручки, рюкзак для детей из семей клиентов.", "school", "наборов"),
-        ]
         products = []
-        for name, description, category, unit in catalogue:
+        for name, description, category, unit in DEMO_CATALOGUE:
             product, _ = Product.objects.update_or_create(
                 name=name,
                 defaults={"description": description, "category": category, "unit": unit, "is_active": True},
@@ -410,10 +471,10 @@ class Command(BaseCommand):
         # donor, donor_type, org, product, item_name, category, qty, unit, region, target_status, assign
         plan = [
             (clients[0], "individual", "", products[0], "", "food", 3, "наборов", "dushanbe", Donation.APPROVED, False),
-            (clients[0], "business", "Пекарня «Нон»", None, "Свежий хлеб", "bakery", 50, "буханок", "dushanbe", Donation.DISTRIBUTED, False),
+            (clients[0], "business", DEMO_DONATION_ORGS[0], None, "Свежий хлеб", "bakery", 50, "буханок", "dushanbe", Donation.DISTRIBUTED, False),
             (clients[1 % len(clients)], "individual", "", products[2], "", "blankets", 10, "шт", "sogd", Donation.READY, True),
             (clients[2 % len(clients)], "individual", "", None, "Детская одежда до 5 лет", "clothing", 15, "шт", "khatlon", Donation.PENDING, False),
-            (clients[0], "business", "Магазин «Баракат»", products[1], "", "hygiene", 20, "наборов", "dushanbe", Donation.RECEIVED, True),
+            (clients[0], "business", DEMO_DONATION_ORGS[1], products[1], "", "hygiene", 20, "наборов", "dushanbe", Donation.RECEIVED, True),
         ]
         for donor, dtype, org, product, item_name, category, qty, unit, region, target, assign in plan:
             offer = Donation.objects.create(
@@ -440,20 +501,10 @@ class Command(BaseCommand):
         couple more across statuses."""
         if not clients or not volunteers or PetReport.objects.exists():
             return
-        # reporter, type, name, species, breed, region, description, status
-        plan = [
-            (clients[0], "lost", "Барсик", "cat", "дворовая", "dushanbe",
-             "Серый кот, белые лапы, убежал во дворе на Рудаки. Отзывается на кличку.", "open"),
-            (volunteers[0], "found", "", "cat", "", "dushanbe",
-             "Серый кот с белыми лапами возле парка. Ухоженный, ласковый, ждёт хозяина.", "open"),
-            (clients[1 % len(clients)], "lost", "Рекс", "dog", "овчарка", "sogd",
-             "Молодая овчарка, тёмный окрас, синий ошейник. Потерялся у рынка в Худжанде.", "matched"),
-            (volunteers[2 % len(volunteers)], "found", "", "dog", "", "khatlon",
-             "Небольшая рыжая собака без ошейника, дружелюбная. Найдена в Бохтаре.", "open"),
-            (clients[2 % len(clients)], "lost", "Кеша", "bird", "попугай", "rrp",
-             "Волнистый попугай, зелёный. Улетел с балкона. Воссоединён с хозяином.", "resolved"),
-        ]
-        for reporter, rtype, name, species, breed, region, description, status in plan:
+        people = {"client": clients, "volunteer": volunteers}
+        for (role, index), rtype, name, species, breed, region, description, status in DEMO_PETS:
+            group = people[role]
+            reporter = group[index % len(group)]
             lat, lng = _coords_for(region, f"pet-{name}-{description}")
             report = PetReport.objects.create(
                 reporter=reporter, report_type=rtype, pet_name=name, species=species,
@@ -467,39 +518,17 @@ class Command(BaseCommand):
                 report.resolve(reporter)
 
     def _create_broadcasts(self, admin, curators):
-        Broadcast.objects.update_or_create(
-            subject="Большой субботник в эту субботу",
-            defaults={
-                "sender": curators[0],
-                "message": "Берем перчатки, воду и хорошее настроение. Сбор в 09:00 у парка.",
-                "region": "dushanbe",
-                "sent_count": 12,
-            },
-        )
-        Broadcast.objects.update_or_create(
-            subject="Акция помощи пожилым людям",
-            defaults={
-                "sender": admin,
-                "message": "На этой неделе проверяем заявки, помогаем с продуктами и делаем фотоотчеты.",
-                "region": "all",
-                "sent_count": 25,
-            },
-        )
+        senders = [curators[0], admin]
+        for (subject, message, region, sent_count), sender in zip(DEMO_BROADCASTS, senders):
+            Broadcast.objects.update_or_create(
+                subject=subject,
+                defaults={"sender": sender, "message": message, "region": region, "sent_count": sent_count},
+            )
 
     def _create_reports(self, volunteers, events, requests):
-        data = [
-            ("После субботника", "Команда привела в порядок аллею и собрала 18 мешков мусора.", "dushanbe"),
-            ("Доставка продуктов", "Волонтер доставил продукты и помог разобрать покупки дома.", "sogd"),
-            ("Новые деревья", "Участники посадили деревья возле дома ветеранов.", "khatlon"),
-            ("Цифровая помощь", "Пожилые жители научились отправлять сообщения и звонить по видео.", "rrp"),
-            ("Помощь с документами", "Волонтер помог клиенту подготовить заявление и копии документов.", "gbao"),
-            ("Теплый визит", "Команда провела вечер общения и проверила бытовые нужды.", "dushanbe"),
-            ("Маршрут заботы", "Волонтеры закрыли несколько адресов за один день.", "sogd"),
-            ("Акция региона", "Куратор собрал отчет по помощи пожилым людям.", "khatlon"),
-        ]
-        for idx, (title, description, region) in enumerate(data):
+        for idx, (title, description, region) in enumerate(DEMO_REPORTS):
             source = self.static_images_root / REPORT_PHOTOS[idx % len(REPORT_PHOTOS)]
-            image_name = f"reports/report_{idx + 1}{source.suffix}"
+            image_name = f"{DEMO_REPORT_IMAGE_PREFIX}{idx + 1}{source.suffix}"
             shutil.copyfile(source, self.media_root / image_name)
             PhotoReport.objects.update_or_create(
                 title=title,

@@ -208,6 +208,23 @@ Baseline: 657 tests green at `2467bc5` (main).
   host mapping — ~7 anonymous requests went to the real khayrkhoh.tj (3 GETs → 404, 2 POSTs to
   `/update-profile/` → redirected to login, nothing stored). Script fixed to browser-only requests with
   an abort if any khayrkhoh.tj response is not from 127.0.0.1.
+- **Last pre-deploy items (2026-10-04).** (1) Test bot: the owner's test token (compared by
+  equality only — differs from every known production token) in the local `.env` only;
+  `TELEGRAM_BOT_USERNAME` pointed at the test bot; bot run locally for the owner's phone check
+  (docs/TEST_BOT.md). (2) `rename_legacy_uploads`: pre-milestone-6 photos stored under personal file
+  names at public URLs → `<uuid>.<ext>` + WebP variants moved along, conditional UPDATE per file,
+  old file deleted only after the rows point at the new one; rows whose file is gone get a random
+  name too; unreferenced non-random leftovers (old avatars after a change) only counted unless
+  `--delete-unreferenced`. Rehearsed on a copy of `2467bc5` data after migrate. (3) `/health/ready/`
+  now 503s on a schema mismatch: `migrations` (unapplied, or applied but unknown to the code) and
+  `schema` (every model table/column, one `WHERE 1 = 0` UNION ALL probe). Found while testing: SQLite
+  silently reads an unknown `"double-quoted"` column as a string literal → SQLite probes use
+  `[brackets]`. Verified: on the `2467bc5` schema the new code answers 503 (14 unapplied + 10 missing
+  tables); tests pass on SQLite and `postgres:16.15`. (4) Demo data: `check_demo_data` (read-only,
+  works on the old schema, markers imported from `seed_demo` whose texts moved to module constants —
+  output of old vs new `seed_demo` compared row by row: identical), runbook §1/§3a/§9/§12 + "found →
+  delete nothing, tell the owner"; `seed_demo` refuses with `DEBUG=False`. Rollback level 2 now also
+  restores `media.tgz` (the dump references the pre-rename names).
 
 ## Deploy checklist (milestones 1–6 together = milestone 7; only after the owner writes "deploy")
 
@@ -221,13 +238,16 @@ Full runbook with commands, expected output and the rollback plan:
    clean tree at `2467bc5`, `docker compose ps`, `nginx -t`,
    `/health/ready/`, no `$` in `.env`; `DJANGO_BEHIND_TLS_PROXY=True` in `.env` and
    `proxy_set_header X-Real-IP $remote_addr` in nginx `location /` (milestone 6: rate limits read
-   the visitor IP from it); demo password accepts no account (read-only `shell -c` one-liner); `free -h`, `df -h`, `docker system df`, DB size, `du -sh media`
+   the visitor IP from it); demo password accepts no account (read-only `shell -c` one-liner — if not, STOP and tell the owner, delete nothing); `free -h`, `df -h`, `docker system df`, DB size, `du -sh media`
    (need ≥ 2 GB free: ≈ 0.6 GB image/cache + dump + media; RAM "available" noted for the later OSRM deploy).
 2. Backups: `pg_dump -Fc`, `media.tgz`, `docker tag khayrkhoh:latest khayrkhoh:rollback-2467bc5`,
    `staticfiles.json`, nginx site file, `crontab -l`, `SHA256SUMS`; then on the Mac `rsync` the backup
    to `~/khayrkhoh-backups/` and run `scripts/verify_backup.sh` (checksums + test restore into postgres:16)
    — no verified copy, no deploy.
 3. `git pull --ff-only` → `docker compose build` (`.env` unchanged).
+3a. `docker compose run --rm --no-deps web python manage.py check_demo_data` — new image, old schema,
+   read-only (skips tables that don't exist yet) → "OK: no demo data"; anything found → STOP, delete
+   nothing, tell the owner.
 4. `collectstatic` — **before** migrate (touches no data; on error stop, nothing changed yet —
    the 2026-10-04 rehearsal caught a manifest error here).
 5. `migrate` (accounts 0008–0012, myapp 0016–0024 — 14 migrations) — then steps 6–7 without a pause
@@ -238,9 +258,12 @@ Full runbook with commands, expected output and the rollback plan:
    **before** `up -d` (`web` now serves chat photos via X-Accel).
 7. `docker compose up -d` (new `ws`; `telegram_bot` now runs the PTB bot — same command; no `osrm`
    and no `community` profile this time — the community bot is enabled separately, docs/COMMUNITY_BOT.md).
-8. Verify: health/ready, `check_realtime` in `web` and `ws`, `/ws/` handshake 101, logs, `docker stats`.
+8. Verify: health/ready (now also `migrations` + `schema` = ok), `check_realtime` in `web` and `ws`, `/ws/` handshake 101, logs, `docker stats`.
 9. `backfill_achievements --dry-run`, then without (silent); `purge_chats --dry-run`;
-   `check_demo_password` → OK;
+   `check_demo_data` → OK (includes `check_demo_password`);
+   `rename_legacy_uploads --dry-run`, then without, then again → `renamed 0` (pre-milestone-6 photos
+   under personal file names → `<uuid>.<ext>`, rows updated, old files removed; unreferenced
+   non-random files only counted — `--delete-unreferenced` only on the owner's decision);
    `backfill_image_variants --dry-run --strip-metadata`, then with `--strip-metadata` (owner
    decision; media backup from step 2 exists), then once more → `variants 0, stripped 0`.
 10. crons (DEPLOY.md §13): `sweep_availability` */5, `purge_tracking` hourly, `prune_notifications`
@@ -250,7 +273,7 @@ Full runbook with commands, expected output and the rollback plan:
     with the token, so old server logs may hold it → @BotFather `/revoke` → new token into `.env`
     (`nano`, never printed) → `up -d --force-recreate telegram_bot celery_worker web ws` (restart
     doesn't re-read `.env`) → `/start` + a real notification arrives, celery queue 0.
-11. Browser + Telegram check by role (runbook §11); 12. 24 h monitoring.
+11. Browser + Telegram check by role (runbook §11); 12. 24 h monitoring (+ `check_demo_data` once more).
 Later, separately: community bot (`.env` TELEGRAM_COMMUNITY_*, `--profile community`), OSRM,
 Cloudflare (owner switches NS at navjucloud — `docs/CLOUDFLARE.md`; then `DJANGO_BEHIND_CLOUDFLARE=True`
 + `up -d --force-recreate web ws`).

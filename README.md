@@ -271,6 +271,12 @@ the optional `_USERNAME` (defaults to `admin`/`curator`/`volunteer`/`client`) an
 `python manage.py check_demo_password` is the read-only audit for a live database: it lists every
 account that accepts the demo password and any demo username present, prints usernames only, never
 re-saves a hash, and exits 1 if anything is found (run at every deploy).
+`python manage.py check_demo_data` is the broader read-only audit (the deploy runbook runs it before
+and after a deploy): it includes the password check and also reports every other kind of row
+`seed_demo` writes (requests, events, broadcasts, photo reports, SOS, catalogue, donation offers,
+pets, chat lines) and media files byte-identical to the demo photos — ids and counts only, exit 1 if
+any. If it finds something, nothing is deleted: the owner decides. `seed_demo` itself refuses to run
+with `DEBUG=False`.
 
 ## Deployment
 
@@ -382,12 +388,14 @@ Two public, unauthenticated, no-secret endpoints (`server/health.py`):
 | Endpoint | Meaning | Cost | Codes |
 | --- | --- | --- | --- |
 | `GET /health/` | **liveness** — the Django process can serve a request | zero I/O | `200` |
-| `GET /health/ready/` | **readiness** — DB reachable, config sane, shared cache (if configured) round-trips | one `SELECT 1` (+ one cache op) | `200` ready / `503` not ready |
+| `GET /health/ready/` | **readiness** — DB reachable; the DB schema is the one this code expects (every migration applied, none applied that the code doesn't have, every model table and column present); config sane; shared cache (if configured) round-trips | ≈ 4 short queries, 1–8 ms (+ one cache op) | `200` ready / `503` not ready |
 
 Point the load balancer / `systemd` watchdog / uptime monitor at `/health/ready/`; use `/health/`
 for a bare "is the process up" check. External services (Groq, Telegram, OSRM, Nominatim) are
 **not** part of readiness — the app degrades gracefully without them, so their outage must not
-pull an instance out of rotation. Responses carry `Cache-Control: no-store`.
+pull an instance out of rotation. Responses carry `Cache-Control: no-store`. A failing check is
+logged as one `WARNING server.health: readiness: …` line (which migration / which table); the
+public body only says `ok` / `error` / `skipped` per check.
 
 A `systemd` unit can gate restarts on it:
 ```ini

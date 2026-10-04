@@ -21,8 +21,16 @@ Runbook для совместного деплоя на `khayrkhoh.tj` (31.25.23
 | Новый `community_bot` | бот сообщества волонтёров, профиль `community` — **в этом деплое не запускается**; включается отдельно, когда владелец создаст бота и группу (`docs/COMMUNITY_BOT.md`); ≈ 90 МиБ, лимит 200 МБ |
 | nginx | `map $http_upgrade`, `location /ws/`, `/media/chat/` → 404, `internal` `/protected-media/` (DEPLOY.md §10a); этап 6: `open_file_cache`, `/media/` — кэш 30 дней + `nosniff` (DEPLOY.md §10) |
 | cron | 7 новых задач (DEPLOY.md §13); две задачи сообщества ничего не делают, пока оно не настроено |
-| Однократно | `backfill_achievements`; `backfill_image_variants` (WebP-варианты старых фото; с `--strip-metadata` — ещё и убрать GPS из старых оригиналов) |
-| `.env` | новых обязательных переменных нет; **после деплоя меняется `TELEGRAM_BOT_TOKEN`** — новый токен через @BotFather (шаг 10a) |
+| Однократно | `backfill_achievements`; `rename_legacy_uploads` (старые фото со своими именами файлов → случайные имена, ссылки в БД обновляются); `backfill_image_variants` (WebP-варианты старых фото; с `--strip-metadata` — ещё и убрать GPS из старых оригиналов) |
+| `/health/ready/` | теперь проверяет ещё и **схему БД**: все миграции применены, нет применённых миграций, которых нет в коде, все таблицы и столбцы моделей на месте (подробно — шаг 8) |
+| Демо-данные | `check_demo_data` — проверка «демо-данных нет» только на чтение, до деплоя (шаг 3a) и после (шаги 9, 12); `seed_demo` отказывается работать при `DEBUG=False` |
+| `.env` | новых обязательных переменных нет; **после деплоя меняется `TELEGRAM_BOT_TOKEN`** — новый токен через @BotFather (шаг 10a). Токен **тестового** бота (docs/TEST_BOT.md) живёт только в локальном `.env` на Mac — на сервер, в git и в этот runbook он не попадает никогда |
+
+> **Демо-данных на сервере быть не должно.** `seed_demo` и любые демо-команды на сервере **никогда
+> не запускаются** (с этапа 7 `seed_demo` сам откажется при `DEBUG=False`; флаг
+> `--allow-without-debug` — только для локального стенда репетиции, никогда на сервере). До и после
+> деплоя — проверка только на чтение (шаги 1, 3a, 9, 12). **Если что-то демо найдено — ничего не
+> удалять и не менять: остановиться и сказать владельцу**, решение принимает он.
 
 Отрепетировано 2026-10-03 на `postgres:16` в Docker: схема `main` + демо-данные → миграции ветки
 вперёд → откат миграций → старый код снова работает, данные сохранены → повторный накат. Во время
@@ -112,8 +120,11 @@ docker exec shared_postgres psql -U "$DJANGO_DB_USER" -d "$DJANGO_DB_NAME" -Atc 
 # демо-пароль seed_demo публичный (README, GitHub) — он не должен подходить ни к одному аккаунту.
 # Только чтение: сравнение без пересохранения хеша; печатает только логины. ≈ 0,1–1 с на аккаунт.
 docker compose exec -T web python manage.py shell -c "from django.contrib.auth.hashers import check_password as c; from accounts.models import Users as U; print('demo:', [u.username for u in U.objects.only('username','password') if u.has_usable_password() and c('Volunteer2026!', u.password)], 'demo users:', list(U.objects.filter(username__in=['admin_demo','malika_s','client_zamira','curator_samira']).values_list('username', flat=True)), 'of', U.objects.count())"
-#   ожидаем: demo: [] demo users: [] of N. Если список не пустой — владелец меняет пароль этих
-#   аккаунтов (/admin/ → пользователь → «Изменить пароль») ДО деплоя; деплой это не блокирует.
+#   ожидаем: demo: [] demo users: [] of N. Если список не пустой — СТОП: ничего не менять и не
+#   удалять, сказать владельцу (он решает: сменить пароль / удалить аккаунт / продолжать).
+#   Полная проверка всех демо-данных (запросы, акции, фото…) — шаг 3a: в старом образе её команды нет.
+#   Последний read-only аудит прода (2026-10-04, SSH с разрешения владельца): 7 аккаунтов, демо-пароль
+#   не подходит ни к одному, демо-логинов нет.
 
 # память и диск
 free -h                                # смотреть столбец "available"
@@ -204,6 +215,27 @@ df -h /                                # сверить с оценкой из �
 
 Работающий сайт продолжает обслуживать старый образ: `build` контейнеры не пересоздаёт.
 
+## 3a. Демо-данных нет — проверка ДО изменений (только чтение)
+
+Новым образом, но ещё на **старой** схеме — до статики, миграций и перезапуска (команда читает
+только столбцы, которые были и в старом коде, а таблицы, которых ещё нет, пропускает — проверено на
+копии базы `2467bc5` 2026-10-04):
+
+```bash
+docker compose run --rm --no-deps web python manage.py check_demo_data
+#   ожидаем последней строкой: "OK: no demo data" (код выхода 0)
+```
+
+Проверяет всё, что пишет `seed_demo`: демо-логины, почты `@gc.local`, аккаунты с публичным
+демо-паролем (сравнение без пересохранения хеша, ≈ 0,1–1 с на аккаунт), демо-запросы (включая
+«[история] Демо-запрос #…»), акции, рассылки, фотоотчёты, сигналы SOS, каталог, предложения
+пожертвований от демо-организаций, объявления о животных, сообщения чата и **файлы в `media/`,
+побайтно совпадающие с демо-фото** (под любым именем). Печатает только количества, номера записей
+(`#12`) и папки — без имён, почт, телефонов и имён файлов. Ничего не пишет и не удаляет.
+
+**Если хоть одна строка не 0 (код выхода 1) — СТОП. Ничего не удалять, деплой не продолжать,
+вывод показать владельцу.** Пока ничего не изменено: работает старый код на старой схеме.
+
 ## 4. Статика — до миграций
 
 ```bash
@@ -272,8 +304,25 @@ docker compose ps                          # web, ws, telegram_bot, celery_worke
 
 ## 8. Проверка (сразу)
 
+`/health/ready/` в новом коде отвечает 200 только если **всё** ниже в порядке, иначе 503 (детали —
+одной строкой `WARNING server.health: readiness: …` в `docker compose logs web`, в ответ наружу
+не попадают):
+
+| Ключ | Что значит `ok` |
+|---|---|
+| `database` | `SELECT 1` проходит |
+| `migrations` | все миграции из кода применены **и** в `django_migrations` нет миграций `accounts`/`myapp`, которых нет в коде (= база новее кода, например старый образ запущен без отката миграций) |
+| `schema` | каждая таблица и каждый столбец каждой модели существуют — один запрос `… WHERE 1 = 0` (строк не читает). Ловит то, чего не видит таблица миграций: полу-восстановленный дамп, миграцию, отмеченную `--fake`, таблицу или столбец, удалённые руками |
+| `config` | `SECRET_KEY` задан |
+| `cache` | Redis отвечает (запись + чтение) |
+
+Если БД недоступна, `migrations` и `schema` = `skipped`. Не проверяет: индексы, ограничения
+(`UNIQUE`/`CHECK`), типы столбцов и сами данные — это работа `migrate` и бэкапов. Стоит ≈ 1–8 мс
+и 4 коротких запроса. Тесты: `myapp.tests_predeploy.ReadinessSchemaTests` (SQLite и `postgres:16`).
+
 ```bash
 curl -fsS https://khayrkhoh.tj/health/ ; curl -fsS https://khayrkhoh.tj/health/ready/
+#   {"status": "ready", "checks": {"database": "ok", "migrations": "ok", "schema": "ok", "config": "ok", "cache": "ok"}}
 docker compose exec -T web python manage.py check_realtime     # channels_redis… / round trip: OK
 docker compose exec -T ws  python manage.py check_realtime
 curl -sk -o /dev/null -w "%{http_code}\n" --http1.1 -m 5 \
@@ -291,8 +340,17 @@ free -h                                                        # записат�
 docker compose exec -T web python manage.py backfill_achievements --dry-run    # посмотреть, сколько значков выдастся
 docker compose exec -T web python manage.py backfill_achievements              # тихо, без уведомлений
 docker compose exec -T web python manage.py purge_chats --dry-run              # 0/0 — чатов ещё нет
-docker compose exec -T web python manage.py check_demo_password                # "OK: no account accepts the demo password" (полная проверка всех аккаунтов, ≈ 0,1–1 с на аккаунт)
-# Этап 6: WebP-варианты старых фото (аватары, фотоотчёты, животные). Бэкап media уже есть (шаг 2).
+docker compose exec -T web python manage.py check_demo_data                    # "OK: no demo data" — демо-данных нет и после деплоя (включает check_demo_password)
+#   не 0 → ничего не удалять, сказать владельцу (см. рамку в начале)
+
+# Старые фото → случайные имена. Бэкап media уже есть (шаг 2). До backfill_image_variants, чтобы
+# WebP-варианты сразу строились под новыми именами.
+docker compose exec -T web python manage.py rename_legacy_uploads --dry-run   # сколько будет переименовано
+docker compose exec -T web python manage.py rename_legacy_uploads             # "total: renamed N, changed meanwhile 0, failed 0"
+docker compose exec -T web python manage.py rename_legacy_uploads             # повторно: "total: renamed 0, …"
+#   строка "unreferenced non-random files: K" — см. ниже; удалять их — только по решению владельца
+
+# Этап 6: WebP-варианты старых фото (аватары, фотоотчёты, животные).
 docker compose exec -T web python manage.py backfill_image_variants --dry-run --strip-metadata
 docker compose exec -T web python manage.py backfill_image_variants --strip-metadata   # решение владельца 2026-10-04: да
 docker compose exec -T web python manage.py backfill_image_variants                    # повторно: "total: variants 0, stripped 0, failed 0"
@@ -305,6 +363,25 @@ curl -s https://khayrkhoh.tj/ | grep -c 'type="image/webp"'                    #
 файлы бэкфилл не уменьшает. Без флага
 команда только строит варианты. Строки `failed` — файл записи пропал с диска; это не ошибка
 деплоя, страница покажет запись без фото, как и раньше.
+
+**`rename_legacy_uploads`.** До этапа 6 аватар, фотоотчёт или фото животного хранились под именем
+файла с телефона/компьютера — часто это ФИО (`/media/avatars/Ivanov_Ivan.jpg`), а `/media/` публичен.
+Команда для каждого такого файла: копирует его (байты не меняются) в `<та же папка>/<uuid>.<расш.>`
+вместе с готовыми WebP-вариантами → условным `UPDATE … WHERE image = <старое имя>` переводит на
+новое имя все записи, которые на него ссылаются (одна копия, даже если файл общий у нескольких
+записей) → **только потом** удаляет старый файл и его старые варианты, и старый адрес перестаёт
+работать. Падение посередине оставляет максимум дубликат, никогда — запись без файла. Если файла уже
+нет на диске, запись всё равно получает случайное имя (иначе ФИО осталось бы в `<img src>`). Фото
+чата не трогает (случайные имена с этапа 3, не публичные). Печатает только количества.
+Отрепетировано 2026-10-04 на копии базы и `media` старого кода после миграций: 11 записей, общий файл у двух
+моделей, запись без файла; повторный запуск — 0; варианты актуальны, `backfill_image_variants` их не
+пересобирает.
+
+**«unreferenced non-random files: K»** — файлы с неслучайными именами в `avatars/`, `reports/`,
+`pets/`, на которые не ссылается ни одна запись: Django не удаляет старый файл, когда человек меняет
+аватар, поэтому прежние фото (возможно, с ФИО в имени) так и лежат по публичному адресу. Команда их
+**только считает**. Удалить: `rename_legacy_uploads --delete-unreferenced` — **только если владелец
+так решил** (копия всех файлов — в `media.tgz` из шага 2).
 
 ## 10. cron
 
@@ -395,6 +472,8 @@ crontab -e
 - **Админ:** админ-панель, заявки волонтёров, карта с живым маркером волонтёра.
 - В DevTools → Network → WS одно соединение `/ws/` со статусом 101. На главной в консоли нет ошибок.
 - Публичная страница «Рейтинг» — без мест и баллов, сгруппирована по регионам.
+- Старые фото после `rename_legacy_uploads`: на главной фотоотчёты и в профилях аватары видны; ПКМ →
+  «Открыть изображение» — адрес вида `/media/reports/<32 символа>.jpg`, без имён.
 - **Telegram (основной бот, на ваших телефонах):** на сайте Профиль → «Привязать Telegram» →
   «Открыть в Telegram» → бот сразу показывает меню роли.
   - Волонтёр: «Запросы рядом» → принять → «Я в пути» → геопозиция → завершить.
@@ -409,6 +488,8 @@ crontab -e
 - `docker compose logs --since 1h ws | grep -i error`; `/var/log/khayrkhoh/cron.log`.
 - `docker compose exec -T redis redis-cli -n 1 llen celery` — очередь доставки обычно 0.
 - `curl https://khayrkhoh.tj/health/ready/` — 200.
+- Через сутки: `docker compose exec -T web python manage.py check_demo_data` — снова "OK: no demo data"
+  (только чтение; не 0 → ничего не удалять, сказать владельцу).
 
 ---
 
@@ -468,7 +549,8 @@ docker compose run --rm web python manage.py showmigrations accounts myapp | gre
 Ключи channel layer в Redis DB 2 истекают сами через 60 секунд.
 Этап 6: файлы `*_thumb.webp` / `*_medium.webp` рядом с фото остаются на диске (старый код их не
 видит, место — десятки КБ на фото). Фото, загруженные после деплоя, имеют случайные имена и без
-EXIF — старый код показывает их как обычно. Очистка GPS из старых оригиналов (`--strip-metadata`)
+EXIF — старый код показывает их как обычно. Старые фото, переименованные `rename_legacy_uploads`,
+остаются под новыми именами — в БД уже новые имена, старый код их показывает. Очистка GPS из старых оригиналов (`--strip-metadata`)
 откатом не возвращается; оригиналы с метаданными есть в `media.tgz` из шага 2. Строку
 `open_file_cache` и новый `location /media/` старый код не замечает — nginx можно не откатывать.
 
@@ -500,6 +582,10 @@ docker compose run --rm web python manage.py collectstatic --noinput
 docker compose up -d --remove-orphans
 sudo cp "$B/nginx-khayrkhoh.conf" /etc/nginx/sites-available/khayrkhoh && sudo nginx -t && sudo systemctl reload nginx
 crontab "$B/crontab.txt"
+# media — дамп ссылается на СТАРЫЕ имена файлов, а rename_legacy_uploads (шаг 9) их удалил: вернуть
+# из бэкапа. От root, чтобы сохранить владельца (uid 1000 контейнера); файлы, загруженные после
+# деплоя, и переименованные копии остаются лишними файлами — безвредно.
+sudo tar -C /opt/khayrkhoh -xzpf "$B/media.tgz"
 curl -fsS https://khayrkhoh.tj/health/ready/
 ```
 

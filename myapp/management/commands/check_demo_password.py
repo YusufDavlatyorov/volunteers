@@ -21,17 +21,22 @@ from myapp.management.commands.seed_demo import CLIENTS, CURATORS, PASSWORD as D
 DEMO_USERNAMES = frozenset({"admin_demo", *(row[0] for row in (*VOLUNTEERS, *CLIENTS, *CURATORS))})
 
 
+def demo_password_accounts():
+    """``[(pk, username, is_active)]`` of accounts whose stored hash accepts the
+    demo password. Never writes (no hash upgrade). Shared with check_demo_data."""
+    users = get_user_model().objects.order_by("pk").only("pk", "username", "password", "is_active")
+    return [(user.pk, user.username, user.is_active) for user in users.iterator()
+            if user.has_usable_password() and check_password(DEMO_PASSWORD, user.password)]
+
+
 class Command(BaseCommand):
     help = ("Read-only: list accounts that accept the public demo password and demo usernames "
             "present on this database. Exit code 1 if any.")
 
     def handle(self, *args, **options):
-        users = get_user_model().objects.order_by("pk").only("pk", "username", "password", "is_active")
-        checked, accepted = 0, []
-        for user in users.iterator():
-            checked += 1
-            if user.has_usable_password() and check_password(DEMO_PASSWORD, user.password):
-                accepted.append(f"{user.username} ({'active' if user.is_active else 'inactive'})")
+        checked = get_user_model().objects.count()
+        accepted = [f"{username} ({'active' if active else 'inactive'})"
+                    for _pk, username, active in demo_password_accounts()]
         present = sorted(get_user_model().objects.filter(username__in=DEMO_USERNAMES)
                          .values_list("username", flat=True))
         self.stdout.write(f"checked accounts: {checked}")
