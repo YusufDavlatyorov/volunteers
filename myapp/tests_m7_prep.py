@@ -8,6 +8,10 @@
   succeeds — found by the 2026-10-04 deploy rehearsal: the vendored Chart.js
   ended with ``//# sourceMappingURL=chart.umd.js.map`` but the map was not
   vendored, so collectstatic failed at runbook step 5, *after* the migrations.
+* every compose service that reads or writes uploads mounts the shared
+  ``./media`` — same rehearsal: ``celery_worker`` (builds the WebP variants)
+  and ``telegram_bot`` (stores photos sent to a task chat) had no mount, so
+  every variant task failed with FileNotFoundError.
 """
 
 import io
@@ -121,3 +125,21 @@ class ProductionCollectstaticTests(SimpleTestCase):
                              "js/i18n.js", "js/realtime.js", "js/chat.js", "css/style.css"):
                     self.assertIn(name, manifest)
                     self.assertTrue((Path(root) / manifest[name]).is_file())
+
+
+class ComposeMediaMountTests(SimpleTestCase):
+    MEDIA = "./media:/app/media"
+
+    def test_services_that_touch_uploads_share_media(self):
+        import re
+
+        from django.conf import settings
+
+        text = (Path(settings.BASE_DIR) / "docker-compose.yml").read_text()
+        for name in ("web", "celery_worker", "telegram_bot"):
+            with self.subTest(service=name):
+                # the service's block: from "  <name>:" to the next 2-space key
+                block = re.search(rf"(?ms)^  {name}:\n(.*?)(?=^  \S|^\S|\Z)", text)
+                self.assertIsNotNone(block)
+                volumes = re.findall(r"(?m)^\s+- (\S+)\s*$", block.group(1))
+                self.assertIn(self.MEDIA, volumes)

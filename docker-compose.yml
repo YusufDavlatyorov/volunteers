@@ -94,6 +94,11 @@ services:
       - .env
     environment:
       <<: *app-env
+    volumes:
+      # Builds the WebP variants of uploads (chat, avatars, photo reports, pets)
+      # next to the originals — it must see the same media/ as web. Without it
+      # every variant task fails with FileNotFoundError (2026-10-04 rehearsal).
+      - ./media:/app/media
     depends_on:
       - redis
     networks:
@@ -113,6 +118,10 @@ services:
       - .env
     environment:
       <<: *app-env
+    volumes:
+      # Photos sent to the bot's task chat are stored like site uploads
+      # (chat.send_message) — into the shared media/, so web can serve them.
+      - ./media:/app/media
     depends_on:
       - web
       - redis
