@@ -263,9 +263,14 @@ the optional `_USERNAME` (defaults to `admin`/`curator`/`volunteer`/`client`) an
   exactly which ones are missing, before creating anything;
 - runs every password through Django's normal `AUTH_PASSWORD_VALIDATORS` and rejects a weak one
   with the same validation messages `register` would show, never logging the password itself;
+- refuses `seed_demo`'s shared demo password (it is public in this README) before creating anything;
 - is **idempotent** — an account that already exists (matched by username or email) is left
   untouched, so re-running it after someone has changed their password in the UI is safe;
 - uses normal Django password hashing (`set_password`), same as every other account.
+
+`python manage.py check_demo_password` is the read-only audit for a live database: it lists every
+account that accepts the demo password and any demo username present, prints usernames only, never
+re-saves a hash, and exits 1 if anything is found (run at every deploy).
 
 ## Deployment
 

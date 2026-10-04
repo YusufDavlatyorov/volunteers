@@ -30,7 +30,8 @@ python manage.py backfill_image_variants [--dry-run --strip-metadata]   # WebP t
 python manage.py geocode_missing [--limit N --dry-run --profiles]   # backfill lat/lng for HelpRequests (and --profiles) via Nominatim; sleeps 1.1s/row for the usage policy
 python manage.py check_overdue_tasks [--dry-run]        # alert curators/admins about tasks overdue past 3h; idempotent, runs on cron (see README "Background jobs")
 python manage.py check_stale_requests [--dry-run]       # mirror of the above for the *pending* side: alert about requests waiting >48h without a volunteer; idempotent, hourly cron
-python manage.py create_initial_production_accounts    # prod-only bootstrap: exactly 4 accounts (admin/curator/volunteer/client) from INITIAL_<ROLE>_* env vars; idempotent, never seeds business data — see README "Initial production accounts"
+python manage.py create_initial_production_accounts    # prod-only bootstrap: exactly 4 accounts (admin/curator/volunteer/client) from INITIAL_<ROLE>_* env vars; idempotent, never seeds business data, refuses the demo password — see README "Initial production accounts"
+python manage.py check_demo_password                   # read-only audit: accounts accepting seed_demo's public password + demo usernames present; exit 1 if any (deploy runbook §1/§9)
 curl -s localhost:8000/health/ ; curl -s localhost:8000/health/ready/   # liveness / readiness (server/health.py) — public, no secrets
 
 python manage.py test --parallel 4                       # full suite (see FEATURES_PROGRESS.md for the current count)
@@ -172,7 +173,8 @@ A hardening pass added a cross-cutting layer that is easy to regress — keep it
   `REGION_CHOICES` and coerces `age` (it has no ModelForm).
 - **Uploaded photos carry no metadata (milestone 6).** Every avatar / photo-report / pet upload
   goes through `services/images.py::clean_original()` before it is stored — decoded (a non-image is
-  rejected), re-encoded without EXIF/GPS/XMP, saved as `<uuid>.<ext>` (the user's file name can be
+  rejected), re-encoded without EXIF/GPS/XMP, downscaled to `MAX_ORIGINAL_SIDE` = 2560 px on the long
+  side (owner 2026-10-04; the backfill's in-place strip keeps old sizes), saved as `<uuid>.<ext>` (the user's file name can be
   their real name; media URLs are public). Photo reports appear on the anonymous landing page, so a
   phone original would publish where it was taken. Views: `update_profile`, `edit_profile_view`,
   `photo_reports_view`, `pet_report_create/edit_view`; Django admin via

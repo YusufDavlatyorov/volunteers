@@ -18,6 +18,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from accounts.models import REGION_CHOICES
+from myapp.management.commands.seed_demo import PASSWORD as DEMO_PASSWORD
 
 User = get_user_model()
 
@@ -55,6 +56,12 @@ class Command(BaseCommand):
                 missing.append(f"{prefix}_EMAIL")
             if not password:
                 missing.append(f"{prefix}_PASSWORD")
+            elif password == DEMO_PASSWORD:
+                # Checked before anything is created: seed_demo's password is
+                # public (README, docs, the GitHub repo).
+                raise CommandError(
+                    f"{prefix}_PASSWORD is the public demo password — choose a different one."
+                )
             if needs_region and region not in VALID_REGIONS:
                 raise CommandError(
                     f"{prefix}_REGION={region!r} is not a valid region "

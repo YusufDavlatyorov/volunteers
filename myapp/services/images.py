@@ -14,9 +14,11 @@ pet reports — nothing here knows about a particular model.
   storage. Raises on a broken source; the Celery task that calls it logs
   and gives up (the original stays usable).
 * ``strip_metadata(upload) -> (ContentFile, ext)`` — the *original* re-encoded
-  without EXIF (incl. GPS), XMP, IPTC or comments, orientation baked in.
-  Called before an upload is stored (chat photos), so the full-size file a
-  party can open carries no location either — not only the thumbnails.
+  without EXIF (incl. GPS), XMP, IPTC or comments, orientation baked in, and
+  downscaled to ``MAX_ORIGINAL_SIDE`` (2560 px) on the long side. Called before
+  an upload is stored (chat photos, avatars, photo reports, pets), so the
+  full-size file a party can open carries no location either — not only the
+  thumbnails.
 """
 
 from __future__ import annotations
@@ -100,15 +102,22 @@ def _prepared(img):
 ORIGINAL_JPEG_QUALITY = 90
 ORIGINAL_WEBP_QUALITY = 90
 _STRIP_OUTPUT = {"JPEG": ("JPEG", "jpg"), "PNG": ("PNG", "png"), "WEBP": ("WEBP", "webp")}
+# Long side of a stored upload (owner decision 2026-10-04). A phone photo is
+# 4000–8000 px; nothing on the site shows more than ~1920 px, and the original
+# is what the <img> fallback and "open full size" load. Smaller originals also
+# mean less disk and less memory when the variants are built.
+MAX_ORIGINAL_SIDE = 2560
 
 
-def strip_metadata(upload):
+def strip_metadata(upload, max_side=MAX_ORIGINAL_SIDE):
     """Return ``(ContentFile, ext)`` — ``upload`` re-encoded with no metadata.
 
     EXIF orientation is applied to the pixels first (so dropping the tag never
     leaves a sideways photo). JPEG/PNG/WebP keep their format; anything else
     the decoder accepted (HEIC via pillow-heif) becomes JPEG. Only the ICC
     colour profile is kept — it describes colours, not the person or place.
+    A side longer than ``max_side`` is scaled down (never up); ``None`` keeps
+    the size (``strip_stored_original`` rewrites old files in place).
     The caller has already run ``validate_upload``; a decode error raises."""
     upload.seek(0)
     with Image.open(upload) as src:
@@ -116,8 +125,17 @@ def strip_metadata(upload):
         if src.size[0] * src.size[1] > MAX_PIXELS:
             raise ValueError("image too large to process")
         icc = src.info.get("icc_profile")
+        if max_side:
+            # JPEG: let the decoder skip pixels (1/2, 1/4, 1/8) while every side
+            # stays ≥ max_side — a 40 MP photo then decodes at a quarter of the
+            # memory. No-op for other formats.
+            src.draft(None, (max_side, max_side))
         img = ImageOps.exif_transpose(src)  # first frame; a copy without the EXIF orientation
         img.load()
+    if max_side and max(img.size) > max_side:
+        if img.mode in ("1", "P"):  # resize would fall back to nearest-neighbour
+            img = img.convert("RGBA" if "transparency" in img.info else "RGB")
+        img.thumbnail((max_side, max_side), Image.LANCZOS)
     out_format, ext = _STRIP_OUTPUT.get(fmt, ("JPEG", "jpg"))
     if out_format == "JPEG" and img.mode not in ("RGB", "L"):
         img = img.convert("RGB")
@@ -342,7 +360,7 @@ def strip_stored_original(field_file):
         return False
     field_file.open("rb")
     try:
-        clean, out_ext = strip_metadata(field_file)
+        clean, out_ext = strip_metadata(field_file, max_side=None)
     finally:
         field_file.close()
     if out_ext != {"jpeg": "jpg"}.get(ext, ext):

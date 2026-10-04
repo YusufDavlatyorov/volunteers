@@ -92,6 +92,7 @@ class LoginThrottlePerVisitorTests(TestCase):
 
 import io  # noqa: E402
 import os  # noqa: E402
+from unittest import mock  # noqa: E402
 
 from django.core.files.base import ContentFile  # noqa: E402
 from django.core.files.uploadedfile import SimpleUploadedFile  # noqa: E402
@@ -101,8 +102,8 @@ from PIL import Image  # noqa: E402
 
 from accounts.models import Profile  # noqa: E402
 from myapp.testing import TempMediaRoot
-from myapp.models import PetReport, PhotoReport  # noqa: E402
-from myapp.services import images  # noqa: E402
+from myapp.models import ChatMessage, HelpRequest, PetReport, PhotoReport  # noqa: E402
+from myapp.services import chat, images  # noqa: E402
 
 _MEDIA_ROOT = TempMediaRoot("gc-m6-tests-")  # fork-safe (myapp/testing.py)
 _MEDIA = _MEDIA_ROOT.path
@@ -313,3 +314,101 @@ class VariantDecodeTests(TestCase):
             images.make_webp_variants(profile.image)
         self.assertTrue(images._DECODE_LOCK.acquire(blocking=False))  # not left held
         images._DECODE_LOCK.release()
+
+
+def jpeg_bytes(size, exif=None):
+    buf = io.BytesIO()
+    kwargs = {"exif": exif} if exif is not None else {}
+    Image.new("RGB", size, (90, 120, 150)).save(buf, "JPEG", quality=80, **kwargs)
+    return buf.getvalue()
+
+
+def opened(content):
+    content.seek(0)
+    return Image.open(io.BytesIO(content.read()))
+
+
+@override_settings(MEDIA_ROOT=_MEDIA, TELEGRAM_BOT_TOKEN="")
+class OriginalDownscaleTests(TestCase):
+    """Owner decision 2026-10-04: stored uploads are at most 2560 px on the
+    long side (never upscaled); the backfill's in-place strip keeps the size."""
+
+    def test_long_side_capped_after_orientation(self):
+        exif = Image.Exif()
+        exif[0x0112] = 6  # stored landscape, shown rotated 90° → portrait
+        exif[GPS_TAG] = {1: "N", 2: (38.0, 33.0, 36.0)}
+        upload = SimpleUploadedFile("p.jpg", jpeg_bytes((4032, 3024), exif), content_type="image/jpeg")
+        clean, err = images.clean_original(upload)
+        self.assertIsNone(err)
+        with opened(clean) as img:
+            self.assertEqual(img.size, (1920, 2560))
+            self.assertNotIn(GPS_TAG, img.getexif())
+
+    def test_small_photo_keeps_its_size(self):
+        clean, _ = images.clean_original(jpeg_with_gps(size=(1600, 1200)))
+        with opened(clean) as img:
+            self.assertEqual(img.size, (1600, 1200))
+        exact = SimpleUploadedFile("e.jpg", jpeg_bytes((2560, 1000)), content_type="image/jpeg")
+        with opened(images.clean_original(exact)[0]) as img:
+            self.assertEqual(img.size, (2560, 1000))
+
+    def test_palette_png_is_resampled_not_nearest_neighbour(self):
+        src = Image.new("P", (3000, 1000), 0)
+        src.putpalette([0, 0, 0, 255, 255, 255] + [0] * 762)
+        src.paste(1, (0, 0, 1500, 1000))
+        src.info["transparency"] = 0
+        buf = io.BytesIO()
+        src.save(buf, "PNG", transparency=0)
+        clean, err = images.clean_original(SimpleUploadedFile("t.png", buf.getvalue(), content_type="image/png"))
+        self.assertIsNone(err)
+        self.assertTrue(clean.name.endswith(".png"))
+        with opened(clean) as img:
+            self.assertEqual(img.size, (2560, 853))
+            self.assertEqual(img.mode, "RGBA")
+            self.assertEqual(img.getpixel((0, 0))[3], 255)       # opaque half kept
+            self.assertEqual(img.getpixel((2559, 852))[3], 0)    # transparent half kept
+
+    def test_huge_jpeg_is_decoded_at_reduced_scale(self):
+        from PIL.JpegImagePlugin import JpegImageFile
+
+        decoded = []
+        original_draft = JpegImageFile.draft
+
+        def spy(self, mode, size):
+            result = original_draft(self, mode, size)
+            decoded.append(self.size)
+            return result
+
+        upload = SimpleUploadedFile("big.jpg", jpeg_bytes((5400, 5200)), content_type="image/jpeg")
+        with mock.patch.object(JpegImageFile, "draft", spy):
+            clean, err = images.clean_original(upload)
+        self.assertIsNone(err)
+        self.assertIn((2700, 2600), decoded)  # 1/2 scale: memory ÷ 4, still ≥ 2560
+        with opened(clean) as img:
+            self.assertEqual(img.size, (2560, 2465))
+
+    def test_chat_photo_is_capped_too(self):
+        cache.clear()
+        client = Users.objects.create_user(username="m6_cc", email="m6cc@example.com", password=PASSWORD,
+                                           region="dushanbe", is_client=True)
+        vol = Users.objects.create_user(username="m6_cv", email="m6cv@example.com", password=PASSWORD,
+                                        region="dushanbe", is_volunteer=True)
+        task = HelpRequest.objects.create(client=client, volunteer=vol, status="active", help_type="grocery",
+                                          description="d", address="a", phone="+992901234567", region="dushanbe")
+        upload = SimpleUploadedFile("c.jpg", jpeg_bytes((3200, 1800)), content_type="image/jpeg")
+        outcome = chat.send_message(vol, task, image=upload)
+        self.assertTrue(outcome.ok, outcome)
+        stored = ChatMessage.objects.get(task=task).image
+        with stored.storage.open(stored.name) as fh, Image.open(fh) as img:
+            self.assertEqual(img.size, (2560, 1440))
+
+    def test_backfill_strip_keeps_the_stored_size(self):
+        vol = Users.objects.create_user(username="m6_legacy", email="m6l@example.com", password=PASSWORD)
+        profile = Profile.objects.get_or_create(user=vol)[0]
+        exif = Image.Exif()
+        exif[GPS_TAG] = {1: "N", 2: (38.0, 33.0, 36.0)}
+        profile.image.save("legacy.jpg", ContentFile(jpeg_bytes((3000, 2000), exif)), save=True)
+        self.assertTrue(images.strip_stored_original(profile.image))
+        with profile.image.storage.open(profile.image.name) as fh, Image.open(fh) as img:
+            self.assertEqual(img.size, (3000, 2000))
+            self.assertNotIn(GPS_TAG, img.getexif())

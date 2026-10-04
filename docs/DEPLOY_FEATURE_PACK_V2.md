@@ -13,7 +13,7 @@ Runbook для совместного деплоя на `khayrkhoh.tj` (31.25.23
 | Что | Подробно |
 |---|---|
 | Новый контейнер `ws` | uvicorn, `127.0.0.1:8001`, лимит 256 МБ (≈ 70–90 МБ в простое, 137 МиБ при 300 открытых сокетах — нагрузочный тест этапа 6) |
-| `celery_worker` | теперь ещё строит WebP-варианты фото; одно фото за раз + JPEG `draft`: 4 одновременные загрузки 12 Мп — пик ≈ 120 МБ (без этого было ≈ 690 МБ при лимите 300 МБ) |
+| `celery_worker` | теперь ещё строит WebP-варианты фото; одно фото за раз + JPEG `draft`: 4 одновременные загрузки 12 Мп — пик ≈ 120 МБ (без этого было ≈ 690 МБ при лимите 300 МБ). Новые оригиналы — не больше 2560 px, варианты строятся уже из них |
 | `osrm_car` / `osrm_foot` | **в этом деплое не включаем** (решение владельца 2026-10-03) — отдельным деплоем позже; до тех пор маршруты по текущему `OSRM_BASE_URL` из `.env` и запасной расчёт по прямой |
 | Миграции | `accounts` 0008–0012, `myapp` 0016–0024 (14 штук): только добавление столбцов/таблиц, без удаления данных |
 | Образ | базовый образ закреплён: `python:3.14.8-slim-trixie` (раньше плавающий `3.14-slim`); на нём прогнан весь набор тестов, сборка `linux/amd64` |
@@ -37,12 +37,15 @@ Runbook для совместного деплоя на `khayrkhoh.tj` (31.25.23
 
 **Как код попадает на сервер.** Сервер — это клон `https://github.com/YusufDavlatyorov/volunteers.git`
 (DEPLOY.md §2) и обновляется командой `git pull` из `origin/main`. Значит, коммиты нужно
-**отправить на GitHub в `main`**. Ветка `feature-pack-v2` (сейчас 8 локальных коммитов поверх
-`2467bc5`) вливается в `main` перемоткой (fast-forward), без merge-коммита.
+**отправить на GitHub в `main`**. Ветка `feature-pack-v2` (коммиты поверх `2467bc5`) вливается
+в `main` перемоткой (fast-forward), без merge-коммита. С 2026-10-04 сама ветка уже лежит на GitHub
+как внешний бэкап (решение владельца) — в `main` до «deploy» ничего не отправляется.
 
 Репозиторий **публичный** (API GitHub отвечает без авторизации). Всё, что отправляем, станет
-видно всем. Проверено 2026-10-03: в диффе нет секретов (`.env`, дампы, `osrm-data/` в git не
-попадают; в тестах только фиктивный токен `123:abc`). Если публиковать не хочется, есть вариант
+видно всем. Проверено 2026-10-03 и 2026-10-04: в диффе нет секретов (`.env`, дампы, `osrm-data/`
+в git не попадают; в тестах только фиктивный токен `123:abc`); 2026-10-04 дополнительно — ни одно
+значение секретов из `.env` / `.env.production` не встречается ни в одном коммите, и в документах
+нет путей `/Users/<имя>`. Если публиковать не хочется, есть вариант
 без GitHub: `git bundle create fp2.bundle main` → `scp` на сервер → `git pull fp2.bundle main`.
 
 1. Полный набор тестов зелёный: `python manage.py test --parallel 4`.
@@ -53,7 +56,7 @@ git checkout main
 git merge --ff-only feature-pack-v2      # ошибка = в main появилось что-то новое → остановиться и разобраться
 git push origin main
 git rev-parse --short HEAD               # записать как NEW
-git push origin feature-pack-v2          # необязательно: копия ветки на GitHub
+git push origin feature-pack-v2          # ветка уже на GitHub (бэкап) — просто обновить
 ```
 
 OSRM в этом деплое не включаем, поэтому данные `osrm-data/` на сервер пока не копируем.
@@ -70,6 +73,12 @@ curl -fsS https://khayrkhoh.tj/health/ready/
 grep -c '\$' .env                      # 0 — без "$" в значениях (проверено 2026-10-02)
 grep -c 'DJANGO_BEHIND_TLS_PROXY=True' .env   # 1 — с этапа 6 по нему же читается IP посетителя
 sudo grep -n "X-Real-IP" /etc/nginx/sites-available/khayrkhoh   # есть в location / (иначе IP посетителя подделывается)
+
+# демо-пароль seed_demo публичный (README, GitHub) — он не должен подходить ни к одному аккаунту.
+# Только чтение: сравнение без пересохранения хеша; печатает только логины. ≈ 0,1–1 с на аккаунт.
+docker compose exec -T web python manage.py shell -c "from django.contrib.auth.hashers import check_password as c; from accounts.models import Users as U; print('demo:', [u.username for u in U.objects.only('username','password') if u.has_usable_password() and c('Volunteer2026!', u.password)], 'demo users:', list(U.objects.filter(username__in=['admin_demo','malika_s','client_zamira','curator_samira']).values_list('username', flat=True)), 'of', U.objects.count())"
+#   ожидаем: demo: [] demo users: [] of N. Если список не пустой — владелец меняет пароль этих
+#   аккаунтов (/admin/ → пользователь → «Изменить пароль») ДО деплоя; деплой это не блокирует.
 
 # память и диск
 free -h                                # смотреть столбец "available"
@@ -236,15 +245,18 @@ free -h                                                        # записат�
 docker compose exec -T web python manage.py backfill_achievements --dry-run    # посмотреть, сколько значков выдастся
 docker compose exec -T web python manage.py backfill_achievements              # тихо, без уведомлений
 docker compose exec -T web python manage.py purge_chats --dry-run              # 0/0 — чатов ещё нет
+docker compose exec -T web python manage.py check_demo_password                # "OK: no account accepts the demo password" (полная проверка всех аккаунтов, ≈ 0,1–1 с на аккаунт)
 # Этап 6: WebP-варианты старых фото (аватары, фотоотчёты, животные). Бэкап media уже есть (шаг 2).
 docker compose exec -T web python manage.py backfill_image_variants --dry-run --strip-metadata
-docker compose exec -T web python manage.py backfill_image_variants --strip-metadata   # решение владельца — см. ниже
+docker compose exec -T web python manage.py backfill_image_variants --strip-metadata   # решение владельца 2026-10-04: да
 docker compose exec -T web python manage.py backfill_image_variants                    # повторно: "total: variants 0, stripped 0, failed 0"
 curl -s https://khayrkhoh.tj/ | grep -c 'type="image/webp"'                    # > 0, если есть фотоотчёты
 ```
 
 `--strip-metadata` перезаписывает **старые** оригиналы, в которых остались EXIF/GPS, по тому же
-пути (адреса не меняются, качество JPEG 90). Новые загрузки очищаются сами с этапа 6. Без флага
+пути (адреса не меняются, качество JPEG 90, размер в пикселях тот же). Новые загрузки очищаются
+сами с этапа 6 и уменьшаются до 2560 px по длинной стороне (решение владельца 2026-10-04); старые
+файлы бэкфилл не уменьшает. Без флага
 команда только строит варианты. Строки `failed` — файл записи пропал с диска; это не ошибка
 деплоя, страница покажет запись без фото, как и раньше.
 

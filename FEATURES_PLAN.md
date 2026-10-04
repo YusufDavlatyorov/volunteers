@@ -610,3 +610,13 @@ only to the volunteer and staff). stars ≤ 2 → `notify(staff, "review_low")`;
 - Long polling for both bots (no public webhook endpoint, one process each, copes with the
   slow uplink); main bot keeps the `run_telegram_bot` command name.
 
+## 16. Milestone 6 decisions (owner, 2026-10-04)
+
+- **Old photos:** run `backfill_image_variants --strip-metadata` at deploy (removes EXIF/GPS from
+  originals uploaded before milestone 6, same path; media backup from runbook step 2 exists).
+- **New uploads are downscaled to 2560 px** on the long side (never upscaled) — all upload paths
+  incl. chat and Django admin. Old files keep their size.
+- **i18n.js is not split** per language for now — revisit after Cloudflare is in front.
+- `GROQ_API_KEY` stays in the local `.env`; `docs/LOCAL_RUN.md` stays in git with `~/…` paths.
+- `feature-pack-v2` is pushed to GitHub as an off-site backup (not merged into `main`).
+- Milestone 7 OK: prepare everything; the deploy itself only after the owner writes "deploy".

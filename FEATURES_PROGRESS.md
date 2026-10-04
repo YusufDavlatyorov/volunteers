@@ -1,6 +1,6 @@
 # Feature Pack v2 — Progress
 
-Branch `feature-pack-v2` (local only — no push, no server until the owner writes "deploy").
+Branch `feature-pack-v2` (pushed to GitHub as an off-site backup since 2026-10-04, owner's request — **not** merged into `main`; no server until the owner writes "deploy").
 Design: `FEATURES_PLAN.md`. Brief: `FEATURES_SPEC.md`.
 
 | Milestone | Scope | Status |
@@ -11,8 +11,8 @@ Design: `FEATURES_PLAN.md`. Brief: `FEATURES_SPEC.md`.
 | 3 | Chat (8) + feedback (9) + profile location button | ✅ done 2026-10-02 (`a1e8244`); owner follow-ups done in milestone 4 |
 | 4 | Achievements (6) + CRM charts (10) + milestone-3 follow-ups | ✅ done 2026-10-02/03 (`56f2d6d`, `0186dae`, `95cf18b`) |
 | 5 | Telegram main bot (4) + community bot (5) | ✅ done 2026-10-03 (`bb810a7`); follow-ups in milestone 6 |
-| 6 | Speed (1) + full QA + docs | ✅ done 2026-10-03 — waiting for owner OK |
-| 7 | Deploy (after "deploy") | ⏸ |
+| 6 | Speed (1) + full QA + docs | ✅ done 2026-10-03/04; owner decisions in FEATURES_PLAN §16 |
+| 7 | Deploy (after "deploy") | 🟡 prep done 2026-10-04 (owner OK) — deploy itself waits for "deploy" |
 
 Baseline: 657 tests green at `2467bc5` (main).
 
@@ -166,8 +166,25 @@ Baseline: 657 tests green at `2467bc5` (main).
   (never on macOS, where `spawn` re-imports per worker). Fixed with `myapp/testing.py::TempMediaRoot`
   (only the creating process removes it). Note: without `tblib` one failure in a Linux parallel run
   aborts the whole run ("cannot pickle 'traceback'") — run serially to see a traceback.
+- **Milestone 7 prep (2026-10-04, owner OK; the deploy itself only after "deploy").** Owner decisions on
+  the milestone-6 questions (FEATURES_PLAN §16): strip GPS from old photos at deploy (runbook §9 runs
+  `backfill_image_variants --strip-metadata`); **new uploads are downscaled to 2560 px** on the long
+  side (`images.MAX_ORIGINAL_SIDE`, in `strip_metadata`, so avatars / photo reports / pets / admin /
+  chat — JPEG decoded via `draft` at 1/2–1/8 scale when that still covers 2560; palette PNGs converted
+  before resampling; the backfill's in-place strip keeps old sizes); i18n.js stays one file until after
+  Cloudflare. Secrets: `.env` / `.env.production` are gitignored and in no commit of any ref; no real
+  secret value from them appears in any commit — except that the *local dev* `DJANGO_SECRET_KEY` was the
+  old built-in `django-insecure-…` fallback that lived in `server/settings.py` in two early (public)
+  commits → rotated locally (production's key is different and never was in git). `docs/LOCAL_RUN.md`
+  / `docs/TEST_BOT.md`: `/Users/<name>/…` → `~/…`, folded into the unpushed milestone-6 commit (now
+  `f680374`) so the public history never had it. Demo password: new read-only
+  `check_demo_password` (every account vs seed_demo's public password + demo usernames, never writes —
+  `hashers.check_password` without a setter, exit 1 if anything is found) and
+  `create_initial_production_accounts` refuses the demo password before creating anything; local
+  `.env.production`'s four `INITIAL_*_PASSWORD` are not the demo password; the production DB itself is
+  checked read-only in runbook §1 (one-liner, old code) and §9 (`check_demo_password`).
 
-## Deploy checklist (milestones 1–6 together; only after the owner writes "deploy")
+## Deploy checklist (milestones 1–6 together = milestone 7; only after the owner writes "deploy")
 
 Full runbook with commands, expected output and the rollback plan:
 **`docs/DEPLOY_FEATURE_PACK_V2.md`** (rollback rehearsed on postgres:16, 2026-10-03). Order:
@@ -178,7 +195,7 @@ Full runbook with commands, expected output and the rollback plan:
 1. Server pre-flight (read-only): clean tree at `2467bc5`, `docker compose ps`, `nginx -t`,
    `/health/ready/`, no `$` in `.env`; `DJANGO_BEHIND_TLS_PROXY=True` in `.env` and
    `proxy_set_header X-Real-IP $remote_addr` in nginx `location /` (milestone 6: rate limits read
-   the visitor IP from it); `free -h`, `df -h`, `docker system df`, DB size, `du -sh media`
+   the visitor IP from it); demo password accepts no account (read-only `shell -c` one-liner); `free -h`, `df -h`, `docker system df`, DB size, `du -sh media`
    (need ≥ 2 GB free: ≈ 0.6 GB image/cache + dump + media; RAM "available" noted for the later OSRM deploy).
 2. Backups: `pg_dump -Fc`, `media.tgz`, `docker tag khayrkhoh:latest khayrkhoh:rollback-2467bc5`,
    `staticfiles.json`, nginx site file, `crontab -l`, `SHA256SUMS`; then on the Mac `rsync` the backup
@@ -196,6 +213,7 @@ Full runbook with commands, expected output and the rollback plan:
    and no `community` profile this time — the community bot is enabled separately, docs/COMMUNITY_BOT.md).
 8. Verify: health/ready, `check_realtime` in `web` and `ws`, `/ws/` handshake 101, logs, `docker stats`.
 9. `backfill_achievements --dry-run`, then without (silent); `purge_chats --dry-run`;
+   `check_demo_password` → OK;
    `backfill_image_variants --dry-run --strip-metadata`, then with `--strip-metadata` (owner
    decision; media backup from step 2 exists), then once more → `variants 0, stripped 0`.
 10. crons (DEPLOY.md §13): `sweep_availability` */5, `purge_tracking` hourly, `prune_notifications`
