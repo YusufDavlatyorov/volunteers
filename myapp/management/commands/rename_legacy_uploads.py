@@ -6,7 +6,8 @@ name the user's phone or computer gave it — often the person's real name
 part of a public URL and of every page that shows the photo. New uploads are
 stored as ``<uuid>.<ext>`` (``images.clean_original``); this command brings the
 old ones in line. Run once at deploy, **after the media backup** (runbook §2),
-before ``backfill_image_variants``.
+with the app containers stopped (runbook §7 — no upload or profile save can
+race the rename), before ``backfill_image_variants``.
 
 For every stored file whose name is not already random:
 
@@ -24,21 +25,30 @@ would still print the old name in its ``<img src>``.
 
 Files under the upload folders that no row references and whose names are not
 random (left behind when a user replaced their photo — Django never deletes the
-previous file) are only counted; ``--delete-unreferenced`` removes them (the
-runbook's ``media.tgz`` holds a copy). Chat photos are not touched: they have
-had random names since milestone 3 and are not public.
+previous file) are only counted. ``--quarantine-unreferenced DIR`` moves them out
+of MEDIA_ROOT (so nginx no longer serves them) into ``DIR``, keeping their
+relative paths — never deletes; the runbook deletes ``DIR`` 30 days later. It
+requires ``--verify-backup media.tgz`` (runbook §2): the archive must read to
+the end without a gzip/tar error and hold every one of those files with the
+same bytes, otherwise nothing is moved (exit code 1). Chat photos are not
+touched: they have had random names since milestone 3 and are not public.
 
 Idempotent; prints counts and row ids only, never a file name.
 """
 
+import hashlib
 import os
 import re
+import shutil
+import tarfile
 import uuid
 from collections import defaultdict
+from pathlib import Path
 
 from django.apps import apps
+from django.conf import settings
 from django.core.files.storage import default_storage
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from myapp.services import images
@@ -87,12 +97,18 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--dry-run", action="store_true", help="Only count what would be done.")
-        parser.add_argument("--delete-unreferenced", action="store_true",
-                            help="Also delete non-random files in the upload folders that no row references.")
+        parser.add_argument("--quarantine-unreferenced", metavar="DIR",
+                            help="Move non-random files that no row references out of MEDIA_ROOT into DIR "
+                                 "(must be outside MEDIA_ROOT). Requires --verify-backup.")
+        parser.add_argument("--verify-backup", metavar="MEDIA_TGZ",
+                            help="The runbook's media.tgz: must be readable and contain every file to be moved.")
 
     def handle(self, *args, **options):
         dry_run = options["dry_run"]
         storage = default_storage
+        quarantine = options["quarantine_unreferenced"]
+        if quarantine:
+            quarantine = self._check_quarantine_dir(quarantine, options["verify_backup"])
 
         # old name -> [(model, pk, variants)] across all three models: one file
         # may be shared by several rows (and even models), and must be moved once.
@@ -125,16 +141,72 @@ class Command(BaseCommand):
             counts = per_model[label]
             self.stdout.write(f"{label}: {verb} {counts['renamed']}, file missing (name replaced) {counts['missing']}")
 
-        unreferenced = self._unreferenced(storage)
-        if options["delete_unreferenced"] and not dry_run:
-            for path in unreferenced:
-                storage.delete(path)
-            self.stdout.write(f"unreferenced non-random files deleted: {len(unreferenced)}")
-        else:
-            self.stdout.write(f"unreferenced non-random files: {len(unreferenced)}"
-                              + (" (delete with --delete-unreferenced)" if unreferenced else ""))
         total = sum(c["renamed"] + c["missing"] for c in per_model.values())
         self.stdout.write(f"total: {verb} {total}, changed meanwhile {skipped}, failed {failed}")
+
+        unreferenced = self._unreferenced(storage)
+        if not quarantine:
+            self.stdout.write(f"unreferenced non-random files: {len(unreferenced)}"
+                              + (" (move out with --quarantine-unreferenced)" if unreferenced else ""))
+            return
+        problems = self._verify_backup(options["verify_backup"], storage, unreferenced)
+        if problems:
+            raise CommandError(f"backup check failed: {problems} — nothing moved")
+        self.stdout.write(f"backup check: OK, all {len(unreferenced)} unreferenced files are in it with the same bytes")
+        if dry_run:
+            self.stdout.write(f"unreferenced non-random files: would move {len(unreferenced)}")
+            return
+        media_root = Path(settings.MEDIA_ROOT)
+        for rel in unreferenced:
+            target = quarantine / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if target.exists():  # never overwrite an earlier quarantine
+                raise CommandError("a quarantined file already exists at the target — nothing more moved")
+            shutil.copy2(media_root / rel, target)
+            if target.stat().st_size != (media_root / rel).stat().st_size:
+                raise CommandError("copy to quarantine is incomplete — original left in place")
+            storage.delete(rel)
+        self.stdout.write(f"unreferenced non-random files moved to quarantine: {len(unreferenced)}")
+
+    def _check_quarantine_dir(self, path, backup):
+        if not backup:
+            raise CommandError("--quarantine-unreferenced needs --verify-backup <media.tgz>")
+        target = Path(path).resolve()
+        media_root = Path(settings.MEDIA_ROOT).resolve()
+        if target == media_root or media_root in target.parents:
+            raise CommandError("the quarantine directory must be outside MEDIA_ROOT (nginx serves MEDIA_ROOT)")
+        if not target.is_dir() or not os.access(target, os.W_OK):
+            raise CommandError("the quarantine directory must exist and be writable")
+        return target
+
+    def _verify_backup(self, archive, storage, paths):
+        """Return "" when ``archive`` reads to the end and holds every path
+        (under ``<MEDIA_ROOT name>/``) with identical bytes, else a short
+        reason with counts only."""
+        prefix = Path(settings.MEDIA_ROOT).name + "/"
+        wanted = {prefix + rel: rel for rel in paths}
+        found = {}
+        try:
+            with tarfile.open(archive, "r:gz") as tar:
+                for member in tar:
+                    name = member.name[2:] if member.name.startswith("./") else member.name
+                    if name in wanted and member.isfile():
+                        with tar.extractfile(member) as fh:
+                            found[wanted[name]] = hashlib.sha256(fh.read()).hexdigest()
+                tar.fileobj.read()  # to the very end: gzip checks its CRC / length there
+        except (OSError, EOFError, tarfile.TarError):
+            return "archive unreadable"
+        missing = differ = 0
+        for rel in paths:
+            if rel not in found:
+                missing += 1
+                continue
+            with storage.open(rel, "rb") as fh:
+                if hashlib.sha256(fh.read()).hexdigest() != found[rel]:
+                    differ += 1
+        if missing or differ:
+            return f"{missing} not in the archive, {differ} with different bytes"
+        return ""
 
     def _rename(self, storage, old, rows, exists):
         """Move one file (and its variants) to a random name. False when no

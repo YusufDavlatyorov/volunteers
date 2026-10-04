@@ -28,8 +28,8 @@ import logging
 from django.apps import apps
 from django.conf import settings
 from django.db import connections, transaction
-from django.db.migrations.executor import MigrationExecutor
 from django.db.migrations.loader import MigrationLoader
+from django.db.migrations.recorder import MigrationRecorder
 from django.core.cache import cache
 from django.http import JsonResponse
 from django.views.decorators.http import require_GET
@@ -71,26 +71,36 @@ def _check_database():
 _PROJECT_APPS = ("accounts", "myapp")
 
 
+@functools.cache
+def _disk_migrations():
+    """``(expected, project_disk)`` from the migration files of this code:
+    every node the database must have applied, and the project apps' files.
+    The files can't change while the process runs, so this is built once per
+    worker (≈ 1–8 ms) instead of on every poll."""
+    loader = MigrationLoader(None, ignore_no_migrations=True)
+    expected = frozenset(loader.graph.nodes)
+    project = frozenset(key for key in loader.disk_migrations if key[0] in _PROJECT_APPS)
+    return expected, project
+
+
 def _check_migrations():
     """The same question as ``migrate --check``, plus the reverse direction:
-    the database must have every migration on disk applied, and no project-app
-    migration applied that this code doesn't have. One SELECT on
-    django_migrations; the graph comes from the already-imported modules
-    (≈ 1 ms)."""
+    the database must have every migration of this code applied, and no
+    project-app migration applied that this code doesn't have. Per poll: the
+    recorder's table check + one SELECT on django_migrations."""
     try:
-        executor = MigrationExecutor(connections["default"])
-        loader = executor.loader
-        unapplied = executor.migration_plan(loader.graph.leaf_nodes())
-        unknown = [key for key in loader.applied_migrations
-                   if key[0] in _PROJECT_APPS and key not in loader.disk_migrations]
+        expected, project_disk = _disk_migrations()
+        applied = set(MigrationRecorder(connections["default"]).applied_migrations())
     except Exception as exc:  # noqa: BLE001
         logger.warning("readiness: migration check failed: %r", exc)
         return False
+    unapplied = sorted(expected - applied)
+    unknown = sorted(key for key in applied if key[0] in _PROJECT_APPS and key not in project_disk)
     if unapplied or unknown:
         logger.warning(
             "readiness: migrations out of sync: %d unapplied (first: %s), %d applied but not in this code (%s)",
-            len(unapplied), f"{unapplied[0][0].app_label}.{unapplied[0][0].name}" if unapplied else "-",
-            len(unknown), ", ".join(".".join(key) for key in sorted(unknown)[:5]) or "-",
+            len(unapplied), ".".join(unapplied[0]) if unapplied else "-",
+            len(unknown), ", ".join(".".join(key) for key in unknown[:5]) or "-",
         )
         return False
     return True

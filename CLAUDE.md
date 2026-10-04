@@ -33,7 +33,7 @@ python manage.py check_stale_requests [--dry-run]       # mirror of the above fo
 python manage.py create_initial_production_accounts    # prod-only bootstrap: exactly 4 accounts (admin/curator/volunteer/client) from INITIAL_<ROLE>_* env vars; idempotent, never seeds business data, refuses the demo password — see README "Initial production accounts"
 python manage.py check_demo_password                   # read-only audit: accounts accepting seed_demo's public password + demo usernames present; exit 1 if any (deploy runbook §1/§9)
 python manage.py check_demo_data                       # read-only: everything seed_demo writes (accounts, rows, byte-identical demo photos in media/); ids/counts only; exit 1 if any — found = tell the owner, delete nothing (runbook §3a/§9/§12)
-python manage.py rename_legacy_uploads [--dry-run --delete-unreferenced]   # pre-milestone-6 avatars/reports/pet photos under personal file names → <uuid>.<ext>, rows updated, old files removed; once at deploy, after migrate, before backfill_image_variants
+python manage.py rename_legacy_uploads [--dry-run] [--quarantine-unreferenced DIR --verify-backup media.tgz]   # pre-milestone-6 avatars/reports/pet photos under personal file names → <uuid>.<ext>, rows updated, old files removed; once at deploy with the app stopped (runbook §7), before backfill_image_variants. Unreferenced leftovers: only counted, or MOVED (never deleted) outside MEDIA_ROOT after verifying media.tgz holds them byte-identical (§9; deleted 30 days later, §13)
 curl -s localhost:8000/health/ ; curl -s localhost:8000/health/ready/   # liveness / readiness (server/health.py) — public, no secrets
 
 python manage.py test --parallel 4                       # full suite (see FEATURES_PROGRESS.md for the current count)

@@ -21,7 +21,7 @@ Runbook для совместного деплоя на `khayrkhoh.tj` (31.25.23
 | Новый `community_bot` | бот сообщества волонтёров, профиль `community` — **в этом деплое не запускается**; включается отдельно, когда владелец создаст бота и группу (`docs/COMMUNITY_BOT.md`); ≈ 90 МиБ, лимит 200 МБ |
 | nginx | `map $http_upgrade`, `location /ws/`, `/media/chat/` → 404, `internal` `/protected-media/` (DEPLOY.md §10a); этап 6: `open_file_cache`, `/media/` — кэш 30 дней + `nosniff` (DEPLOY.md §10) |
 | cron | 7 новых задач (DEPLOY.md §13); две задачи сообщества ничего не делают, пока оно не настроено |
-| Однократно | `backfill_achievements`; `rename_legacy_uploads` (старые фото со своими именами файлов → случайные имена, ссылки в БД обновляются); `backfill_image_variants` (WebP-варианты старых фото; с `--strip-metadata` — ещё и убрать GPS из старых оригиналов) |
+| Однократно | `backfill_achievements`; `rename_legacy_uploads` (старые фото со своими именами файлов → случайные имена, ссылки в БД обновляются — в окне простоя шага 7; старые файлы без ссылок → карантин вне `media/` в шаге 9, удаление через 30 дней — шаг 13); `backfill_image_variants` (WebP-варианты старых фото; с `--strip-metadata` — ещё и убрать GPS из старых оригиналов) |
 | `/health/ready/` | теперь проверяет ещё и **схему БД**: все миграции применены, нет применённых миграций, которых нет в коде, все таблицы и столбцы моделей на месте (подробно — шаг 8) |
 | Демо-данные | `check_demo_data` — проверка «демо-данных нет» только на чтение, до деплоя (шаг 3a) и после (шаги 9, 12); `seed_demo` отказывается работать при `DEBUG=False` |
 | `.env` | новых обязательных переменных нет; **после деплоя меняется `TELEGRAM_BOT_TOKEN`** — новый токен через @BotFather (шаг 10a). Токен **тестового** бота (docs/TEST_BOT.md) живёт только в локальном `.env` на Mac — на сервер, в git и в этот runbook он не попадает никогда |
@@ -293,14 +293,41 @@ curl -s -o /dev/null -w "%{http_code}\n" https://khayrkhoh.tj/protected-media/x.
 curl -fsS https://khayrkhoh.tj/health/ready/                                         # 200, сайт жив
 ```
 
-## 7. Перезапуск
+## 7. Перезапуск (с переименованием старых фото в окне простоя)
+
+Старые фото переименовываются, **пока приложение остановлено**: в это время никто не может загрузить
+фото или сохранить профиль/фотоотчёт/объявление со старым именем файла поверх нового (такое
+сохранение вернуло бы в БД имя уже удалённого файла). Отдельного «режима обслуживания» у сайта
+нет — это то же окно, в котором `web` и так пересоздаётся; nginx в нём отвечает 502, как и раньше.
 
 ```bash
+# 7.1 сколько будет переименовано — пока работает старый сайт (только чтение; схема уже новая после шага 5)
+docker compose run --rm --no-deps web python manage.py rename_legacy_uploads --dry-run
+#   "total: would rename N …"; строку "unreferenced …" пока не трогаем — это шаг 9
+# 7.2 окно простоя: остановить старые контейнеры приложения (redis не трогаем — в нём очередь)
+docker compose stop web telegram_bot celery_worker
+# 7.3 переименовать (новым образом; для ~сотни фото — секунды)
+docker compose run --rm --no-deps web python manage.py rename_legacy_uploads
+#   "total: renamed N, changed meanwhile 0, failed 0". failed > 0 — НЕ останавливаться: сайт
+#   поднимаем (7.4), разбираемся после (строка в stderr — только номера записей; файлы есть в media.tgz)
+# 7.4 поднять новые контейнеры
 docker compose up -d                       # пересоздаёт web/telegram_bot/celery_worker, поднимает ws
 docker compose ps                          # web, ws, telegram_bot, celery_worker, redis — Up (osrm_* не запускаются: профиль не включён)
+docker compose run --rm --no-deps web python manage.py rename_legacy_uploads --dry-run   # "total: would rename 0"
 ```
 
-Простой — примерно 10–20 секунд, пока пересоздаётся `web`.
+Простой — примерно 30–40 секунд (остановка ≈ 10 с + переименование — секунды + пересоздание `web`
+10–20 с); раньше было 10–20 с. cron-задачи, попавшие в это окно, напишут в `cron.log` ошибку
+`exec` (контейнер остановлен) и отработают в следующий запуск — это безвредно.
+
+**Что видят пользователи.** Загрузить фото во время 7.2–7.4 нельзя (сайт не отвечает). Фото,
+загруженные старым кодом **до** 7.2 (в том числе после бэкапа шага 2), ещё со старыми именами —
+команда переименует и их. Фото после 7.4 сразу получают случайные имена. Страница, открытая до
+переименования, покажет «битую» картинку до обновления (старый адрес больше не существует).
+**Ссылок на фото вне сайта нет:** ни бот, ни рассылки, ни уведомления, ни письма — ни в новом коде,
+ни в работающем `2467bc5` — не отправляют адресов `/media/…` (бот фото только принимает в чат
+запроса, уведомления ведут на страницы). Перестанет открываться только ссылка, которую кто-то
+вручную скопировал и куда-то вставил.
 
 ## 8. Проверка (сразу)
 
@@ -316,8 +343,26 @@ docker compose ps                          # web, ws, telegram_bot, celery_worke
 | `config` | `SECRET_KEY` задан |
 | `cache` | Redis отвечает (запись + чтение) |
 
+**Кто опрашивает `/health/ready/`** (проверено по `docker-compose.yml`, DEPLOY.md, этому runbook,
+2026-10-04): только люди — `curl` в шагах 1, 6, 8, 12 и в откате. В compose `healthcheck` есть только
+у `redis`; `depends_on` у сервисов — простые, без `condition: service_healthy`; Docker по
+healthcheck не перезапускает (только `restart: unless-stopped` при падении процесса); nginx
+активных проверок не делает и запросы по ответу этого адреса не снимает; внешних мониторов в
+репозитории нет (если владелец подключал свой — он увидит 503 только в окне ниже). 503 ни на что
+автоматически не влияет: сайт продолжает обслуживать запросы.
+
+**Окна, где возможен 503.** Деплой: между `migrate` (шаг 5) и 7.4 работает **старый** код — в нём
+проверки миграций нет, он отвечает 200 (проверено на `2467bc5`). Новый код стартует в 7.4, когда
+миграции уже применены → 200. Откат уровня 1: между 1.2 (миграции назад) и 1.3 (`up -d` старого
+образа) ещё работает **новый** `web` → его `/health/ready/` = 503 (`migrations`), это ожидаемо и
+длится минуты; сайт в это время работает как «новый код на старой схеме». После 1.3 — старый код, 200.
+
+**Граф миграций не строится на каждый запрос:** файлы миграций читаются один раз на процесс
+gunicorn (≈ 10 мс при первом опросе), дальше каждый опрос — 1 запрос к `django_migrations`
+(≈ 0,2 мс локально); список таблиц/столбцов тоже строится один раз.
+
 Если БД недоступна, `migrations` и `schema` = `skipped`. Не проверяет: индексы, ограничения
-(`UNIQUE`/`CHECK`), типы столбцов и сами данные — это работа `migrate` и бэкапов. Стоит ≈ 1–8 мс
+(`UNIQUE`/`CHECK`), типы столбцов и сами данные — это работа `migrate` и бэкапов. Стоит ≈ 1–5 мс
 и 4 коротких запроса. Тесты: `myapp.tests_predeploy.ReadinessSchemaTests` (SQLite и `postgres:16`).
 
 ```bash
@@ -343,12 +388,23 @@ docker compose exec -T web python manage.py purge_chats --dry-run              #
 docker compose exec -T web python manage.py check_demo_data                    # "OK: no demo data" — демо-данных нет и после деплоя (включает check_demo_password)
 #   не 0 → ничего не удалять, сказать владельцу (см. рамку в начале)
 
-# Старые фото → случайные имена. Бэкап media уже есть (шаг 2). До backfill_image_variants, чтобы
-# WebP-варианты сразу строились под новыми именами.
-docker compose exec -T web python manage.py rename_legacy_uploads --dry-run   # сколько будет переименовано
-docker compose exec -T web python manage.py rename_legacy_uploads             # "total: renamed N, changed meanwhile 0, failed 0"
-docker compose exec -T web python manage.py rename_legacy_uploads             # повторно: "total: renamed 0, …"
-#   строка "unreferenced non-random files: K" — см. ниже; удалять их — только по решению владельца
+# Старые файлы, на которые не ссылается ни одна запись → карантин ВНЕ media/ (nginx их больше не
+# отдаёт). Решение владельца 2026-10-04: не удалять сразу; удалить через 30 дней (шаг 13).
+# Сначала команда проверяет, что media.tgz из шага 2 читается до конца и содержит каждый из этих
+# файлов с теми же байтами; если нет — ничего не переносит (код 1) → сказать владельцу.
+B=/var/backups/khayrkhoh/pre-fp2-<TS>                 # путь бэкапа из шага 2
+ls -lh "$B/media.tgz"                                 # есть, не 0 байт
+Q=/var/backups/khayrkhoh/media-quarantine-$(date +%F); echo "$Q"     # записать путь
+sudo install -d -o 1000 -g 1000 -m 700 "$Q"          # uid 1000 = пользователь контейнера
+docker compose run --rm --no-deps -v "$Q:/quarantine" -v "$B/media.tgz:/backup/media.tgz:ro" \
+  web python manage.py rename_legacy_uploads --quarantine-unreferenced /quarantine --verify-backup /backup/media.tgz --dry-run
+#   "backup check: OK, all K …" + "would move K"
+docker compose run --rm --no-deps -v "$Q:/quarantine" -v "$B/media.tgz:/backup/media.tgz:ro" \
+  web python manage.py rename_legacy_uploads --quarantine-unreferenced /quarantine --verify-backup /backup/media.tgz
+#   "moved to quarantine: K"
+docker compose run --rm --no-deps web python manage.py rename_legacy_uploads --dry-run   # "unreferenced non-random files: 0"
+sudo find "$Q" -type f | wc -l                        # = K
+sudo grep -nE "^\s*(root|alias) " /etc/nginx/sites-available/khayrkhoh   # только staticfiles/ и media/ — карантин не отдаётся
 
 # Этап 6: WebP-варианты старых фото (аватары, фотоотчёты, животные).
 docker compose exec -T web python manage.py backfill_image_variants --dry-run --strip-metadata
@@ -364,7 +420,7 @@ curl -s https://khayrkhoh.tj/ | grep -c 'type="image/webp"'                    #
 команда только строит варианты. Строки `failed` — файл записи пропал с диска; это не ошибка
 деплоя, страница покажет запись без фото, как и раньше.
 
-**`rename_legacy_uploads`.** До этапа 6 аватар, фотоотчёт или фото животного хранились под именем
+**`rename_legacy_uploads`** (шаг 7.3 и карантин здесь). До этапа 6 аватар, фотоотчёт или фото животного хранились под именем
 файла с телефона/компьютера — часто это ФИО (`/media/avatars/Ivanov_Ivan.jpg`), а `/media/` публичен.
 Команда для каждого такого файла: копирует его (байты не меняются) в `<та же папка>/<uuid>.<расш.>`
 вместе с готовыми WebP-вариантами → условным `UPDATE … WHERE image = <старое имя>` переводит на
@@ -379,9 +435,13 @@ curl -s https://khayrkhoh.tj/ | grep -c 'type="image/webp"'                    #
 
 **«unreferenced non-random files: K»** — файлы с неслучайными именами в `avatars/`, `reports/`,
 `pets/`, на которые не ссылается ни одна запись: Django не удаляет старый файл, когда человек меняет
-аватар, поэтому прежние фото (возможно, с ФИО в имени) так и лежат по публичному адресу. Команда их
-**только считает**. Удалить: `rename_legacy_uploads --delete-unreferenced` — **только если владелец
-так решил** (копия всех файлов — в `media.tgz` из шага 2).
+аватар, поэтому прежние фото (возможно, с ФИО в имени) так и лежат по публичному адресу. Без флагов
+команда их только считает. С `--quarantine-unreferenced DIR --verify-backup media.tgz` — переносит
+в `DIR` (вне `MEDIA_ROOT`, с теми же относительными путями, без перезаписи), **никогда не удаляет**.
+Перед переносом: архив должен прочитаться до конца (gzip проверяет контрольную сумму в конце файла) и
+содержать каждый переносимый файл с теми же байтами (sha256); иначе не переносится ничего. Печатает
+только количества. Тесты: `myapp.tests_predeploy.RenameLegacyUploadsTests` (неполный, испорченный
+архив, другие байты, каталог внутри `MEDIA_ROOT`).
 
 ## 10. cron
 
@@ -491,6 +551,19 @@ crontab -e
 - Через сутки: `docker compose exec -T web python manage.py check_demo_data` — снова "OK: no demo data"
   (только чтение; не 0 → ничего не удалять, сказать владельцу).
 
+## 13. Через 30 дней: удалить карантин старых файлов
+
+Дата = день деплоя + 30 (записать в календарь). Только если за это время никто не сообщил о
+пропавшей фотографии; иначе — сначала вернуть нужный файл из `$Q` (или из `media.tgz`).
+
+```bash
+Q=/var/backups/khayrkhoh/media-quarantine-<дата деплоя>     # путь из шага 9
+sudo find "$Q" -type f | wc -l                               # то же K, что в шаге 9
+sudo rm -rf "$Q"
+```
+
+Копия этих файлов остаётся в `media.tgz` из шага 2, пока хранится сам бэкап.
+
 ---
 
 ## Откат
@@ -525,6 +598,7 @@ docker exec shared_postgres pg_dump -U "$DJANGO_DB_USER" -Fc "$DJANGO_DB_NAME" >
 docker compose run --rm web python manage.py migrate myapp 0015
 docker compose run --rm web python manage.py migrate accounts 0007
 #     порядок важен: сначала myapp, потом accounts. Если первая упала — СТОП, переходить к уровню 2.
+#     С этого момента и до 1.3 /health/ready/ работающего нового web = 503 (migrations) — ожидаемо.
 # 1.3 вернуть код и образ
 crontab "$B/crontab.txt"                      # убрать новые cron-задачи
 git checkout 2467bc5
@@ -582,7 +656,7 @@ docker compose run --rm web python manage.py collectstatic --noinput
 docker compose up -d --remove-orphans
 sudo cp "$B/nginx-khayrkhoh.conf" /etc/nginx/sites-available/khayrkhoh && sudo nginx -t && sudo systemctl reload nginx
 crontab "$B/crontab.txt"
-# media — дамп ссылается на СТАРЫЕ имена файлов, а rename_legacy_uploads (шаг 9) их удалил: вернуть
+# media — дамп ссылается на СТАРЫЕ имена файлов, а rename_legacy_uploads (шаг 7.3) их удалил: вернуть
 # из бэкапа. От root, чтобы сохранить владельца (uid 1000 контейнера); файлы, загруженные после
 # деплоя, и переименованные копии остаются лишними файлами — безвредно.
 sudo tar -C /opt/khayrkhoh -xzpf "$B/media.tgz"

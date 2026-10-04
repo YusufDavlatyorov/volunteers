@@ -14,6 +14,8 @@
 
 import io
 import os
+import tarfile
+import tempfile
 import uuid
 from pathlib import Path
 from unittest import mock
@@ -139,8 +141,16 @@ class ReadinessSchemaTests(TestCase):
         migrations.assert_not_called()
         schema.assert_not_called()
 
+    def test_migration_graph_is_built_once_per_process(self):
+        health._disk_migrations()
+        with mock.patch("server.health.MigrationLoader") as loader:
+            self.assertEqual(self.ready().status_code, 200)
+            self.assertEqual(self.ready().status_code, 200)
+        loader.assert_not_called()
+
     def test_ready_stays_cheap(self):
-        health._expected_schema()  # built once per process
+        health._expected_schema()  # both built once per process
+        health._disk_migrations()
         with self.assertNumQueries(6):
             # SELECT 1; the recorder's "table exists?" + django_migrations; the
             # one probe statement and its SAVEPOINT / RELEASE (the test runs
@@ -236,15 +246,86 @@ class RenameLegacyUploadsTests(TestCase):
         pet.refresh_from_db()
         self.assertEqual(pet.image.name, random_name)
 
-    def test_unreferenced_personal_files_are_counted_and_deleted_only_on_request(self):
+    def backup(self, files, corrupt=False):
+        """A media.tgz like runbook §2 (``tar -C <parent> -czf media.tgz <media dir>``)."""
+        fd, path = tempfile.mkstemp(suffix=".tgz")
+        os.close(fd)
+        self.addCleanup(os.unlink, path)
+        with tarfile.open(path, "w:gz") as tar:
+            for rel, data in files.items():
+                info = tarfile.TarInfo(f"{self.root.name}/{rel}")
+                info.size = len(data)
+                tar.addfile(info, io.BytesIO(data))
+        if corrupt:
+            with open(path, "r+b") as fh:
+                fh.truncate(os.path.getsize(path) - 20)
+        return path
+
+    def quarantine_dir(self):
+        path = tempfile.mkdtemp(prefix="gc-quarantine-")
+        self.addCleanup(lambda: __import__("shutil").rmtree(path, ignore_errors=True))
+        return path
+
+    def test_unreferenced_personal_files_are_only_counted_by_default(self):
         self.put("avatars/Old_Avatar_Of_Someone.jpg")  # left behind by an avatar change
         self.put(f"avatars/{uuid.uuid4().hex}.jpg")    # random — not a privacy problem, left alone
         out = rename()
-        self.assertIn("unreferenced non-random files: 1 (delete with --delete-unreferenced)", out)
+        self.assertIn("unreferenced non-random files: 1 (move out with --quarantine-unreferenced)", out)
+        self.assertEqual(len(os.listdir(self.root / "avatars")), 2)
+        self.assertNotIn("Old_Avatar", out)
+
+    def test_quarantine_moves_out_of_media_root_after_checking_the_backup(self):
+        old = self.put("avatars/Old_Avatar_Of_Someone.jpg", _jpeg("blue"))
+        pet = self.put("pets/Lost Dog Karimov.png", _jpeg("green"))
+        keep = f"avatars/{uuid.uuid4().hex}.jpg"
+        self.put(keep)
+        archive = self.backup({"avatars/Old_Avatar_Of_Someone.jpg": old, "pets/Lost Dog Karimov.png": pet})
+        target = self.quarantine_dir()
+
+        out = rename("--quarantine-unreferenced", target, "--verify-backup", archive, "--dry-run")
+        self.assertIn("backup check: OK, all 2", out)
+        self.assertIn("would move 2", out)
         self.assertTrue((self.root / "avatars/Old_Avatar_Of_Someone.jpg").exists())
-        out = rename("--delete-unreferenced")
-        self.assertIn("unreferenced non-random files deleted: 1", out)
-        self.assertEqual(len(os.listdir(self.root / "avatars")), 1)
+
+        out = rename("--quarantine-unreferenced", target, "--verify-backup", archive)
+        self.assertIn("moved to quarantine: 2", out)
+        self.assertEqual(Path(target, "avatars/Old_Avatar_Of_Someone.jpg").read_bytes(), old)
+        self.assertEqual(Path(target, "pets/Lost Dog Karimov.png").read_bytes(), pet)
+        self.assertEqual(os.listdir(self.root / "avatars"), [os.path.basename(keep)])
+        self.assertEqual(os.listdir(self.root / "pets"), [])
+        self.assertNotIn("Karimov", out)
+        self.assertIn("unreferenced non-random files: 0", rename())
+
+    def assert_nothing_moved(self, *args, message):
+        with self.assertRaisesMessage(CommandError, message):
+            rename(*args)
+        self.assertTrue((self.root / "avatars/Old_Avatar_Of_Someone.jpg").exists())
+
+    def test_quarantine_refuses_without_a_good_backup(self):
+        data = self.put("avatars/Old_Avatar_Of_Someone.jpg", _jpeg("blue"))
+        self.put("avatars/Second_Old.jpg", _jpeg("white"))
+        target = self.quarantine_dir()
+        self.assert_nothing_moved("--quarantine-unreferenced", target, message="needs --verify-backup")
+        self.assert_nothing_moved("--quarantine-unreferenced", target, "--verify-backup",
+                                  self.backup({"avatars/Old_Avatar_Of_Someone.jpg": data}),
+                                  message="1 not in the archive, 0 with different bytes")
+        self.assert_nothing_moved("--quarantine-unreferenced", target, "--verify-backup",
+                                  self.backup({"avatars/Old_Avatar_Of_Someone.jpg": b"other bytes",
+                                               "avatars/Second_Old.jpg": _jpeg("white")}),
+                                  message="0 not in the archive, 1 with different bytes")
+        self.assert_nothing_moved("--quarantine-unreferenced", target, "--verify-backup",
+                                  self.backup({"avatars/Old_Avatar_Of_Someone.jpg": data,
+                                               "avatars/Second_Old.jpg": _jpeg("white")}, corrupt=True),
+                                  message="archive unreadable")
+        self.assertEqual(os.listdir(target), [])
+
+    def test_quarantine_dir_must_be_outside_media_root(self):
+        self.put("avatars/Old_Avatar_Of_Someone.jpg")
+        inside = self.root / "quarantine"
+        inside.mkdir(exist_ok=True)
+        self.addCleanup(lambda: __import__("shutil").rmtree(inside, ignore_errors=True))
+        self.assert_nothing_moved("--quarantine-unreferenced", str(inside), "--verify-backup", "x.tgz",
+                                  message="must be outside MEDIA_ROOT")
 
     def test_a_row_changed_meanwhile_is_left_alone(self):
         self.put("avatars/Name.jpg")

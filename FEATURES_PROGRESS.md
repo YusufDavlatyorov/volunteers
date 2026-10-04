@@ -215,7 +215,8 @@ Baseline: 657 tests green at `2467bc5` (main).
   names at public URLs → `<uuid>.<ext>` + WebP variants moved along, conditional UPDATE per file,
   old file deleted only after the rows point at the new one; rows whose file is gone get a random
   name too; unreferenced non-random leftovers (old avatars after a change) only counted unless
-  `--delete-unreferenced`. Rehearsed on a copy of `2467bc5` data after migrate. (3) `/health/ready/`
+  moved to a quarantine dir outside MEDIA_ROOT (`--quarantine-unreferenced`, only after verifying the
+  media.tgz backup holds them byte-identical; deleted 30 days later — owner). Rehearsed on a copy of `2467bc5` data after migrate. (3) `/health/ready/`
   now 503s on a schema mismatch: `migrations` (unapplied, or applied but unknown to the code) and
   `schema` (every model table/column, one `WHERE 1 = 0` UNION ALL probe). Found while testing: SQLite
   silently reads an unknown `"double-quoted"` column as a string literal → SQLite probes use
@@ -262,14 +263,18 @@ Full runbook with commands, expected output and the rollback plan:
    `internal /protected-media/` (DEPLOY.md §10a); milestone 6: `open_file_cache` (4 lines) +
    new `location /media/` (30 d, `nosniff`, `sendfile`) from DEPLOY.md §10 → `nginx -t` → reload —
    **before** `up -d` (`web` now serves chat photos via X-Accel).
-7. `docker compose up -d` (new `ws`; `telegram_bot` now runs the PTB bot — same command; no `osrm`
+7. `rename_legacy_uploads --dry-run` → `docker compose stop web telegram_bot celery_worker` →
+   `run --rm --no-deps web … rename_legacy_uploads` (pre-milestone-6 photos under personal names →
+   `<uuid>.<ext>`, rows updated, old files removed; app stopped so no save can race it) →
+   `docker compose up -d` (new `ws`; `telegram_bot` now runs the PTB bot — same command; no `osrm`
    and no `community` profile this time — the community bot is enabled separately, docs/COMMUNITY_BOT.md).
+   Downtime ≈ 30–40 s (was 10–20 s).
 8. Verify: health/ready (now also `migrations` + `schema` = ok), `check_realtime` in `web` and `ws`, `/ws/` handshake 101, logs, `docker stats`.
 9. `backfill_achievements --dry-run`, then without (silent); `purge_chats --dry-run`;
    `check_demo_data` → OK (includes `check_demo_password`);
-   `rename_legacy_uploads --dry-run`, then without, then again → `renamed 0` (pre-milestone-6 photos
-   under personal file names → `<uuid>.<ext>`, rows updated, old files removed; unreferenced
-   non-random files only counted — `--delete-unreferenced` only on the owner's decision);
+   unreferenced non-random leftovers → `rename_legacy_uploads --quarantine-unreferenced <dir outside
+   media/> --verify-backup media.tgz` (moved, never deleted; refuses unless the backup reads to the
+   end and holds each file byte-identical); delete the quarantine 30 days later (runbook §13);
    `backfill_image_variants --dry-run --strip-metadata`, then with `--strip-metadata` (owner
    decision; media backup from step 2 exists), then once more → `variants 0, stripped 0`.
 10. crons (DEPLOY.md §13): `sweep_availability` */5, `purge_tracking` hourly, `prune_notifications`
