@@ -105,6 +105,18 @@ class SystemdUnitTests(SimpleTestCase):
                 self.assertIn(command, commands)
 
 
+    def test_bot_units_do_not_restart_on_a_rejected_token(self):
+        # Must equal the code the bots exit with on InvalidToken — if one side
+        # changes alone, systemd would restart a bad-token bot every 10 s again.
+        from myapp.telegram import polling
+
+        for unit in ("khayrkhoh-telegram-bot.service", "khayrkhoh-community-bot.service"):
+            with self.subTest(unit=unit):
+                d = _directives((DEPLOY / "systemd" / unit).read_text(encoding="utf-8"))
+                self.assertEqual(d["RestartPreventExitStatus"], [str(polling.EXIT_INVALID_TOKEN)])
+                self.assertEqual(d["Restart"], ["always"])   # every other exit still restarts
+
+
 class AsgiWorkerTests(SimpleTestCase):
     def test_worker_keeps_the_old_ws_service_settings(self):
         from server.asgi_worker import UvicornWorker

@@ -599,6 +599,19 @@ curl -s https://khayrkhoh.tj/ | grep -c 'type="image/webp"'   # > 0, если е
    «Новый запрос помощи» → отменить запрос; `redis-cli -n 1 llen celery` → 0;
    `journalctl -u khayrkhoh-celery --since -5min | grep -c "Telegram send failed"` → 0.
 
+**Бот в статусе `failed` с кодом 78** (`systemctl status khayrkhoh-telegram-bot` → `Active: failed
+(Result: exit-code)`, `status=78`; в журнале `CommandError: Telegram rejected the bot token`) —
+Telegram отверг токен; systemd такой бот специально не перезапускает (`RestartPreventExitStatus=78`).
+Проверить токен в `.env` (`grep -c '^TELEGRAM_BOT_TOKEN=[0-9]\{5,\}:' .env` → 1; без пробелов и
+кавычек вокруг значения), исправить в `nano .env`, затем:
+
+```bash
+sudo systemctl reset-failed khayrkhoh-telegram-bot
+sudo systemctl start khayrkhoh-telegram-bot
+systemctl --no-pager status khayrkhoh-telegram-bot | grep Active      # active (running)
+sudo systemctl restart khayrkhoh-celery khayrkhoh-web                  # они тоже читают токен
+```
+
 Откат этого шага невозможен (старый токен отозван) — только вписать актуальный токен ещё раз.
 **Если после этого шага понадобится откат в Docker** — в `$B/env-docker-era` старый токен:
 перед `docker start` контейнеры придётся пересоздать с новым токеном — см. «Откат», примечание.
@@ -642,6 +655,11 @@ free -h
 чем «не хуже старого»: `NRestarts` у `khayrkhoh-telegram-bot` = **0 за первые часы после деплоя**
 и дальше не растёт регулярно. Любой перезапуск — разобрать по журналу до шага 12:
 `journalctl -u khayrkhoh-telegram-bot --since -2h --no-pager | sed -E 's/[0-9]{8,10}:[A-Za-z0-9_-]{35}/<TOKEN>/g' | tail -100`.
+Исключение — **`failed` с кодом 78** (`systemctl status khayrkhoh-telegram-bot` → `status=78`;
+то же для `khayrkhoh-community-bot`): это не перезапуск, а остановка из-за отвергнутого токена —
+systemd её не повторяет. Проверить токен в `.env`, исправить, затем
+`sudo systemctl reset-failed khayrkhoh-telegram-bot && sudo systemctl start khayrkhoh-telegram-bot`
+(как в шаге 9).
 
 Через сутки: `manage check_demo_data` — снова "OK: no demo data" (не 0 → ничего не удалять,
 сказать владельцу).

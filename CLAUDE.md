@@ -548,6 +548,8 @@ Ubuntu 24.04 host, **no Docker** (see the rule at the top). Everything productio
   are safe.
 - `khayrkhoh-celery.service` (`--pool=threads`), `khayrkhoh-telegram-bot.service`,
   `khayrkhoh-community-bot.service` (disabled until configured). Only one poller per bot token.
+  The bot units have `RestartPreventExitStatus=78` = `polling.EXIT_INVALID_TOKEN` (a rejected
+  token stops the unit as `failed` instead of restart-looping; `tests_deploy` keeps them equal).
 - PostgreSQL 16 and Redis from apt, localhost only, tuned by `deploy/postgresql/` (sized for the
   3.8 GB host) and `deploy/redis/` (AOF, 128 MB, `volatile-lru`; DB 0 cache, 1 Celery, 2 Channels).
   Logs → journald (capped, `deploy/journald/`); `cron.log` and nginx rotate (`deploy/logrotate/`).
