@@ -5,7 +5,11 @@
 time: 31 "Network is unreachable" in 4 days, 2026-10), keep retrying with
 python-telegram-bot's backoff (1 s → ×1.5 → 30 s) instead of exiting; the
 default (0) made the process die and systemd restart it. A wrong token is not
-retried: PTB aborts on ``InvalidToken`` and the process exits at once.
+retried: PTB aborts on ``InvalidToken`` and the process exits at once with
+``EXIT_INVALID_TOKEN`` (78, EX_CONFIG) — the bots' systemd units carry
+``RestartPreventExitStatus=78``, so a bad token stops the unit (state
+``failed``) instead of restarting it every 10 s (locked by
+``myapp.tests_deploy``).
 Once polling runs, PTB already retries network errors, timeouts and 5xx
 indefinitely. Tests: ``myapp.tests_telegram_resilience``.
 """
@@ -14,6 +18,9 @@ from django.core.management.base import CommandError
 from telegram.error import InvalidToken
 
 BOOTSTRAP_RETRIES = -1
+# sysexits.h EX_CONFIG: "configuration error" — must equal RestartPreventExitStatus
+# in deploy/systemd/khayrkhoh-{telegram,community}-bot.service.
+EXIT_INVALID_TOKEN = 78
 
 
 def run(application, allowed_updates):
@@ -28,7 +35,8 @@ def run(application, allowed_updates):
         # PTB writes the token itself into this exception's text ("The token `…`
         # was rejected"); left uncaught, Python prints that traceback straight to
         # stderr → journald, past the logging redaction filter. `from None` drops
-        # it from the chain; Django prints only this line and exits 1.
+        # it from the chain; Django prints only this line and exits with returncode.
         raise CommandError(
-            "Telegram rejected the bot token (InvalidToken) — check the token in .env"
+            "Telegram rejected the bot token (InvalidToken) — check the token in .env",
+            returncode=EXIT_INVALID_TOKEN,
         ) from None

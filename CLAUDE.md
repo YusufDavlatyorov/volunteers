@@ -189,7 +189,8 @@ A hardening pass added a cross-cutting layer that is easy to regress — keep it
   WARNING. Never log a `requests`/`httpx` exception object itself (its text has the URL).
   Both bots start polling only through `myapp/telegram/polling.py::run` — `bootstrap_retries=-1`
   (a network outage at start no longer kills the process) and PTB's `InvalidToken` (whose text
-  contains the token, printed past the log filter if uncaught) becomes a clean `CommandError`.
+  contains the token, printed past the log filter if uncaught) becomes a clean `CommandError`
+  with exit code 78 (`polling.EXIT_INVALID_TOKEN`, EX_CONFIG).
   `myapp/tests_telegram_resilience.py` runs both bots against a fake Bot API and checks their
   whole output for the token.
 - **Local `.env` holds no delivery keys.** `server/dev_safety.py` prints a banner on every
