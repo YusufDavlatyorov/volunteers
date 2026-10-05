@@ -9,6 +9,7 @@ when TELEGRAM_COMMUNITY_BOT_TOKEN or the chat ids are not configured.
 from django.core.management.base import BaseCommand
 
 from myapp.services import community
+from myapp.telegram import polling
 from myapp.telegram.community_bot import app as bot_app
 
 
@@ -21,4 +22,4 @@ class Command(BaseCommand):
             return
         application = bot_app.build(community.token())
         self.stdout.write(self.style.SUCCESS(f"Community bot started ({len(community.chats())} chat(s))"))
-        application.run_polling(allowed_updates=bot_app.ALLOWED_UPDATES, drop_pending_updates=False)
+        polling.run(application, bot_app.ALLOWED_UPDATES)

@@ -10,6 +10,7 @@ TELEGRAM_BOT_TOKEN is unset.
 from django.conf import settings
 from django.core.management.base import BaseCommand
 
+from myapp.telegram import polling
 from myapp.telegram.main_bot import app as bot_app
 
 
@@ -23,4 +24,4 @@ class Command(BaseCommand):
             return
         application = bot_app.build(token)
         self.stdout.write(self.style.SUCCESS("Telegram bot started"))
-        application.run_polling(allowed_updates=bot_app.ALLOWED_UPDATES, drop_pending_updates=False)
+        polling.run(application, bot_app.ALLOWED_UPDATES)
