@@ -55,11 +55,27 @@ PostgreSQL. Миграции Feature Pack v2 идут только в новую
 | логи `docker logs` | journald (`journalctl -u khayrkhoh-web`), лимит 500 МБ; logrotate для nginx и `cron.log` |
 | миграции/статика через `docker compose run` | `deploy/deploy.sh` для следующих выкаток |
 
-Шпаргалка (все шаги — от пользователя `deploy`, `cd /opt/khayrkhoh`):
+**Сессия на сервере.** Все шаги — от пользователя `deploy`, `cd /opt/khayrkhoh`, и **внутри
+`tmux`** с шага 2 до конца: SSH до этого сервера рвётся (2026-10-05 — два обрыва за полчаса), а
+обрыв во время `pg_dump`, `pg_restore` или `migrate` без tmux убивает команду посреди окна
+простоя. В tmux команда продолжает работать, а функции и переменные ниже сохраняются:
+
+```bash
+tmux new -s deploy          # первый вход
+tmux attach -t deploy       # после обрыва SSH — вернуться в ту же сессию
+```
+
+**sudo у `deploy` — с паролем** (решение владельца: sudoers не меняем). Первая команда с `sudo` в
+каждом окне tmux спросит пароль пользователя `deploy`, дальше sudo помнит его ~15 минут. Пароль
+нужно иметь под рукой до начала сессии — в окне простоя ждать его некогда.
+
+Шпаргалка (выполнить в tmux; `olddb` — **без** `docker exec -i`: с `-i` контейнер забирает себе
+весь ввод терминала, и вставленный блок команд «съедается» после первой строки — найдено
+2026-10-05):
 
 ```bash
 set -a; . ./.env; set +a     # загрузить DJANGO_DB_* в оболочку (значения не печатаются)
-olddb() { docker exec -i shared_postgres psql -U "$DJANGO_DB_USER" -d "$DJANGO_DB_NAME" -v ON_ERROR_STOP=1 "$@"; }
+olddb() { docker exec shared_postgres psql -U "$DJANGO_DB_USER" -d "$DJANGO_DB_NAME" -v ON_ERROR_STOP=1 "$@"; }
 newdb() { PGPASSWORD="$DJANGO_DB_PASSWORD" psql -h 127.0.0.1 -U "$DJANGO_DB_USER" -d "$DJANGO_DB_NAME" -v ON_ERROR_STOP=1 "$@"; }
 manage() { /opt/khayrkhoh/.venv/bin/python manage.py "$@"; }
 COUNTS="select 'users', count(*) from accounts_users union all select 'requests', count(*) from myapp_helprequest union all select 'migrations', count(*) from django_migrations"
@@ -146,6 +162,8 @@ git push origin feature-pack-v2
 
 ```bash
 cd /opt/khayrkhoh
+command -v tmux || echo "tmux: нет — поставить в шаге 3"
+sudo -v                                # пароль deploy (sudo без пароля не настроен — так и задумано)
 git status --short                     # пусто
 git rev-parse --short HEAD             # 2467bc5 — ROLLBACK_COMMIT
 docker ps -a --format '{{.Names}}\t{{.Image}}\t{{.Status}}'
@@ -161,7 +179,7 @@ grep -cE '^(DJANGO_REDIS_URL|CELERY_BROKER_URL|DJANGO_CHANNEL_REDIS_URL|DJANGO_S
 #   0 — эти переменные задавал docker-compose.yml; в шаге 4.3 они добавятся в .env
 
 set -a; . ./.env; set +a
-olddb() { docker exec -i shared_postgres psql -U "$DJANGO_DB_USER" -d "$DJANGO_DB_NAME" -v ON_ERROR_STOP=1 "$@"; }
+olddb() { docker exec shared_postgres psql -U "$DJANGO_DB_USER" -d "$DJANGO_DB_NAME" -v ON_ERROR_STOP=1 "$@"; }
 # Какие базы живут в shared_postgres? Ожидаем только нашу + postgres/template0/template1.
 olddb -Atc "select datname from pg_database order by 1"
 #   есть чужая база → записать, сказать владельцу (шаг 12: shared_postgres тогда НЕ удаляется).
@@ -245,9 +263,18 @@ sudo apt-get install -y software-properties-common
 sudo add-apt-repository -y ppa:deadsnakes/ppa
 sudo apt-get install -y python3.14 python3.14-venv
 python3.14 -V                          # Python 3.14.x
-# PostgreSQL 16 (та же мажорная версия, что в контейнере) и Redis
-sudo apt-get install -y postgresql-16 redis-server
-pg_restore -V                          # 16.x — минорная версия не ниже контейнерной (шаг 1)
+# PostgreSQL 16 — из репозитория PGDG (apt.postgresql.org), как образ контейнера (16.15 PGDG на
+# 2026-10-05): версия не ниже контейнерной, и pg_restore точно читает его дампы. У Ubuntu своя
+# сборка может отставать на минорную версию.
+sudo install -d /usr/share/postgresql-common/pgdg
+sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+. /etc/os-release
+echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" \
+  | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+sudo apt-get update
+apt-cache policy postgresql-16 | head -4   # Candidate: 16.x-…pgdg24.04… (из apt.postgresql.org)
+sudo apt-get install -y postgresql-16 redis-server tmux
+pg_restore -V                          # 16.15 или новее — не ниже контейнерной (шаг 1); иначе СТОП
 # nginx, brotli, certbot, cron уже стоят (DEPLOY.md старого образца); на всякий случай:
 sudo apt-get install -y nginx libnginx-mod-http-brotli-filter certbot python3-certbot-nginx cron git curl
 ```
@@ -432,10 +459,14 @@ curl -s -o /dev/null -w "%{http_code}\n" https://khayrkhoh.tj/protected-media/x.
 ## 6. Окно простоя: старые контейнеры → финальный дамп → новые сервисы (шаги a, c, d)
 
 Шаги 6.1–6.9 идут **подряд, без пауз**. Начало и конец записать (время простоя). nginx в это
-время отвечает 502, как при любом перезапуске раньше.
+время отвечает 502, как при любом перезапуске раньше. **Только внутри tmux** — если SSH оборвётся,
+`tmux attach -t deploy` и продолжить с того места; ничего не запускать повторно, не посмотрев, чем
+закончилась прерванная команда.
 
 ```bash
 cd /opt/khayrkhoh
+[ -n "$TMUX" ] && echo "tmux: ok" || echo "СТОП: вы не в tmux"
+sudo -v                                # пароль заранее — чтобы sudo не остановил окно на полпути
 # 6.1 остановить сайт и бота (бот — до запуска нового: два опроса одним токеном = 409 Conflict)
 date; docker stop khayrkhoh_web khayrkhoh_telegram_bot
 # 6.2 дать celery дослать очередь (обычно 0 сразу; ждать не больше минуты), потом остановить
@@ -595,7 +626,7 @@ curl -s https://khayrkhoh.tj/ | grep -c 'type="image/webp"'   # > 0, если е
 
 ```bash
 systemctl --no-pager status 'khayrkhoh-*' | grep -E "^●|Active:"     # active (running), без рестартов
-systemctl show -p NRestarts khayrkhoh-web khayrkhoh-celery khayrkhoh-telegram-bot   # 0
+systemctl show -p NRestarts khayrkhoh-web khayrkhoh-celery khayrkhoh-telegram-bot   # 0 у всех
 systemctl show -p MemoryCurrent khayrkhoh-web khayrkhoh-celery khayrkhoh-telegram-bot
 journalctl -u 'khayrkhoh-*' --since -1h --no-pager | grep -iE "error|traceback" | grep -v "was sent SIGTERM" | head
 tail -n 30 /var/log/khayrkhoh/cron.log                               # без трейсбеков
@@ -604,6 +635,13 @@ curl -fsS https://khayrkhoh.tj/health/ready/
 journalctl --disk-usage; df -h /
 free -h
 ```
+
+**Бот: перезапусков быть не должно.** Исходное значение для сравнения: старый контейнер
+`khayrkhoh_telegram_bot` перезапустился **86 раз** с 2026-10-01 по 2026-10-05 (≈ раз в час,
+`docker inspect … RestartCount`, без OOM; `web` и `celery` — 0). Критерий для нового бота **строже**,
+чем «не хуже старого»: `NRestarts` у `khayrkhoh-telegram-bot` = **0 за первые часы после деплоя**
+и дальше не растёт регулярно. Любой перезапуск — разобрать по журналу до шага 12:
+`journalctl -u khayrkhoh-telegram-bot --since -2h --no-pager | sed -E 's/[0-9]{8,10}:[A-Za-z0-9_-]{35}/<TOKEN>/g' | tail -100`.
 
 Через сутки: `manage check_demo_data` — снова "OK: no demo data" (не 0 → ничего не удалять,
 сказать владельцу).
@@ -633,14 +671,15 @@ recovery».
 
 До этого шага `shared_postgres` и `khayrkhoh_redis` работают, старые контейнеры приложения стоят
 остановленными — это точка отката. Шаг 12 делается **только** если за эти дни: `/health/ready/`
-всегда 200, `NRestarts` = 0 (или каждый рестарт объяснён), пользователи не сообщали о проблемах,
+всегда 200, `NRestarts` = 0 у web и celery, у бота нет регулярных перезапусков (шаг 11; каждый
+единичный — объяснён), пользователи не сообщали о проблемах,
 решение «удаляем» — от владельца. **После этого шага вернуться к старому сайту уже нельзя**
 (старый код рассчитан на Docker; откат кода — только на более поздние коммиты, см. «Откат»).
 
 ```bash
 cd /opt/khayrkhoh
 set -a; . ./.env; set +a
-olddb() { docker exec -i shared_postgres psql -U "$DJANGO_DB_USER" -d "$DJANGO_DB_NAME" -v ON_ERROR_STOP=1 "$@"; }
+olddb() { docker exec shared_postgres psql -U "$DJANGO_DB_USER" -d "$DJANGO_DB_NAME" -v ON_ERROR_STOP=1 "$@"; }
 # 12.1 Ещё раз: в Docker нет ничего чужого (шаг 1). Любое отличие — СТОП, сказать владельцу.
 docker ps -a --format '{{.Names}}'          # только khayrkhoh_* и shared_postgres
 docker volume ls --format '{{.Name}}'       # только тома этого проекта и shared_postgres_data
@@ -758,7 +797,7 @@ docker ps --format '{{.Names}}\t{{.Status}}'                # 5 контейне
 cd /opt/khayrkhoh
 B=/var/backups/khayrkhoh/pre-migration-<TS>
 set -a; . ./.env; set +a
-olddb() { docker exec -i shared_postgres psql -U "$DJANGO_DB_USER" -d "$DJANGO_DB_NAME" -v ON_ERROR_STOP=1 "$@"; }
+olddb() { docker exec shared_postgres psql -U "$DJANGO_DB_USER" -d "$DJANGO_DB_NAME" -v ON_ERROR_STOP=1 "$@"; }
 manage() { /opt/khayrkhoh/.venv/bin/python manage.py "$@"; }
 sudo systemctl disable --now khayrkhoh-web khayrkhoh-celery khayrkhoh-telegram-bot
 crontab -r                                                   # чтобы cron не писал в базу во время отката

@@ -18,7 +18,9 @@ below. Moving the existing Docker-based server to this layout is a different,
 one-time procedure: [`deploy/MIGRATION.md`](deploy/MIGRATION.md).
 
 Run everything as the `deploy` user (group `sudo`) unless noted; SSH is key-only
-(step 9). No secrets are hardcoded anywhere in this repo or in this document —
+(step 9). **`sudo` asks for the `deploy` user's password** — passwordless sudo is
+deliberately not configured (owner decision 2026-10-05; don't add a sudoers rule).
+`deploy/deploy.sh` therefore prompts for it once per run. No secrets are hardcoded anywhere in this repo or in this document —
 every credential goes into `.env` on the server, which is never committed.
 **Never run `seed_demo` (or `loaddata`, or any fixture) in production.**
 
@@ -30,8 +32,16 @@ every credential goes into `.env` on the server, which is never committed.
 sudo apt-get update && sudo apt-get -y upgrade
 sudo apt-get install -y software-properties-common
 sudo add-apt-repository -y ppa:deadsnakes/ppa      # Python 3.14 — what the test suite runs on
+# PostgreSQL from the PGDG repository (apt.postgresql.org) — same build as upstream's own
+# packages, newer minor releases than Ubuntu's archive
+sudo install -d /usr/share/postgresql-common/pgdg
+sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+. /etc/os-release
+echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" \
+  | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+sudo apt-get update
 sudo apt-get install -y python3.14 python3.14-venv \
-    postgresql-16 redis-server \
+    postgresql-16 redis-server tmux \
     nginx libnginx-mod-http-brotli-filter certbot python3-certbot-nginx \
     git curl ufw cron
 python3.14 -V && psql -V && redis-server -v && nginx -v

@@ -5,7 +5,9 @@
 #   /opt/khayrkhoh/deploy/deploy.sh            # pulls origin/main
 #
 # Run as the `deploy` user; sudo is used only to check .env through systemd, to
-# install changed unit files and to restart the units. Order (each step stops the script on failure, and
+# install changed unit files and to restart the units. sudo ASKS FOR THE deploy
+# USER'S PASSWORD (passwordless sudo is deliberately not configured — owner
+# decision 2026-10-05, no sudoers rule), so run it interactively, ideally in tmux. Order (each step stops the script on failure, and
 # nothing is restarted until all of them passed):
 #   1. git pull --ff-only          — never merges, never touches local files
 #   2. pip install into .venv      — exact pins from requirements.txt
