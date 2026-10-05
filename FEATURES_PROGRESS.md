@@ -232,6 +232,18 @@ Baseline: 657 tests green at `2467bc5` (main).
   AppRegistryNotReady even on PostgreSQL (CLAUDE.md corrected). Also rehearsed on postgres:16 with the
   `2467bc5` schema + demo data: new code 503 before migrate, 200 after; `check_demo_data` finds every
   kind of demo row on the old schema; `rename_legacy_uploads` 9 → 0 on the second run.
+- 2026-10-05 — **Telegram bots: network resilience + token never in output.** Root cause of the
+  old production bot's 86 restarts in 4 days (read-only log check, token masked): uncaught
+  `ReadTimeout` (47), `ConnectionError` "Network is unreachable" (31) and Telegram 502 (8) in the
+  hand-rolled `getUpdates` loop of `2467bc5`. The PTB bots already retry those while polling; the
+  remaining gap was startup (`bootstrap_retries` default 0 → exit). New `myapp/telegram/polling.py`
+  (used by both commands): `bootstrap_retries=-1`, and `InvalidToken` → `CommandError` without the
+  exception text — PTB puts the token into that text and the uncaught traceback reached stderr
+  unredacted (found by the new test). `httpx` was already pinned to WARNING; verified empirically.
+  `myapp/tests_telegram_resilience.py` (6 tests, real PTB in a subprocess vs a fake Bot API):
+  network down at start → polls once back; rejected token → exits at once, 1 getMe, no token;
+  502 / dropped connections → keeps polling, no token / no URL / no httpx line at INFO and DEBUG,
+  both bots. Mutation-checked (each guard removed → its test fails).
 
 ## Deploy checklist (milestones 1–6 together = milestone 7; only after the owner writes "deploy")
 

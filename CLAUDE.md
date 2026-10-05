@@ -167,6 +167,11 @@ A hardening pass added a cross-cutting layer that is easy to regress — keep it
   handler) cuts Telegram bot tokens (`<id>:<secret>` — they live in the API URL) out of every log
   line and traceback; `httpx` (python-telegram-bot's client, logs URLs at INFO) is pinned to
   WARNING. Never log a `requests`/`httpx` exception object itself (its text has the URL).
+  Both bots start polling only through `myapp/telegram/polling.py::run` — `bootstrap_retries=-1`
+  (a network outage at start no longer kills the process) and PTB's `InvalidToken` (whose text
+  contains the token, printed past the log filter if uncaught) becomes a clean `CommandError`.
+  `myapp/tests_telegram_resilience.py` runs both bots against a fake Bot API and checks their
+  whole output for the token.
 - **Local `.env` holds no delivery keys.** `server/dev_safety.py` prints a banner on every
   DEBUG run whose env has `SMTP_USER/PASSWORD` or a Telegram bot token (names only, never
   values); bot testing uses a separate test bot (`docs/TEST_BOT.md`).
