@@ -363,13 +363,3 @@ class CheckRealtimeCommandTests(SimpleTestCase):
         self.assertEqual(_masked("redis://:s3cret@redis:6379/2"), "redis://:***@redis:6379/2")
         self.assertEqual(_masked("redis://user:s3cret@redis:6379/2"), "redis://user:***@redis:6379/2")
         self.assertEqual(_masked("redis://redis:6379/2"), "redis://redis:6379/2")
-
-    def test_compose_points_every_app_container_at_redis_db2(self):
-        from pathlib import Path
-
-        from django.conf import settings
-
-        compose = (Path(settings.BASE_DIR) / "docker-compose.yml").read_text(encoding="utf-8")
-        self.assertIn('DJANGO_CHANNEL_REDIS_URL: "redis://redis:6379/2"', compose)
-        # web, ws, celery_worker and telegram_bot all merge the shared app env
-        self.assertGreaterEqual(compose.count("<<: *app-env"), 4)

@@ -24,11 +24,13 @@ Production domain: **https://khayrkhoh.tj** (and `https://www.khayrkhoh.tj`).
 
 ## Tech stack
 
-- **Python 3.12+** (developed on 3.14) / **Django 5.2** (function-based views, MVT)
-- **SQLite** (local dev / tests) / **PostgreSQL** (required in production — see "Docker deployment")
+- **Python 3.14** / **Django 5.2** (function-based views, MVT)
+- **SQLite** (local dev / tests) / **PostgreSQL 16** (required in production — see "Deployment")
 - **django-filter**, **django-crispy-forms** + **crispy-bootstrap5**
 - **requests** (Groq AI + Telegram), **python-dotenv** (config), **Pillow** (image uploads)
-- **gunicorn** + **psycopg[binary]** (production only — see "Docker deployment")
+- **gunicorn** + **uvicorn** workers (ASGI: pages + WebSockets via Django Channels), **Celery** +
+  **Redis**, **psycopg[binary]** (production — see "Deployment")
+- **No Docker** — production runs directly on Ubuntu: venv + systemd + nginx
 - Custom user model `accounts.Users` with roles: admin / curator / volunteer / client
 
 ## Project layout
@@ -40,8 +42,9 @@ myapp/       Help requests, events, broadcasts, photo reports, rating, AI, Teleg
 templates/   HTML templates (base + accounts/ + myapp/)
 static/      CSS, JS, images, the About Us background video
 media/       User-uploaded avatars and photo reports (not committed)
-Dockerfile, docker-compose.yml, .dockerignore   Production container build (see "Docker deployment")
-DEPLOY.md    Exact command sequence for a fresh Ubuntu server (Docker, Postgres, nginx + certbot, Telegram bot, cron)
+deploy/      Production files: systemd units, nginx, PostgreSQL/Redis/journald/logrotate configs,
+             crontab, deploy.sh (redeploy), check_env.py, MIGRATION.md (the one-time move off Docker)
+DEPLOY.md    Exact command sequence for a fresh Ubuntu server (venv, PostgreSQL, Redis, systemd, nginx + certbot, cron)
 ```
 
 ## Getting started
@@ -93,10 +96,13 @@ fresh checkout boots; replace it with a real key.
 | `DJANGO_BEHIND_TLS_PROXY` | Trust `X-Forwarded-Proto` from a reverse proxy; rate limits read the visitor IP from nginx's `X-Real-IP` | `False`. Production (behind nginx): `True` |
 | `DJANGO_BEHIND_CLOUDFLARE` | Visitor IP from `CF-Connecting-IP` when the request came from a Cloudflare range (`docs/CLOUDFLARE.md`) | `False` |
 | `DJANGO_CLOUDFLARE_IP_RANGES` | Override the built-in Cloudflare CIDR list (comma-separated) | empty = built-in list |
-| `DJANGO_DB_NAME` / `DJANGO_DB_USER` / `DJANGO_DB_PASSWORD` / `DJANGO_DB_HOST` / `DJANGO_DB_PORT` | PostgreSQL connection — **required in production**, see "Docker deployment" | SQLite (dev only) |
-| `DJANGO_REDIS_URL` | Redis cache (rate limits, cached sessions, public-page aggregates) | unset. Production: `redis://redis:6379/0`, set by `docker-compose.yml` (wins over `DJANGO_DB_CACHE`) |
-| `CELERY_BROKER_URL` | Celery broker for background email/Telegram delivery | unset → tasks run inline. Production: `redis://redis:6379/1`, set by `docker-compose.yml` |
-| `DJANGO_DB_CACHE` | Use a shared DB cache for rate-limit counters | `False` (per-process LocMemCache). **Required `True` in production** — a multi-worker gunicorn deployment needs the shared cache for the rate limiters to work at all |
+| `DJANGO_DB_NAME` / `DJANGO_DB_USER` / `DJANGO_DB_PASSWORD` / `DJANGO_DB_HOST` / `DJANGO_DB_PORT` | PostgreSQL connection — **required in production** (local PostgreSQL 16, `DJANGO_DB_HOST=127.0.0.1`), see "Deployment" | SQLite (dev only) |
+| `DJANGO_REDIS_URL` | Redis cache (rate limits, cached sessions, public-page aggregates) | unset. Production: `redis://127.0.0.1:6379/0` (local redis-server; wins over `DJANGO_DB_CACHE`) |
+| `CELERY_BROKER_URL` | Celery broker for background email/Telegram delivery | unset → tasks run inline. Production: `redis://127.0.0.1:6379/1` |
+| `DJANGO_CHANNEL_REDIS_URL` | Channels layer for WebSockets (fan-out across gunicorn workers and Celery) | unset → in-process layer. Production: `redis://127.0.0.1:6379/2` |
+| `DJANGO_STATIC_MANIFEST` | Content-hashed static names (nginx caches `/static/` for a year); collectstatic must run before the app starts | `False`. Production: `True` |
+| `DJANGO_MEDIA_X_ACCEL` | Private chat photos streamed by nginx via `X-Accel-Redirect` after the app's permission check | `False`. Production: `True` |
+| `DJANGO_DB_CACHE` | Use a shared DB cache for rate-limit counters | `False`. A dependency-free shared cache for setups without Redis (`createcachetable` once); production uses Redis instead and keeps this `False` — a multi-worker deployment needs *some* shared cache for the rate limiters to work at all |
 | `DJANGO_LOG_LEVEL` | App logger level | `INFO` |
 | `SMTP_USER`, `SMTP_PASSWORD` | SMTP credentials | emails print to console |
 | `EMAIL_TIMEOUT` | Seconds before a synchronous SMTP send is abandoned | `10` |
@@ -105,7 +111,6 @@ fresh checkout boots; replace it with a real key.
 | `TELEGRAM_BOT_TOKEN` | Telegram bot token | Telegram features disabled |
 | `OSRM_BASE_URL`, `NOMINATIM_USER_AGENT` | Routing / geocoding for the `osm` maps provider | public demo endpoints (rate-limited, not for production) |
 | `INITIAL_ADMIN_EMAIL` / `_PASSWORD` / `_USERNAME` (and `_CURATOR_`, `_VOLUNTEER_`, `_CLIENT_`) | The 4 initial production accounts, see "Initial production accounts" below | none — required only when running `create_initial_production_accounts` |
-| `SHARED_POSTGRES_NETWORK` | Name of the external Docker network the shared PostgreSQL container is attached to | `shared_postgres_net` |
 
 > **Never commit your real `.env`.** It is already listed in `.gitignore`.
 
@@ -190,25 +195,18 @@ python manage.py check_stale_requests            # run the sweep
 python manage.py check_stale_requests --dry-run  # list stale requests, send nothing
 ```
 
-Add to the deploy user's crontab (`crontab -e`). Use **absolute paths** to the
-project's own virtualenv Python and `manage.py` — cron runs with a bare
-environment:
+In production both run from the deploy user's crontab together with the other periodic
+sweeps — the full list is [`deploy/crontab.example`](deploy/crontab.example) (`crontab
+deploy/crontab.example`). Each line uses the project's own virtualenv Python by absolute path —
+cron runs with a bare environment:
 
 ```cron
-# KhayrKhoh — alert curators/admins about tasks overdue past 3h, every 15 min.
-*/15 * * * * cd /opt/khayrkhoh && flock -n /run/lock/gc-overdue.lock /opt/khayrkhoh/.venv/bin/python manage.py check_overdue_tasks >> /var/log/khayrkhoh/cron.log 2>&1
-# KhayrKhoh — alert about pending requests stuck without a volunteer past 48h, hourly.
-0 * * * * cd /opt/khayrkhoh && flock -n /run/lock/gc-stale.lock /opt/khayrkhoh/.venv/bin/python manage.py check_stale_requests >> /var/log/khayrkhoh/cron.log 2>&1
+*/15 * * * * cd /opt/khayrkhoh && flock -n /tmp/khayrkhoh-overdue.lock $PY manage.py check_overdue_tasks >> $LOG 2>&1
+0 * * * * cd /opt/khayrkhoh && flock -n /tmp/khayrkhoh-stale.lock $PY manage.py check_stale_requests >> $LOG 2>&1
 ```
 
-In a Docker deployment, run these inside the container instead (host cron
-calling `docker compose exec web python manage.py check_overdue_tasks`, etc.)
-rather than via a host-level virtualenv.
-
-Replace `/opt/khayrkhoh` with the deployment path (the directory
-containing `manage.py`) and `.venv` with the virtualenv location. `settings.py`
-loads `.env` by absolute path, so credentials are picked up regardless of cron's
-working directory; the `cd` is for `manage.py` and the log path.
+`settings.py` loads `.env` by absolute path, so credentials are picked up regardless of cron's
+working directory; the `cd` is for `manage.py`.
 
 **`flock -n` is belt-and-braces, not load-bearing.** Both sweeps are already
 race-safe on their own — each task/request is claimed with a conditional
@@ -234,8 +232,9 @@ donation offers, the Lost & Found board, the health endpoints, external-service 
 handling, list-view pagination bounds, and a set of concurrency / IDOR / rate-limit regression
 tests.
 
-To run it in the production image (Linux, `linux/amd64`), see the Docker command in `CLAUDE.md`
-→ Commands (no `--parallel` with SQLite there — Python 3.14's forkserver start method).
+No database server or Docker is needed: the suite runs on SQLite. Migration rehearsals against
+PostgreSQL 16 use a local Homebrew `postgresql@16` (see `scripts/verify_backup.sh` for the
+throw-away-cluster pattern) or the rehearsal VM in `deploy/MIGRATION.md` (step R).
 
 ## Demo data — NEVER in production
 
@@ -280,106 +279,38 @@ with `DEBUG=False`.
 
 ## Deployment
 
-### Docker deployment (production)
+**Production runs without Docker**: Python 3.14 in a venv, PostgreSQL 16 and Redis from apt,
+four systemd units, host nginx + certbot. Everything is in [`deploy/`](deploy/):
 
-**See `DEPLOY.md` for the exact, copy-pasteable command sequence for a fresh Ubuntu server**
-(installing Docker, standing up the shared PostgreSQL container, host nginx + certbot HTTPS, the
-Telegram bot as the `telegram_bot` compose service, and the cron sweeps). The summary below is the same flow in
-prose.
+| File | What |
+|---|---|
+| `deploy/systemd/khayrkhoh-web.service` | gunicorn + uvicorn workers serving `server/asgi.py` — pages **and** WebSockets (`/ws/`) — on `127.0.0.1:8000` |
+| `deploy/systemd/khayrkhoh-celery.service` | Celery worker (`--pool=threads`): notification delivery, image variants |
+| `deploy/systemd/khayrkhoh-telegram-bot.service` / `-community-bot.service` | the two long-polling bots (community bot enabled only once configured) |
+| `deploy/gunicorn.conf.py` | workers, timeouts, logging; no persistent DB connections under ASGI |
+| `deploy/nginx/khayrkhoh.conf` | TLS (certbot paths), canonical host, gzip/brotli, static/media from disk, `/ws/` upgrade, private chat photos |
+| `deploy/postgresql/`, `deploy/redis/`, `deploy/journald/`, `deploy/logrotate/` | service tuning and log limits |
+| `deploy/crontab.example` | the 9 periodic sweeps |
+| `deploy/deploy.sh` | routine redeploy: pull → deps → `.env` check → collectstatic → migrate → restart → readiness |
+| `deploy/check_env.py` | `.env` read identically by systemd and python-dotenv + production values (names only) |
+| `deploy/MIGRATION.md` | the one-time move of the live server off Docker (with the Feature Pack v2 rollout, rollback plan) |
 
-The repo ships a `Dockerfile` + `docker-compose.yml` for the Django app container. **PostgreSQL
-is not part of this compose file** — production connects to a pre-existing shared `shared_postgres`
-container over an external Docker network (name given by `SHARED_POSTGRES_NETWORK` in `.env`,
-see `.env.example`); do not add a second PostgreSQL container.
-
-1. **Clone the repo** on the deployment host (e.g. into `/opt/khayrkhoh`).
-2. **Configure `.env`** — `cp .env.example .env` and fill in: `DJANGO_SECRET_KEY` (generate one,
-   see above), `DJANGO_DEBUG=False`, `DJANGO_ALLOWED_HOSTS=khayrkhoh.tj,www.khayrkhoh.tj`,
-   `DJANGO_CSRF_TRUSTED_ORIGINS=https://khayrkhoh.tj,https://www.khayrkhoh.tj`,
-   `DJANGO_BEHIND_TLS_PROXY=True`, `DJANGO_DB_CACHE=True`, and `SHARED_POSTGRES_NETWORK` (ask
-   whoever manages the shared PostgreSQL container).
-3. **Configure PostgreSQL credentials** — `DJANGO_DB_NAME` / `DJANGO_DB_USER` /
-   `DJANGO_DB_PASSWORD` / `DJANGO_DB_HOST` (the shared container's service name, e.g.
-   `shared_postgres`) / `DJANGO_DB_PORT` in the same `.env`. This project has no single
-   `DATABASE_URL` — these four map 1:1 to the same connection info.
-4. **Build the image**:
-   ```bash
-   docker compose build
-   ```
-5. **Run migrations**:
-   ```bash
-   docker compose run --rm web python manage.py migrate
-   ```
-6. **Collect static**:
-   ```bash
-   docker compose run --rm web python manage.py collectstatic --noinput
-   ```
-   (writes into the `./staticfiles` bind mount — see step 9.)
-7. **Create the 4 initial accounts**:
-   ```bash
-   docker compose run --rm web python manage.py create_initial_production_accounts
-   ```
-8. **Also once**: the shared DB cache table the rate limiters need (`DJANGO_DB_CACHE=True` set in
-   step 2):
-   ```bash
-   docker compose run --rm web python manage.py createcachetable
-   ```
-9. **Start the application**:
-   ```bash
-   docker compose up -d
-   ```
-   Resource budget: `mem_limit: 700m`, `cpus: 1.0`, `restart: unless-stopped` (already set in
-   `docker-compose.yml`). The container publishes gunicorn on `127.0.0.1:8000` — nothing else is
-   exposed publicly by the container itself.
-10. **Configure the reverse proxy** (nginx, on the host — not containerized here) to terminate
-    TLS and serve static/media directly:
-    ```nginx
-    server_name khayrkhoh.tj www.khayrkhoh.tj;
-    location /static/ { alias /opt/khayrkhoh/staticfiles/; }
-    location /media/  { alias /opt/khayrkhoh/media/; }
-    location = /health/ { proxy_pass http://127.0.0.1:8000; access_log off; }
-    location / {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto $scheme;   # required by DJANGO_BEHIND_TLS_PROXY
-        proxy_set_header X-Real-IP $remote_addr;
-    }
-    ```
-11. **Configure HTTPS** — issue a certificate for `khayrkhoh.tj` and `www.khayrkhoh.tj`
-    (e.g. certbot) and redirect `www` → apex or vice versa at the nginx level, whichever is the
-    canonical host; both are already in `DJANGO_ALLOWED_HOSTS` / `DJANGO_CSRF_TRUSTED_ORIGINS`
-    above so either works at the Django level.
-12. **Verify the health endpoint**:
-    ```bash
-    curl -fsS https://khayrkhoh.tj/health/ready/
-    ```
-    should return `{"status":"ready",...}`.
+**Fresh server:** follow `DEPLOY.md` step by step. **Redeploy after a code change:**
+`/opt/khayrkhoh/deploy/deploy.sh` as the `deploy` user. Demo data never reaches production —
+no script in `deploy/` seeds anything, and `seed_demo` refuses to run with `DEBUG=False`.
 
 `DEBUG=False` automatically switches on `SECURE_SSL_REDIRECT`, HSTS (1 year, preload),
 `SESSION_COOKIE_SECURE` / `CSRF_COOKIE_SECURE`; `SECURE_CONTENT_TYPE_NOSNIFF` and
-`X_FRAME_OPTIONS=DENY` are always on. `EMAIL_TIMEOUT` bounds the synchronous SMTP send in
-request handlers (default 10s). None of this needs a code change per environment — it all reads
-from `.env`.
+`X_FRAME_OPTIONS=DENY` are always on. `EMAIL_TIMEOUT` bounds an inline SMTP send (default 10s).
+None of this needs a code change per environment — it all reads from `.env`.
 
-**Logs** — the app logs to stderr (`myapp` / `accounts` loggers, level `DJANGO_LOG_LEVEL`);
-`docker logs` / journald captures them (Docker's default log driver — no extra config needed).
-Server errors (`django.request`, `ERROR`) and the zero-recipient safety nets in the overdue /
-stale / emergency sweeps go to stderr too. Administrative state changes (task assign/complete,
-application approve/reject, emergency/donation/pet transitions, rate-limit hits) emit one `INFO`
-line each with IDs only — never message bodies, tokens, or PII.
-
-### Bare-metal / VM alternative (no Docker)
-
-The app also runs directly under a Gunicorn + nginx + systemd setup if Docker isn't used for a
-given host — the steps above are the same (`migrate`, `collectstatic`, `create_initial_production_accounts`,
-`createcachetable`), just run with the host's own venv instead of `docker compose run`:
-
-```bash
-gunicorn server.wsgi:application --workers 3 --bind 127.0.0.1:8000
-```
-
-run under systemd (`WorkingDirectory` = the dir with `manage.py`, `EnvironmentFile` = `.env`); the
-nginx config and health-check steps above are identical either way.
+**Logs** — the app logs to stderr (`myapp` / `accounts` loggers, level `DJANGO_LOG_LEVEL`) →
+journald: `journalctl -u khayrkhoh-web` (likewise `-celery`, `-telegram-bot`), capped at 500 MB
+(`deploy/journald/`). Server errors (`django.request`, `ERROR`) and the zero-recipient safety nets
+in the overdue / stale / emergency sweeps go there too. Administrative state changes (task
+assign/complete, application approve/reject, emergency/donation/pet transitions, rate-limit hits)
+emit one `INFO` line each with IDs only — never message bodies, tokens, or PII. The cron jobs
+write to `/var/log/khayrkhoh/cron.log` (logrotate, size-capped).
 
 ## Health checks
 
@@ -390,16 +321,17 @@ Two public, unauthenticated, no-secret endpoints (`server/health.py`):
 | `GET /health/` | **liveness** — the Django process can serve a request | zero I/O | `200` |
 | `GET /health/ready/` | **readiness** — DB reachable; the DB schema is the one this code expects (every migration applied, none applied that the code doesn't have, every model table and column present); config sane; shared cache (if configured) round-trips | ≈ 4 short queries, 1–8 ms (+ one cache op) | `200` ready / `503` not ready |
 
-Point the load balancer / `systemd` watchdog / uptime monitor at `/health/ready/`; use `/health/`
+Point an uptime monitor at `/health/ready/` (`deploy/deploy.sh` polls it after every restart); use `/health/`
 for a bare "is the process up" check. External services (Groq, Telegram, OSRM, Nominatim) are
 **not** part of readiness — the app degrades gracefully without them, so their outage must not
 pull an instance out of rotation. Responses carry `Cache-Control: no-store`. A failing check is
 logged as one `WARNING server.health: readiness: …` line (which migration / which table); the
 public body only says `ok` / `error` / `skipped` per check.
 
-A `systemd` unit can gate restarts on it:
-```ini
-ExecStartPost=/bin/sh -c 'for i in $(seq 30); do curl -fsS http://127.0.0.1:8000/health/ready/ && exit 0; sleep 1; done; exit 1'
+Polled from the server itself (straight to gunicorn), a probe needs the public Host and the
+proto header nginx would add — otherwise Django answers 400 (unknown host) or 301 (HTTPS redirect):
+```bash
+curl -fsS -H "Host: khayrkhoh.tj" -H "X-Forwarded-Proto: https" http://127.0.0.1:8000/health/ready/
 ```
 
 ## Backup & recovery
@@ -410,20 +342,24 @@ this repository** — the deploy owner must schedule them.
 
 ### Database backup (PostgreSQL)
 
-```bash
-# nightly, via cron on the DB host or the app host:
-pg_dump --format=custom --no-owner --dbname="$DJANGO_DB_NAME" \
-    --file=/var/backups/gc/db-$(date +\%F).dump
-find /var/backups/gc -name 'db-*.dump' -mtime +14 -delete    # keep ~2 weeks
+Nightly, from the deploy user's crontab. The password comes from `~/.pgpass` (created once,
+mode 600 — `127.0.0.1:5432:<DJANGO_DB_NAME>:<DJANGO_DB_USER>:<DJANGO_DB_PASSWORD>`), never from the
+command line:
+
+```cron
+# KhayrKhoh — nightly DB dump, keep ~2 weeks.
+15 2 * * * pg_dump -h 127.0.0.1 -U <DJANGO_DB_USER> -Fc <DJANGO_DB_NAME> > /var/backups/khayrkhoh/nightly/db-$(date +\%F).dump && find /var/backups/khayrkhoh/nightly -name 'db-*.dump' -mtime +14 -delete
 ```
+(`sudo install -d -o deploy -g deploy -m 700 /var/backups/khayrkhoh/nightly` once.)
 Store the dumps off-box (another host / object storage / offline media) — a backup on the same
-disk does not survive a disk loss. For SQLite (dev only) the equivalent is copying
-`Gen_connect.sqlite3` while the app is stopped, or `sqlite3 Gen_connect.sqlite3 ".backup ..."`.
+disk does not survive a disk loss. `scripts/verify_backup.sh` (on the Mac) proves a dump really
+restores. For SQLite (dev only) the equivalent is copying `Gen_connect.sqlite3` while the app is
+stopped, or `sqlite3 Gen_connect.sqlite3 ".backup ..."`.
 
 ### Media backup
 
 `media/` is append-mostly application data, not a cache. Back it up with the same cadence as the
-DB (`rsync -a --delete media/ /var/backups/gc/media/`, or a filesystem/volume snapshot). A DB
+DB (`rsync -a --delete media/ /var/backups/khayrkhoh/media/`, or a filesystem snapshot). A DB
 restore without the matching media leaves image URLs pointing at missing files.
 
 Since Feature Pack v2 milestone 6 every avatar / photo report / pet photo has WebP variants next
@@ -438,29 +374,27 @@ Backup and restore are **separate procedures**. Assumed disaster-recovery postur
 loss is recovered from the latest off-box DB dump + media copy; point-in-time recovery (WAL
 archiving) is **not** set up and is left to the deploy owner if the RPO requires it.
 
-1. Provision the host; install Python 3.12+, PostgreSQL client, nginx.
-2. `git clone` the repo at the deployed commit; create the venv; `pip install -r requirements.txt`
-   (plus `psycopg[binary]`).
-3. Restore `.env` from your secret store (it is never in git).
-4. Restore the database: `createdb "$DJANGO_DB_NAME" && pg_restore --no-owner -d "$DJANGO_DB_NAME" db-YYYY-MM-DD.dump`.
-5. Restore `media/` from the latest copy.
-6. `python manage.py migrate` (no-op if the dump is already current; safe to run).
-7. `python manage.py createcachetable` (if `DJANGO_DB_CACHE=True`); `python manage.py collectstatic --noinput`.
-8. Start Gunicorn (systemd), then nginx.
-9. `curl -fsS https://<host>/health/ready/` — expect `200 {"status":"ready"}`.
-10. Spot-check: log in, open a dashboard, open the map, load `/myapp/pets/`.
+1. Provision the host per `DEPLOY.md` steps 1–5 (packages, clone + venv, `.env` from your secret
+   store — it is never in git, PostgreSQL role + empty database, Redis).
+2. Restore the database: `pg_restore --no-owner --no-privileges --exit-on-error -h 127.0.0.1 -U "$DJANGO_DB_USER" -d "$DJANGO_DB_NAME" db-YYYY-MM-DD.dump`.
+3. Restore `media/` from the latest copy.
+4. `.venv/bin/python manage.py collectstatic --noinput && .venv/bin/python manage.py migrate`
+   (`migrate` is a no-op if the dump is already current; safe to run).
+5. `DEPLOY.md` steps 7–10 (systemd units, nginx + certbot, firewall, cron).
+6. `curl -fsS https://<host>/health/ready/` — expect `200 {"status":"ready"}`.
+7. Spot-check: log in, open a dashboard, open the map, load `/myapp/pets/`.
 
 ### Known production limitations (intentional)
 
-- **Celery is for notification delivery only** (email/Telegram, `celery_worker` + `redis` compose services). Scheduled work stays cron + idempotent management commands, by design.
+- **Celery is for notification delivery only** (email/Telegram + image variants, `khayrkhoh-celery` + local Redis). Scheduled work stays cron + idempotent management commands, by design — no celery beat.
 - **No object storage.** Uploads live on the local `media/` volume; back it up with the DB (above).
-- **No automated backups in-repo.** The `pg_dump` / `rsync` above must be scheduled by the operator.
+- **Backups are cron jobs the operator installs** (the `pg_dump` / `rsync` above), not part of `deploy/crontab.example`.
 - **No WAL archiving / PITR.** Recovery granularity is "last nightly dump".
 - **AI assistant** depends on Groq; with no key it always returns the canned fallback tip.
 - **`osm` maps provider** uses public OSRM / Nominatim demo endpoints — self-host or use a paid
   provider before real traffic (see `OSRM_BASE_URL`).
-- **Rate-limit counters** need `DJANGO_DB_CACHE=True` (or Redis) to be effective across Gunicorn
-  workers; the default `LocMemCache` throttles per-process only.
+- **Rate-limit counters** need the shared Redis cache (`DJANGO_REDIS_URL`) to be effective across
+  gunicorn workers; the default `LocMemCache` (dev/tests) throttles per-process only.
 
 ## Notes
 

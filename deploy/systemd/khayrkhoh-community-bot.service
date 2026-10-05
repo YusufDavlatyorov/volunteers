@@ -1,0 +1,27 @@
+# KhayrKhoh — volunteer community bot (docs/COMMUNITY_BOT.md). Installed with
+# the others but NOT enabled until the owner has created the bot + supergroup
+# and set TELEGRAM_COMMUNITY_* in .env:  sudo systemctl enable --now khayrkhoh-community-bot
+# Without those variables the command exits at once — Restart=always would
+# then loop every RestartSec, which is why it stays disabled until configured.
+[Unit]
+Description=KhayrKhoh community Telegram bot
+After=network-online.target postgresql.service redis-server.service
+Wants=network-online.target postgresql.service redis-server.service
+
+[Service]
+Type=simple
+User=deploy
+Group=deploy
+WorkingDirectory=/opt/khayrkhoh
+EnvironmentFile=/opt/khayrkhoh/.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/khayrkhoh/.venv/bin/python manage.py run_community_bot
+Restart=always
+RestartSec=10
+MemoryMax=200M
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

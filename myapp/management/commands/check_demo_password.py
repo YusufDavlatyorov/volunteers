@@ -3,7 +3,7 @@
 ``seed_demo``'s shared password is public (README, CLAUDE.md, docs/LOCAL_RUN.md,
 the public GitHub repo), so on production no account may accept it, and the
 demo usernames must not exist there at all (``seed_demo`` never runs in
-production). Run at deploy (runbook §9) and any time in doubt.
+production). Run at deploy (deploy/MIGRATION.md step 1) and any time in doubt.
 
 Never writes: passwords are compared with ``hashers.check_password`` without a
 setter, so even an old-format hash is not upgraded/saved (``Users.check_password``

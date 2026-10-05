@@ -1,6 +1,6 @@
 """Celery app for background notification delivery (myapp/tasks.py).
 
-Worker (production, `celery_worker` compose service):
+Worker (production, deploy/systemd/khayrkhoh-celery.service):
     celery -A server worker --pool=threads --concurrency=4 --loglevel=INFO
 Configuration lives in server/settings.py under the CELERY_ prefix.
 """

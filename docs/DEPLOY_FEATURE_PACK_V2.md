@@ -1,36 +1,38 @@
-# Деплой Feature Pack v2 и план отката
+# Feature Pack v2 — справка к деплою
 
-Runbook для совместного деплоя на `khayrkhoh.tj` (31.25.236.54, `/opt/khayrkhoh`, пользователь
-`deploy`). Сейчас в продакшене `main` @ `2467bc5`. Решение владельца (2026-10-03): **всё выкатывается
-одним деплоем после завершения всех 8 этапов**. Runbook дополняется на каждом этапе; сейчас он
-покрывает этапы 1–6: WebSocket, уведомления, доступность, трекинг и маршруты, чат и отзывы,
-достижения и аналитика, Telegram-боты, лёгкие WebP-фото и подготовка к Cloudflare.
+> **Команды для выполнения здесь больше нет.** С 2026-10-05 (решение владельца) Feature Pack v2
+> выкатывается **одним окном вместе с переездом с Docker на venv + systemd**; исполняемый
+> runbook — [`deploy/MIGRATION.md`](../deploy/MIGRATION.md). Этот файл — справка к нему: что
+> меняет сам Feature Pack v2, почему шаги стоят в таком порядке, что именно делают однократные
+> команды, и история репетиций (они проходили ещё в Docker-окружении).
 
-Ничего из этого не выполняется без явного «deploy» от владельца. Команды ниже — для сессии деплоя.
+Сейчас в продакшене `main` @ `2467bc5`. Решение владельца (2026-10-03): всё выкатывается одним
+деплоем после завершения всех 8 этапов. Ничего не выполняется без явного «deploy» от владельца.
 
-**Что меняется на сервере:**
+**Что меняет Feature Pack v2** (инфраструктурные изменения переезда — в таблице в начале
+`deploy/MIGRATION.md`):
 
 | Что | Подробно |
 |---|---|
-| Новый контейнер `ws` | uvicorn, `127.0.0.1:8001`, лимит 256 МБ (≈ 70–90 МБ в простое, 137 МиБ при 300 открытых сокетах — нагрузочный тест этапа 6) |
-| `celery_worker` | теперь монтирует `./media` (как и `telegram_bot` — бот сохраняет фото из чата задачи; без этого все варианты падали с `FileNotFoundError`, найдено на генеральной репетиции 2026-10-04) и строит WebP-варианты фото; одно фото за раз + JPEG `draft`: 4 одновременные загрузки 12 Мп — пик ≈ 120 МБ (без этого было ≈ 690 МБ при лимите 300 МБ). Новые оригиналы — не больше 2560 px, варианты строятся уже из них |
-| `osrm_car` / `osrm_foot` | **в этом деплое не включаем** (решение владельца 2026-10-03) — отдельным деплоем позже; до тех пор маршруты по текущему `OSRM_BASE_URL` из `.env` и запасной расчёт по прямой |
+| WebSocket | Django Channels; обслуживается **тем же** gunicorn/uvicorn-процессом, что и страницы (`khayrkhoh-web`, `/ws/` → 127.0.0.1:8000). Нагрузочный тест этапа 6 (отдельный uvicorn-процесс): ≈ 70–90 МБ в простое, 137 МиБ при 300 открытых сокетах — поэтому лимит `khayrkhoh-web` 900 МБ (было 700 + 256 МБ на два контейнера) |
+| celery | строит WebP-варианты фото; одно фото за раз + JPEG `draft`: 4 одновременные загрузки 12 Мп — пик ≈ 120 МБ (лимит 300 МБ). Новые оригиналы — не больше 2560 px |
+| OSRM | **в этом деплое не включаем** (решение владельца 2026-10-03); маршруты — по `OSRM_BASE_URL` из `.env` и запасной расчёт по прямой. Свой OSRM, если понадобится, ставится отдельно и без Docker |
 | Миграции | `accounts` 0008–0012, `myapp` 0016–0024 (14 штук): только добавление столбцов/таблиц, без удаления данных |
-| Образ | базовый образ закреплён: `python:3.14.8-slim-trixie` (раньше плавающий `3.14-slim`); на нём прогнан весь набор тестов, сборка `linux/amd64` |
-| `telegram_bot` | та же команда `run_telegram_bot`, но теперь это бот на python-telegram-bot с меню по ролям (этап 5); память ≈ 90 МиБ (было 61 МБ, лимит 300 МБ) |
-| Новый `community_bot` | бот сообщества волонтёров, профиль `community` — **в этом деплое не запускается**; включается отдельно, когда владелец создаст бота и группу (`docs/COMMUNITY_BOT.md`); ≈ 90 МиБ, лимит 200 МБ |
-| nginx | `map $http_upgrade`, `location /ws/`, `/media/chat/` → 404, `internal` `/protected-media/` (DEPLOY.md §10a); этап 6: `open_file_cache`, `/media/` — кэш 30 дней + `nosniff` (DEPLOY.md §10) |
-| cron | 7 новых задач (DEPLOY.md §13); две задачи сообщества ничего не делают, пока оно не настроено |
-| Однократно | `backfill_achievements`; `rename_legacy_uploads` (старые фото со своими именами файлов → случайные имена, ссылки в БД обновляются — в окне простоя шага 7; старые файлы без ссылок → карантин вне `media/` в шаге 9, удаление через 30 дней — шаг 13); `backfill_image_variants` (WebP-варианты старых фото; с `--strip-metadata` — ещё и убрать GPS из старых оригиналов) |
-| `/health/ready/` | теперь проверяет ещё и **схему БД**: все миграции применены, нет применённых миграций, которых нет в коде, все таблицы и столбцы моделей на месте (подробно — шаг 8) |
-| Демо-данные | `check_demo_data` — проверка «демо-данных нет» только на чтение, до деплоя (шаг 3a) и после (шаги 9, 12); `seed_demo` отказывается работать при `DEBUG=False` |
-| `.env` | новых обязательных переменных нет; **после деплоя меняется `TELEGRAM_BOT_TOKEN`** — новый токен через @BotFather (шаг 10a). Токен **тестового** бота (docs/TEST_BOT.md) живёт только в локальном `.env` на Mac — на сервер, в git и в этот runbook он не попадает никогда |
+| Python | 3.14 (deadsnakes на сервере; на нём прогнан весь набор тестов) |
+| Основной бот | та же команда `run_telegram_bot`, теперь python-telegram-bot с меню по ролям (этап 5); ≈ 90 МиБ |
+| Бот сообщества | `run_community_bot`, юнит `khayrkhoh-community-bot` — **в этом деплое не включается**; когда владелец создаст бота и группу (`docs/COMMUNITY_BOT.md`); ≈ 90 МиБ, лимит 200 МБ |
+| nginx | `map $http_upgrade`, `location /ws/`, `/media/chat/` → 404, `internal` `/protected-media/`; этап 6: `open_file_cache`, `/media/` — кэш 30 дней + `nosniff` — всё уже в `deploy/nginx/khayrkhoh.conf` |
+| cron | 7 новых задач (всего 9, `deploy/crontab.example`); две задачи сообщества ничего не делают, пока оно не настроено |
+| Однократно | `backfill_achievements`; `rename_legacy_uploads` (в окне простоя) и карантин старых файлов без ссылок (удаление через 30 дней); `backfill_image_variants --strip-metadata` |
+| `/health/ready/` | проверяет ещё и **схему БД** (ниже) |
+| Демо-данные | `check_demo_data` — только чтение, до деплоя (на пробной копии), после и через сутки; `seed_demo` отказывается работать при `DEBUG=False` |
+| `.env` | после деплоя меняется `TELEGRAM_BOT_TOKEN` (новый токен через @BotFather). Токен **тестового** бота (docs/TEST_BOT.md) живёт только в локальном `.env` на Mac — на сервер, в git и в runbook он не попадает никогда |
 
 > **Демо-данных на сервере быть не должно.** `seed_demo` и любые демо-команды на сервере **никогда
-> не запускаются** (с этапа 7 `seed_demo` сам откажется при `DEBUG=False`; флаг
-> `--allow-without-debug` — только для локального стенда репетиции, никогда на сервере). До и после
-> деплоя — проверка только на чтение (шаги 1, 3a, 9, 12). **Если что-то демо найдено — ничего не
-> удалять и не менять: остановиться и сказать владельцу**, решение принимает он.
+> не запускаются** (флаг `--allow-without-debug` — только для локального стенда репетиции). **Если
+> что-то демо найдено — ничего не удалять и не менять: остановиться и сказать владельцу.**
+
+## История репетиций (до отказа от Docker)
 
 Отрепетировано 2026-10-03 на `postgres:16` в Docker: схема `main` + демо-данные → миграции ветки
 вперёд → откат миграций → старый код снова работает, данные сохранены → повторный накат. Во время
@@ -67,295 +69,58 @@ Origin 403, ошибок в логах нет. Все 9 cron-команд вып
 Откат уровня 1 — 83 с: старый код пишет и читает, данные, созданные на новой версии, сохранились.
 Повторный накат — значки созданы заново. Уровень 2 (исправленный) — 30 с, ровно данные дампа.
 
----
+Генеральная репетиция нового, объединённого runbook (переезд + FP v2) — шаг R в
+`deploy/MIGRATION.md`; её результаты записываются там.
 
-## 0. До сессии деплоя (локально, на Mac)
+## Почему статика — до миграций
 
-**Как код попадает на сервер.** Сервер — это клон `https://github.com/YusufDavlatyorov/volunteers.git`
-(DEPLOY.md §2) и обновляется командой `git pull` из `origin/main`. Значит, коммиты нужно
-**отправить на GitHub в `main`**. Ветка `feature-pack-v2` (коммиты поверх `2467bc5`) вливается
-в `main` перемоткой (fast-forward), без merge-коммита. С 2026-10-04 сама ветка уже лежит на GitHub
-как внешний бэкап (решение владельца) — в `main` до «deploy» ничего не отправляется.
-
-Репозиторий **публичный** (API GitHub отвечает без авторизации). Всё, что отправляем, станет
-видно всем. Проверено 2026-10-03 и 2026-10-04: в диффе нет секретов (`.env`, дампы, `osrm-data/`
-в git не попадают; в тестах только фиктивный токен `123:abc`); 2026-10-04 дополнительно — ни одно
-значение секретов из `.env` / `.env.production` не встречается ни в одном коммите, и в документах
-нет путей `/Users/<имя>`. Если публиковать не хочется, есть вариант
-без GitHub: `git bundle create fp2.bundle main` → `scp` на сервер → `git pull fp2.bundle main`.
-
-1. Полный набор тестов зелёный: `python manage.py test --parallel 4`.
-2. В сессии деплоя, после «deploy»:
-
-```bash
-git checkout main
-git merge --ff-only feature-pack-v2      # ошибка = в main появилось что-то новое → остановиться и разобраться
-git push origin main
-git rev-parse --short HEAD               # записать как NEW
-git push origin feature-pack-v2          # ветка уже на GitHub (бэкап) — просто обновить
-```
-
-OSRM в этом деплое не включаем, поэтому данные `osrm-data/` на сервер пока не копируем.
-
-## 1. Предварительная проверка (на сервере, только чтение)
-
-```bash
-cd /opt/khayrkhoh
-git status --short                     # должно быть пусто
-git rev-parse --short HEAD             # ожидаем 2467bc5 — это ROLLBACK_COMMIT
-docker compose ps                      # web, telegram_bot, celery_worker, redis — Up
-sudo nginx -t
-curl -fsS https://khayrkhoh.tj/health/ready/
-grep -c '\$' .env                      # 0 — без "$" в значениях (проверено 2026-10-02)
-grep -c 'DJANGO_BEHIND_TLS_PROXY=True' .env   # 1 — с этапа 6 по нему же читается IP посетителя
-sudo grep -n "X-Real-IP" /etc/nginx/sites-available/khayrkhoh   # есть в location / (иначе IP посетителя подделывается)
-
-# права на схему для отката уровня 2 (DROP SCHEMA public) — только чтение
-set -a; . ./.env; set +a
-docker exec shared_postgres psql -U "$DJANGO_DB_USER" -d "$DJANGO_DB_NAME" -Atc \
-  "select rolsuper from pg_roles where rolname = current_user; select pg_get_userbyid(nspowner) from pg_namespace where nspname = 'public'"
-#   ожидаем: t (суперпользователь, как создаёт DEPLOY.md §4) и pg_database_owner. Если f — сказать мне до деплоя:
-#   тогда уровень 2 делается через dropdb/createdb от суперпользователя postgres.
-
-# демо-пароль seed_demo публичный (README, GitHub) — он не должен подходить ни к одному аккаунту.
-# Только чтение: сравнение без пересохранения хеша; печатает только логины. ≈ 0,1–1 с на аккаунт.
-docker compose exec -T web python manage.py shell -c "from django.contrib.auth.hashers import check_password as c; from accounts.models import Users as U; print('demo:', [u.username for u in U.objects.only('username','password') if u.has_usable_password() and c('Volunteer2026!', u.password)], 'demo users:', list(U.objects.filter(username__in=['admin_demo','malika_s','client_zamira','curator_samira']).values_list('username', flat=True)), 'of', U.objects.count())"
-#   ожидаем: demo: [] demo users: [] of N. Если список не пустой — СТОП: ничего не менять и не
-#   удалять, сказать владельцу (он решает: сменить пароль / удалить аккаунт / продолжать).
-#   Полная проверка всех демо-данных (запросы, акции, фото…) — шаг 3a: в старом образе её команды нет.
-#   Последний read-only аудит прода (2026-10-04, SSH с разрешения владельца): 7 аккаунтов, демо-пароль
-#   не подходит ни к одному, демо-логинов нет.
-
-# память и диск
-free -h                                # смотреть столбец "available"
-df -h / /var/lib/docker /var/backups 2>/dev/null
-docker system df                       # образы / build cache / тома
-docker image ls khayrkhoh              # текущий образ
-set -a; . ./.env; set +a
-docker exec shared_postgres psql -U "$DJANGO_DB_USER" -d "$DJANGO_DB_NAME" -Atc \
-  "select pg_size_pretty(pg_database_size(current_database()))"
-du -sh media staticfiles
-docker stats --no-stream --format "table {{.Name}}\t{{.MemUsage}}"
-```
-
-**Сколько займёт диск** (оценка; точные числа дадут команды выше):
-
-| Что | Оценка | Откуда |
-|---|---|---|
-| `db.dump` | 20–40 % от `pg_database_size` (формат custom сжимает); для текущих объёмов — единицы–десятки МБ | демо-база на 53 запроса: 128 КБ |
-| `media.tgz` | ≈ размер `media/` (JPEG/WebP почти не сжимаются) | `du -sh media` |
-| Новый образ | ≈ 300 МБ в распакованном виде против ≈ 265 МБ сейчас (Python-пакеты 126 → 155 МБ: channels, uvicorn). Старый остаётся тегом `rollback-2467bc5`, общий базовый слой не дублируется, поэтому прирост ≈ 200 МБ | сборка `linux/amd64` 2026-10-03 |
-| Build cache | до ≈ 300 МБ, можно почистить после деплоя (`docker builder prune`) | — |
-| Статика | + ≈ 1 МБ (Chart.js, значки, новые JS/CSS) | — |
-
-**Итого нужно ≈ 0,6 ГБ + размер дампа и media.** Продолжаем, если свободно **не меньше 2 ГБ**
-(запас на логи и повторную сборку); если меньше 1 ГБ — сначала `docker image prune`
-(удаляет только неиспользуемые образы) и разобраться.
-
-**Память — на будущее, для OSRM.** После этого деплоя добавится `ws` (≈ 70–130 МБ). Для
-следующего деплоя с OSRM нужно ещё ≈ 0,5 ГБ RAM (замеры: `osrm_car` 223 МиБ + `osrm_foot`
-261 МиБ, лимиты по 400 МБ) и ≈ 0,5 ГБ на диске под данные. Ориентир: если после этого деплоя
-и суток работы в `free -h` столбец «available» **больше 1,2 ГБ**, OSRM помещается с запасом;
-если меньше 0,8 ГБ — включать только `osrm_car` (пешие маршруты останутся расчётом по прямой).
-
-## 2. Бэкапы — без них не продолжать
-
-```bash
-cd /opt/khayrkhoh
-TS=$(date +%F-%H%M); B=/var/backups/khayrkhoh/pre-fp2-$TS; sudo install -d -o deploy -g deploy "$B"
-set -a; . ./.env; set +a
-# 2.1 БД (формат custom, для pg_restore)
-docker exec shared_postgres pg_dump -U "$DJANGO_DB_USER" -Fc "$DJANGO_DB_NAME" > "$B/db.dump"
-ls -lh "$B/db.dump"                    # не 0 байт
-# 2.2 media (аватары, фотоотчёты, животные)
-tar -C /opt/khayrkhoh -czf "$B/media.tgz" media
-# 2.3 образ, манифест статики, nginx, crontab
-docker tag khayrkhoh:latest khayrkhoh:rollback-2467bc5
-cp staticfiles/staticfiles.json "$B/staticfiles.json"
-sudo cp /etc/nginx/sites-available/khayrkhoh "$B/nginx-khayrkhoh.conf"
-crontab -l > "$B/crontab.txt"
-# 2.4 контрольные суммы — по ним Mac проверит, что копия совпадает побайтно
-(cd "$B" && sha256sum db.dump media.tgz > SHA256SUMS && cat SHA256SUMS)
-ls -lh "$B"; echo "$B"                 # запомнить путь (TS) к бэкапу
-```
-
-### 2.5 Копия на Mac и проверка — в отдельном окне терминала на Mac
-
-Бэкап на том же диске не переживёт его потерю, поэтому **без проверенной копии на Mac дальше не идём**:
-
-```bash
-TS=<как в пути из шага 2.4, например 2026-10-07-0830>
-mkdir -p ~/khayrkhoh-backups
-rsync -av --progress deploy@31.25.236.54:/var/backups/khayrkhoh/pre-fp2-$TS ~/khayrkhoh-backups/
-cd ~/Desktop/volunteers && scripts/verify_backup.sh ~/khayrkhoh-backups/pre-fp2-$TS
-```
-
-`scripts/verify_backup.sh` (нужен запущенный Docker Desktop):
-1. сверяет контрольные суммы с `SHA256SUMS` с сервера;
-2. проверяет, что `media.tgz` читается целиком, и считает файлы;
-3. **пробно восстанавливает `db.dump`** во временный `postgres:16` (та же мажорная версия, что
-   `shared_postgres`) и печатает число пользователей, запросов и применённых миграций; потом
-   удаляет контейнер. Ничего никуда не отправляется.
-
-Ожидаемый конец вывода: `OK: the dump restores and the tables are readable.` Число пользователей
-и запросов должно совпадать с админ-панелью. Скрипт проверен 2026-10-03 на полной цепочке
-`pg_dump` → `rsync` → проверка; подменённый файл ловится на шаге контрольных сумм.
-
-## 3. Код и сборка
-
-```bash
-git fetch origin && git checkout main && git pull --ff-only
-git rev-parse --short HEAD             # = NEW из шага 0
-docker compose build                   # 3–6 мин на 1 vCPU
-docker image ls khayrkhoh              # latest (новый) + rollback-2467bc5 (старый)
-df -h /                                # сверить с оценкой из шага 1
-```
-
-`.env` не трогаем: OSRM в этом деплое не включается.
-
-Работающий сайт продолжает обслуживать старый образ: `build` контейнеры не пересоздаёт.
-
-## 3a. Демо-данных нет — проверка ДО изменений (только чтение)
-
-Новым образом, но ещё на **старой** схеме — до статики, миграций и перезапуска (команда читает
-только столбцы, которые были и в старом коде, а таблицы, которых ещё нет, пропускает — проверено на
-копии базы `2467bc5` 2026-10-04):
-
-```bash
-docker compose run --rm --no-deps web python manage.py check_demo_data
-#   ожидаем последней строкой: "OK: no demo data" (код выхода 0)
-```
-
-Проверяет всё, что пишет `seed_demo`: демо-логины, почты `@gc.local`, аккаунты с публичным
-демо-паролем (сравнение без пересохранения хеша, ≈ 0,1–1 с на аккаунт), демо-запросы (включая
-«[история] Демо-запрос #…»), акции, рассылки, фотоотчёты, сигналы SOS, каталог, предложения
-пожертвований от демо-организаций, объявления о животных, сообщения чата и **файлы в `media/`,
-побайтно совпадающие с демо-фото** (под любым именем). Печатает только количества, номера записей
-(`#12`) и папки — без имён, почт, телефонов и имён файлов. Ничего не пишет и не удаляет.
-
-**Если хоть одна строка не 0 (код выхода 1) — СТОП. Ничего не удалять, деплой не продолжать,
-вывод показать владельцу.** Пока ничего не изменено: работает старый код на старой схеме.
-
-## 4. Статика — до миграций
-
-```bash
-docker compose run --rm web python manage.py collectstatic --noinput
-#   последняя строка: "N static files copied to '/app/staticfiles', M post-processed."
-```
-
-**Если здесь ошибка — СТОП, деплой не продолжать.** Ничего ещё не изменено: схема БД старая,
-работающий `web` держит старый манифест в памяти. Разобраться локально и начать с шага 3. Шаг
-стоит **до** миграций именно поэтому: на репетиции 2026-10-04 `collectstatic` упал
-(`chart.umd.js.map could not be found` — вендорный Chart.js ссылался на несуществующую карту),
-а при старом порядке это случилось бы уже после миграций. Исправлено, и тест
-`myapp.tests_m7_prep.ProductionCollectstaticTests` теперь прогоняет `collectstatic` с
-производственным хранилищем при каждом запуске тестов.
+На репетиции 2026-10-04 `collectstatic` упал (`chart.umd.js.map could not be found` — вендорный
+Chart.js ссылался на несуществующую карту); при старом порядке это случилось бы уже после
+миграций. Исправлено, и тест `myapp.tests_m7_prep.ProductionCollectstaticTests` прогоняет
+`collectstatic` с производственным хранилищем при каждом запуске тестов. `deploy/deploy.sh` и
+`deploy/MIGRATION.md` (шаг 4.4) делают статику раньше миграций.
 
 Новые файлы: `vendor/chartjs-4.4.7/`, `vendor/leaflet-heat-0.2.0/`, `images/badges/*.svg`,
 `css/analytics.css`, `js/{realtime,live-ui,chat,task-route,profile-location,achievements,crm-analytics}.js`
-и другие. Ни один старый файл не удалён, старые хешированные копии остаются — поэтому и откат
-статики, и случайный перезапуск старого `web` между шагами 4 и 7 безопасны.
+и другие. Ни один старый файл не удалён, старые хешированные копии остаются — поэтому старый
+сайт, работающий до окна, и откат статики (вернуть старый `staticfiles.json`) безопасны.
 
-## 5. Миграции (новым образом, до перезапуска)
+## Старый код и новая схема
 
-```bash
-docker compose run --rm web python manage.py showmigrations accounts myapp | grep '\[ \]'
-#   accounts 0008 … 0012; myapp 0016 … 0024 — ровно 14 строк
-docker compose run --rm web python manage.py migrate --noinput
-docker compose run --rm web python manage.py showmigrations accounts myapp | grep -c '\[ \]'   # 0
-```
+Старый код на новой схеме открывает страницы, но **не может записывать** в изменённые таблицы
+(новые столбцы `NOT NULL`, например `Profile.is_away`). В объединённом runbook старый код новую
+схему не видит вовсе: миграции идут в новую базу (копию), а старая база в `shared_postgres`
+остаётся на `0015`.
 
-Старый код на новой схеме открывает страницы (репетиция 2026-10-04: главная, вход, «О нас»,
-`/health/ready/` — 200), но **не может записывать** в изменённые таблицы (новые столбцы `NOT NULL`,
-например `Profile.is_away`). Поэтому шаги 5 → 7 идут подряд, без пауз. Если `migrate` упал на
-середине — сразу «Откат», уровень 1, с шага 1.2.
+## Что видят пользователи при переименовании старых фото
 
-## 6. nginx — до `up -d`
-
-Новый `web` отдаёт фото чата через `X-Accel-Redirect` (`DJANGO_MEDIA_X_ACCEL=True`), поэтому
-`/protected-media/` должен существовать **до** перезапуска. Старое приложение к `/ws/` и
-`/protected-media/` не обращается, так что раньше их включать безопасно.
-
-1. Создать `/etc/nginx/conf.d/websocket-map.conf` со строкой `map` из DEPLOY.md §10a.
-2. В `/etc/nginx/sites-available/khayrkhoh`, в блоке `server_name khayrkhoh.tj` (443), **выше**
-   `location /media/` и `location /`, вставить `location /ws/`, `location ^~ /media/chat/` и
-   `location ^~ /protected-media/` из DEPLOY.md §10a.
-3. Этап 6, в том же блоке 443: после `client_max_body_size` добавить 4 строки `open_file_cache…`, а
-   `location /media/` заменить новой версией (`expires 30d`, `nosniff`, `sendfile`) — обе из DEPLOY.md §10
-   (проверено на `nginx:1.27-alpine` 2026-10-03). Убедиться, что в `location /` есть
-   `proxy_set_header X-Real-IP $remote_addr;`.
-4. Проверить и перезагрузить:
-
-```bash
-sudo nginx -t && sudo systemctl reload nginx
-curl -s -o /dev/null -w "%{http_code}\n" https://khayrkhoh.tj/media/chat/x.jpg        # 404
-curl -s -o /dev/null -w "%{http_code}\n" https://khayrkhoh.tj/protected-media/x.jpg   # 404
-curl -fsS https://khayrkhoh.tj/health/ready/                                         # 200, сайт жив
-```
-
-## 7. Перезапуск (с переименованием старых фото в окне простоя)
-
-Старые фото переименовываются, **пока приложение остановлено**: в это время никто не может загрузить
-фото или сохранить профиль/фотоотчёт/объявление со старым именем файла поверх нового (такое
-сохранение вернуло бы в БД имя уже удалённого файла). Отдельного «режима обслуживания» у сайта
-нет — это то же окно, в котором `web` и так пересоздаётся; nginx в нём отвечает 502, как и раньше.
-
-```bash
-# 7.1 сколько будет переименовано — пока работает старый сайт (только чтение; схема уже новая после шага 5)
-docker compose run --rm --no-deps web python manage.py rename_legacy_uploads --dry-run
-#   "total: would rename N …"; строку "unreferenced …" пока не трогаем — это шаг 9
-# 7.2 окно простоя: остановить старые контейнеры приложения (redis не трогаем — в нём очередь)
-docker compose stop web telegram_bot celery_worker
-# 7.3 переименовать (новым образом; для ~сотни фото — секунды)
-docker compose run --rm --no-deps web python manage.py rename_legacy_uploads
-#   "total: renamed N, changed meanwhile 0, failed 0". failed > 0 — НЕ останавливаться: сайт
-#   поднимаем (7.4), разбираемся после (строка в stderr — только номера записей; файлы есть в media.tgz)
-# 7.4 поднять новые контейнеры
-docker compose up -d                       # пересоздаёт web/telegram_bot/celery_worker, поднимает ws
-docker compose ps                          # web, ws, telegram_bot, celery_worker, redis — Up (osrm_* не запускаются: профиль не включён)
-docker compose run --rm --no-deps web python manage.py rename_legacy_uploads --dry-run   # "total: would rename 0"
-```
-
-Простой — примерно 30–40 секунд (остановка ≈ 10 с + переименование — секунды + пересоздание `web`
-10–20 с); раньше было 10–20 с. cron-задачи, попавшие в это окно, напишут в `cron.log` ошибку
-`exec` (контейнер остановлен) и отработают в следующий запуск — это безвредно.
-
-**Что видят пользователи.** Загрузить фото во время 7.2–7.4 нельзя (сайт не отвечает). Фото,
-загруженные старым кодом **до** 7.2 (в том числе после бэкапа шага 2), ещё со старыми именами —
-команда переименует и их. Фото после 7.4 сразу получают случайные имена. Страница, открытая до
+Загрузить фото в окне простоя (`deploy/MIGRATION.md`, 6.1–6.8) нельзя — сайт не отвечает.
+Фото, загруженные старым кодом **до** окна (в том числе после бэкапа шага 2), ещё со старыми
+именами — команда переименует и их. Фото после 6.8 сразу получают случайные имена. Страница, открытая до
 переименования, покажет «битую» картинку до обновления (старый адрес больше не существует).
 **Ссылок на фото вне сайта нет:** ни бот, ни рассылки, ни уведомления, ни письма — ни в новом коде,
 ни в работающем `2467bc5` — не отправляют адресов `/media/…` (бот фото только принимает в чат
 запроса, уведомления ведут на страницы). Перестанет открываться только ссылка, которую кто-то
 вручную скопировал и куда-то вставил.
 
-## 8. Проверка (сразу)
+## Проверка `/health/ready/`
 
 `/health/ready/` в новом коде отвечает 200 только если **всё** ниже в порядке, иначе 503 (детали —
-одной строкой `WARNING server.health: readiness: …` в `docker compose logs web`, в ответ наружу
+одной строкой `WARNING server.health: readiness: …` в `journalctl -u khayrkhoh-web`, в ответ наружу
 не попадают):
 
 | Ключ | Что значит `ok` |
 |---|---|
 | `database` | `SELECT 1` проходит |
-| `migrations` | все миграции из кода применены **и** в `django_migrations` нет миграций `accounts`/`myapp`, которых нет в коде (= база новее кода, например старый образ запущен без отката миграций) |
+| `migrations` | все миграции из кода применены **и** в `django_migrations` нет миграций `accounts`/`myapp`, которых нет в коде (= база новее кода, например старый код запущен без отката миграций) |
 | `schema` | каждая таблица и каждый столбец каждой модели существуют — один запрос `… WHERE 1 = 0` (строк не читает). Ловит то, чего не видит таблица миграций: полу-восстановленный дамп, миграцию, отмеченную `--fake`, таблицу или столбец, удалённые руками |
 | `config` | `SECRET_KEY` задан |
 | `cache` | Redis отвечает (запись + чтение) |
 
-**Кто опрашивает `/health/ready/`** (проверено по `docker-compose.yml`, DEPLOY.md, этому runbook,
-2026-10-04): только люди — `curl` в шагах 1, 6, 8, 12 и в откате. В compose `healthcheck` есть только
-у `redis`; `depends_on` у сервисов — простые, без `condition: service_healthy`; Docker по
-healthcheck не перезапускает (только `restart: unless-stopped` при падении процесса); nginx
-активных проверок не делает и запросы по ответу этого адреса не снимает; внешних мониторов в
-репозитории нет (если владелец подключал свой — он увидит 503 только в окне ниже). 503 ни на что
-автоматически не влияет: сайт продолжает обслуживать запросы.
-
-**Окна, где возможен 503.** Деплой: между `migrate` (шаг 5) и 7.4 работает **старый** код — в нём
-проверки миграций нет, он отвечает 200 (проверено на `2467bc5`). Новый код стартует в 7.4, когда
-миграции уже применены → 200. Откат уровня 1: между 1.2 (миграции назад) и 1.3 (`up -d` старого
-образа) ещё работает **новый** `web` → его `/health/ready/` = 503 (`migrations`), это ожидаемо и
-длится минуты; сайт в это время работает как «новый код на старой схеме». После 1.3 — старый код, 200.
+**Кто опрашивает `/health/ready/`**: только люди (`curl` в runbook) и `deploy/deploy.sh` после
+перезапуска. systemd по нему ничего не перезапускает (юниты перезапускаются только при падении
+процесса), nginx активных проверок не делает, внешних мониторов в репозитории нет. 503 ни на что
+автоматически не влияет.
 
 **Граф миграций не строится на каждый запрос:** файлы миграций читаются один раз на процесс
 gunicorn (≈ 10 мс при первом опросе), дальше каждый опрос — 1 запрос к `django_migrations`
@@ -363,55 +128,9 @@ gunicorn (≈ 10 мс при первом опросе), дальше кажды
 
 Если БД недоступна, `migrations` и `schema` = `skipped`. Не проверяет: индексы, ограничения
 (`UNIQUE`/`CHECK`), типы столбцов и сами данные — это работа `migrate` и бэкапов. Стоит ≈ 1–5 мс
-и 4 коротких запроса. Тесты: `myapp.tests_predeploy.ReadinessSchemaTests` (SQLite и `postgres:16`).
+и 4 коротких запроса. Тесты: `myapp.tests_predeploy.ReadinessSchemaTests` (SQLite; PostgreSQL 16 — на стенде репетиции).
 
-```bash
-curl -fsS https://khayrkhoh.tj/health/ ; curl -fsS https://khayrkhoh.tj/health/ready/
-#   {"status": "ready", "checks": {"database": "ok", "migrations": "ok", "schema": "ok", "config": "ok", "cache": "ok"}}
-docker compose exec -T web python manage.py check_realtime     # channels_redis… / round trip: OK
-docker compose exec -T ws  python manage.py check_realtime
-curl -sk -o /dev/null -w "%{http_code}\n" --http1.1 -m 5 \
-  -H "Connection: Upgrade" -H "Upgrade: websocket" -H "Sec-WebSocket-Version: 13" \
-  -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" -H "Origin: https://khayrkhoh.tj" \
-  https://khayrkhoh.tj/ws/                                     # 101 (exit 28 после 5 с — норма)
-docker compose logs --since 5m web ws celery_worker | grep -iE "error|traceback" | head
-docker stats --no-stream                                       # ws ≈ 70–130 МБ, всё вместе < 1 ГБ
-free -h                                                        # записать "available" — понадобится для решения по OSRM
-```
-
-## 9. Однократные команды
-
-```bash
-docker compose exec -T web python manage.py backfill_achievements --dry-run    # посмотреть, сколько значков выдастся
-docker compose exec -T web python manage.py backfill_achievements              # тихо, без уведомлений
-docker compose exec -T web python manage.py purge_chats --dry-run              # 0/0 — чатов ещё нет
-docker compose exec -T web python manage.py check_demo_data                    # "OK: no demo data" — демо-данных нет и после деплоя (включает check_demo_password)
-#   не 0 → ничего не удалять, сказать владельцу (см. рамку в начале)
-
-# Старые файлы, на которые не ссылается ни одна запись → карантин ВНЕ media/ (nginx их больше не
-# отдаёт). Решение владельца 2026-10-04: не удалять сразу; удалить через 30 дней (шаг 13).
-# Сначала команда проверяет, что media.tgz из шага 2 читается до конца и содержит каждый из этих
-# файлов с теми же байтами; если нет — ничего не переносит (код 1) → сказать владельцу.
-B=/var/backups/khayrkhoh/pre-fp2-<TS>                 # путь бэкапа из шага 2
-ls -lh "$B/media.tgz"                                 # есть, не 0 байт
-Q=/var/backups/khayrkhoh/media-quarantine-$(date +%F); echo "$Q"     # записать путь
-sudo install -d -o 1000 -g 1000 -m 700 "$Q"          # uid 1000 = пользователь контейнера
-docker compose run --rm --no-deps -v "$Q:/quarantine" -v "$B/media.tgz:/backup/media.tgz:ro" \
-  web python manage.py rename_legacy_uploads --quarantine-unreferenced /quarantine --verify-backup /backup/media.tgz --dry-run
-#   "backup check: OK, all K …" + "would move K"
-docker compose run --rm --no-deps -v "$Q:/quarantine" -v "$B/media.tgz:/backup/media.tgz:ro" \
-  web python manage.py rename_legacy_uploads --quarantine-unreferenced /quarantine --verify-backup /backup/media.tgz
-#   "moved to quarantine: K"
-docker compose run --rm --no-deps web python manage.py rename_legacy_uploads --dry-run   # "unreferenced non-random files: 0"
-sudo find "$Q" -type f | wc -l                        # = K
-sudo grep -nE "^\s*(root|alias) " /etc/nginx/sites-available/khayrkhoh   # только staticfiles/ и media/ — карантин не отдаётся
-
-# Этап 6: WebP-варианты старых фото (аватары, фотоотчёты, животные).
-docker compose exec -T web python manage.py backfill_image_variants --dry-run --strip-metadata
-docker compose exec -T web python manage.py backfill_image_variants --strip-metadata   # решение владельца 2026-10-04: да
-docker compose exec -T web python manage.py backfill_image_variants                    # повторно: "total: variants 0, stripped 0, failed 0"
-curl -s https://khayrkhoh.tj/ | grep -c 'type="image/webp"'                    # > 0, если есть фотоотчёты
-```
+## `rename_legacy_uploads`, карантин, `--strip-metadata`
 
 `--strip-metadata` перезаписывает **старые** оригиналы, в которых остались EXIF/GPS, по тому же
 пути (адреса не меняются, качество JPEG 90, размер в пикселях тот же). Новые загрузки очищаются
@@ -420,7 +139,7 @@ curl -s https://khayrkhoh.tj/ | grep -c 'type="image/webp"'                    #
 команда только строит варианты. Строки `failed` — файл записи пропал с диска; это не ошибка
 деплоя, страница покажет запись без фото, как и раньше.
 
-**`rename_legacy_uploads`** (шаг 7.3 и карантин здесь). До этапа 6 аватар, фотоотчёт или фото животного хранились под именем
+**`rename_legacy_uploads`** (`deploy/MIGRATION.md`: переименование — 6.7, карантин — шаг 8). До этапа 6 аватар, фотоотчёт или фото животного хранились под именем
 файла с телефона/компьютера — часто это ФИО (`/media/avatars/Ivanov_Ivan.jpg`), а `/media/` публичен.
 Команда для каждого такого файла: копирует его (байты не меняются) в `<та же папка>/<uuid>.<расш.>`
 вместе с готовыми WebP-вариантами → условным `UPDATE … WHERE image = <старое имя>` переводит на
@@ -443,179 +162,7 @@ curl -s https://khayrkhoh.tj/ | grep -c 'type="image/webp"'                    #
 только количества. Тесты: `myapp.tests_predeploy.RenameLegacyUploadsTests` (неполный, испорченный
 архив, другие байты, каталог внутри `MEDIA_ROOT`).
 
-## 10. cron
-
-```bash
-crontab -e
-```
-
-Добавить 7 строк из DEPLOY.md §13 («Feature Pack v2 adds…»):
-- `sweep_availability` — каждые 5 минут;
-- `purge_tracking` — раз в час;
-- `prune_notifications` и `purge_chats` — раз в день;
-- `remind_stale_locations` — раз в день в 10:00 по Душанбе;
-- `community_sweep` (раз в час) и `community_weekly` (по понедельникам) — пока сообщество не
-  настроено, они только пишут «community not configured».
-
-Через 5–10 минут проверить `tail -n 30 /var/log/khayrkhoh/cron.log` — без трейсбеков.
-
-## 10a. Новый токен основного бота (обязательно, сразу после шагов 8–10)
-
-**Зачем.** До этапа 5 при ошибке отправки в Telegram код писал в лог текст ошибки вместе с
-адресом запроса, а в адресе есть токен бота. Исправлено на этапе 5 (и дополнительно на этапе 6:
-фильтр `server/log_filters.py` вырезает токен из любой строки лога). Но **старые логи на сервере
-могут содержать прежний токен** (`docker logs` контейнеров, journald, `/var/log/khayrkhoh/cron.log`).
-Новый токен делает старый бесполезным — чистить логи не нужно.
-
-**Важно:** после `/revoke` старый токен перестаёт работать **сразу** — бот и уведомления в Telegram
-молчат, пока новый токен не вписан и контейнеры не пересозданы. Делаем шаги 1–4 подряд (≈ 3 минуты).
-
-0. (Для отчёта, только чтение — сколько строк старых логов содержали токен; сам токен не печатается.)
-
-   ```bash
-   cd /opt/khayrkhoh
-   for c in web telegram_bot celery_worker; do
-     printf "%s: " $c; docker compose logs --no-color $c 2>/dev/null | grep -cE "bot[0-9]{5,}:[A-Za-z0-9_-]{30,}"
-   done
-   ```
-
-1. **На телефоне/компьютере в Telegram** (аккаунт владельца бота): открыть **@BotFather** →
-   отправить `/revoke` → выбрать основного бота (тот же, что `TELEGRAM_BOT_USERNAME`) → BotFather
-   пришлёт **новый токен** вида `1234567890:AA…`. Никому его не пересылать, в чат со мной не вставлять.
-   Имя бота, его чаты и привязки пользователей не меняются — меняется только ключ.
-
-2. **На сервере** вписать новый токен (редактор `nano`; токен не печатается в терминал):
-
-   ```bash
-   cd /opt/khayrkhoh
-   cp -p .env /var/backups/khayrkhoh/pre-fp2-<TS>/env-before-token-rotation   # права 600, как у .env
-   nano .env            # строка TELEGRAM_BOT_TOKEN=… → заменить значение на новый токен; Ctrl+O, Enter, Ctrl+X
-   grep -c '^TELEGRAM_BOT_TOKEN=[0-9]\{5,\}:' .env   # 1 — строка есть и похожа на токен
-   grep -c '\$' .env                                  # 0 — без "$"
-   ```
-
-3. **Пересоздать контейнеры, которые читают токен.** `docker compose restart` **не** перечитывает
-   `.env` — нужен `up -d --force-recreate`. Токен использует не только бот: `celery_worker`
-   доставляет уведомления в Telegram, а `web`/`ws` отправляют сами, если очередь Redis недоступна.
-
-   ```bash
-   docker compose up -d --force-recreate telegram_bot celery_worker web ws   # web ≈ 10–20 с простоя
-   docker compose ps                                                          # все Up
-   docker compose logs --since 2m telegram_bot | tail -n 20                    # без "Unauthorized" / "InvalidToken"
-   ```
-
-4. **Проверить уведомления** (вместе, на телефоне владельца):
-   - в боте отправить `/start` — бот отвечает меню роли (значит, токен рабочий);
-   - Telegram владельца привязан к начальной учётке **волонтёра**; в браузере под учёткой
-     **клиента** (та же область) создать запрос «тест, не выполнять» → волонтёру в Telegram за ≤ 10 с
-     приходит «Новый запрос помощи». (Если волонтёр в режиме «не беспокоить», он такие уведомления
-     не получает — тогда админ → «Рассылки» → область волонтёра → короткий текст.) Потом отменить
-     тестовый запрос под клиентом;
-   - `docker compose exec -T redis redis-cli -n 1 llen celery` → `0` (очередь пуста — всё доставлено);
-   - `docker compose logs --since 5m celery_worker | grep -c "Telegram send failed"` → `0`.
-
-Если бот не отвечает: проверить, что в `.env` нет пробела/кавычек вокруг токена, и повторить шаг 3.
-Откат этого шага невозможен (старый токен уже отозван) — только вписать актуальный токен ещё раз.
-Бот сообщества (`TELEGRAM_COMMUNITY_BOT_TOKEN`) в этом деплое не запущен и в логах не был — его не трогаем.
-
-## 11. Проверка в браузере (вдвоём, 15–20 мин)
-
-На телефоне и компьютере, демо-аккаунтов в продакшене нет — используем 4 начальные учётки:
-
-- **Клиент:** создать запрос → в колокольчике уведомления. После принятия — чат: «Я в пути»,
-  фото. После завершения — оценить помощь.
-- **Волонтёр:** принять запрос, согласие на геолокацию, маршрут и навигация, этапы работы,
-  сообщение в чате, завершить. В профиле должны появиться значок «Первая помощь» и окно значка.
-- **Куратор:** в чате видно метку флага на сообщении с «переведите деньги» и работает кнопка
-  «Проверено». В «Аналитике» строятся все графики, CSV скачивается, тепловая карта отображается.
-  В «Отзывах» — низкая оценка с комментарием.
-- **Админ:** админ-панель, заявки волонтёров, карта с живым маркером волонтёра.
-- В DevTools → Network → WS одно соединение `/ws/` со статусом 101. На главной в консоли нет ошибок.
-- Публичная страница «Рейтинг» — без мест и баллов, сгруппирована по регионам.
-- Старые фото после `rename_legacy_uploads`: на главной фотоотчёты и в профилях аватары видны; ПКМ →
-  «Открыть изображение» — адрес вида `/media/reports/<32 символа>.jpg`, без имён.
-- **Telegram (основной бот, на ваших телефонах):** на сайте Профиль → «Привязать Telegram» →
-  «Открыть в Telegram» → бот сразу показывает меню роли.
-  - Волонтёр: «Запросы рядом» → принять → «Я в пути» → геопозиция → завершить.
-  - Клиент: «Новый запрос» через мастер с кнопкой «Отправить мой номер»; в чате ответить
-    командой `/chat_<id>` из уведомления.
-  - Куратор: «Без волонтёра» → «Подобрать волонтёра» → назначить; «Сигналы SOS» → «Принять».
-  - Двойное нажатие любой кнопки срабатывает один раз.
-
-## 12. Наблюдение (24 часа)
-
-- `docker stats --no-stream` утром и вечером: память `ws` и `celery_worker`.
-- `docker compose logs --since 1h ws | grep -i error`; `/var/log/khayrkhoh/cron.log`.
-- `docker compose exec -T redis redis-cli -n 1 llen celery` — очередь доставки обычно 0.
-- `curl https://khayrkhoh.tj/health/ready/` — 200.
-- Через сутки: `docker compose exec -T web python manage.py check_demo_data` — снова "OK: no demo data"
-  (только чтение; не 0 → ничего не удалять, сказать владельцу).
-
-## 13. Через 30 дней: удалить карантин старых файлов
-
-Дата = день деплоя + 30 (записать в календарь). Только если за это время никто не сообщил о
-пропавшей фотографии; иначе — сначала вернуть нужный файл из `$Q` (или из `media.tgz`).
-
-```bash
-Q=/var/backups/khayrkhoh/media-quarantine-<дата деплоя>     # путь из шага 9
-sudo find "$Q" -type f | wc -l                               # то же K, что в шаге 9
-sudo rm -rf "$Q"
-```
-
-Копия этих файлов остаётся в `media.tgz` из шага 2, пока хранится сам бэкап.
-
----
-
-## Откат
-
-**Когда откатываться.** Если `/health/ready/` даёт 503 или вход, создание/принятие/завершение
-запроса не работают и починить за ~15 минут не получается — уровень 1. Если сломана одна новая
-функция — сначала уровень 0.
-
-### Уровень 0 — выключить одну функцию, ничего не откатывая
-
-| Проблема | Действие | Что видит пользователь |
-|---|---|---|
-| WebSocket / `ws` падает | `docker compose stop ws` | страницы переходят на опрос раз в 10–30 с; уведомления, чат и трекинг работают медленнее |
-| Мешает одна cron-задача | закомментировать её в `crontab -e` | — |
-| Ошибка в «Аналитике» | страница только для сотрудников, ничего не ломает | — |
-| Основной бот падает или ведёт себя неверно | `docker compose stop telegram_bot` | сайт работает; уведомления в Telegram по-прежнему приходят (их отправляет `celery_worker`, не бот); не работают только меню и ответы в боте |
-| Бот сообщества | `docker compose --profile community stop community_bot` | группа остаётся, модерации и приветствий нет |
-
-### Уровень 1 — полный откат кода с откатом миграций (основной путь)
-
-Данные старых функций сохраняются: пользователи, запросы, акции, пожертвования, животные
-и т. д. Данные **новых** функций удаляются вместе с их таблицами и столбцами: уведомления, чат, отзывы,
-значки, трек, «не беспокоить», причины отмены. Перед откатом их можно сохранить отдельным дампом.
-
-```bash
-cd /opt/khayrkhoh
-B=/var/backups/khayrkhoh/pre-fp2-<TS>          # путь из шага 2
-set -a; . ./.env; set +a
-# 1.1 сохранить то, что успели создать после деплоя
-docker exec shared_postgres pg_dump -U "$DJANGO_DB_USER" -Fc "$DJANGO_DB_NAME" > "$B/db-before-rollback.dump"
-# 1.2 миграции назад — ЕЩЁ НОВЫМ образом (только в нём есть файлы миграций)
-docker compose run --rm web python manage.py migrate myapp 0015
-docker compose run --rm web python manage.py migrate accounts 0007
-#     порядок важен: сначала myapp, потом accounts. Если первая упала — СТОП, переходить к уровню 2.
-#     С этого момента и до 1.3 /health/ready/ работающего нового web = 503 (migrations) — ожидаемо.
-# 1.3 вернуть код и образ
-crontab "$B/crontab.txt"                      # убрать новые cron-задачи
-git checkout 2467bc5
-docker tag khayrkhoh:rollback-2467bc5 khayrkhoh:latest
-docker compose run --rm web python manage.py collectstatic --noinput   # старый манифест
-docker compose up -d --remove-orphans          # уберёт ws (и osrm_*)
-# 1.4 nginx
-sudo cp "$B/nginx-khayrkhoh.conf" /etc/nginx/sites-available/khayrkhoh
-sudo nginx -t && sudo systemctl reload nginx   # websocket-map.conf можно оставить — он безвреден
-# 1.5 проверка
-curl -fsS https://khayrkhoh.tj/health/ready/
-docker compose run --rm web python manage.py showmigrations accounts myapp | grep -c '\[ \]'   # 0
-```
-
-Займёт около 5–10 минут. На репетиции (`postgres:16`) откат 14 миграций прошёл за секунды,
-и после этого старый код создавал пользователей и запросы и открывал профиль, рейтинг, «О нас»,
-карточку запроса и админ-панель.
+## Мелочи после отката миграций
 
 Мелочи после отката. В очереди Celery может остаться задача с новым именем
 (`make_chat_image_variants`): старый воркер запишет «unregistered task» и отбросит её — это
@@ -632,36 +179,7 @@ EXIF — старый код показывает их как обычно. Ст
 `cannot DROP TABLE "myapp_achievement" because it has pending trigger events` — удаление
 стартовых достижений и удаление таблицы шли в одной транзакции. Теперь обратный шаг — no-op.
 
-### Уровень 2 — восстановление БД из дампа (только если повреждена схема или данные)
-
-Теряется **всё**, что записано после шага 2, включая новые запросы клиентов. Использовать, только
-если уровень 1 невозможен — например, `migrate … 0015` упал.
-
-```bash
-cd /opt/khayrkhoh
-docker compose stop web ws telegram_bot celery_worker
-set -a; . ./.env; set +a
-# Сначала очистить схему ТОЛЬКО нашей базы ($DJANGO_DB_NAME; другие базы в shared_postgres не трогаются),
-# потом восстановить с остановкой на первой ошибке.
-docker exec shared_postgres psql -U "$DJANGO_DB_USER" -d "$DJANGO_DB_NAME" -v ON_ERROR_STOP=1 \
-  -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
-docker exec -i shared_postgres pg_restore --no-owner --exit-on-error \
-  -U "$DJANGO_DB_USER" -d "$DJANGO_DB_NAME" < "$B/db.dump"
-echo "restore rc=$?"                           # 0 — иначе СТОП, не запускать сайт
-docker exec shared_postgres psql -U "$DJANGO_DB_USER" -d "$DJANGO_DB_NAME" -Atc \
-  "select count(*) from accounts_users; select max(name) from django_migrations where app='myapp'"
-#   число пользователей = как в шаге 2.5 (verify_backup.sh); миграция myapp = 0015_…
-git checkout 2467bc5 && docker tag khayrkhoh:rollback-2467bc5 khayrkhoh:latest
-docker compose run --rm web python manage.py collectstatic --noinput
-docker compose up -d --remove-orphans
-sudo cp "$B/nginx-khayrkhoh.conf" /etc/nginx/sites-available/khayrkhoh && sudo nginx -t && sudo systemctl reload nginx
-crontab "$B/crontab.txt"
-# media — дамп ссылается на СТАРЫЕ имена файлов, а rename_legacy_uploads (шаг 7.3) их удалил: вернуть
-# из бэкапа. От root, чтобы сохранить владельца (uid 1000 контейнера); файлы, загруженные после
-# деплоя, и переименованные копии остаются лишними файлами — безвредно.
-sudo tar -C /opt/khayrkhoh -xzpf "$B/media.tgz"
-curl -fsS https://khayrkhoh.tj/health/ready/
-```
+## Почему откат базы — не `pg_restore --clean`
 
 **Почему не `pg_restore --clean`** (так было здесь до 2026-10-04). Генеральная репетиция показала:
 `--clean` удаляет только объекты из дампа, а таблицы новых функций (уведомления, чат, отзывы,
@@ -672,8 +190,10 @@ curl -fsS https://khayrkhoh.tj/health/ready/
 стенде: `rc=0`, ровно данные дампа (25 пользователей, 8 запросов), 0015, таблиц новых функций нет,
 старый код пишет и читает, весь обход страниц — 200. Заняло 30 с.
 
-### После отката
+## Память — на будущее, для OSRM
 
-Записать в FEATURES_PROGRESS.md, что именно сломалось (логи, время, шаг), починить локально,
-добавить тест и повторить деплой с шага 0. Повторный накат после отката уровня 1 проверен на
-репетиции: стартовые значки создаются заново.
+Для OSRM нужно ещё ≈ 0,5 ГБ RAM (замеры 2026-10-02: car 223 МиБ + foot 261 МиБ) и ≈ 0,5 ГБ на
+диске под данные. Ориентир: если после деплоя и суток работы в `free -h` столбец «available»
+**больше 1,2 ГБ**, OSRM помещается с запасом; если меньше 0,8 ГБ — только автомобильный профиль.
+Без Docker OSRM ставится отдельной программой (сборка `osrm-backend` той же версии, что готовила
+данные, и свой systemd-юнит) — это отдельная задача, не часть этого деплоя.

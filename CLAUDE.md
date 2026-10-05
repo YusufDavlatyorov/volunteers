@@ -18,6 +18,27 @@ of the codebase — useful for context but **dated 2026-06-13 and stale**: it pr
 dashboard, volunteer-application workflow, geo/matching services, and the test suite, all of
 which now exist. Verify anything from it against the actual code before relying on it.
 
+## No Docker — a hard rule
+
+**This project does not use Docker** — not in production, not locally, not in scripts, tests or
+docs (removed 2026-10-05). Write every command and every piece of code for running **directly**:
+a Python 3.14 venv (`.venv`) locally, and on the server venv + **systemd** units + host nginx +
+PostgreSQL 16 / Redis from apt. Concretely:
+
+- No `Dockerfile` / `docker-compose.yml` / container images, and no instructions that start with
+  `docker …`. A new long-running process gets a systemd unit in `deploy/systemd/` (same
+  `User=deploy`, `WorkingDirectory=/opt/khayrkhoh`, `EnvironmentFile=/opt/khayrkhoh/.env`,
+  `Restart=always` as the others — `myapp/tests_deploy.py` locks this); a periodic job gets a line
+  in `deploy/crontab.example`; a service setting goes into the matching `deploy/` config.
+- Services talk over `127.0.0.1` (PostgreSQL :5432, Redis :6379, the app :8000) — never Docker
+  service names like `db`, `redis`, `web`.
+- PostgreSQL-specific checks (migration forward/backward rehearsals) run against a local Homebrew
+  `postgresql@16` (`brew install postgresql@16`; throw-away cluster pattern in
+  `scripts/verify_backup.sh`), or on the rehearsal VM of `deploy/MIGRATION.md` (step R).
+- The only remaining mentions of Docker are history (FEATURES_PLAN/SPEC, PROJECT_OVERVIEW, the
+  rehearsal history in `docs/DEPLOY_FEATURE_PACK_V2.md`) and `deploy/MIGRATION.md`, which moves the
+  live server *off* Docker — until its step 12 has run, the old containers still exist there.
+
 ## Commands
 
 ```bash
@@ -31,25 +52,22 @@ python manage.py geocode_missing [--limit N --dry-run --profiles]   # backfill l
 python manage.py check_overdue_tasks [--dry-run]        # alert curators/admins about tasks overdue past 3h; idempotent, runs on cron (see README "Background jobs")
 python manage.py check_stale_requests [--dry-run]       # mirror of the above for the *pending* side: alert about requests waiting >48h without a volunteer; idempotent, hourly cron
 python manage.py create_initial_production_accounts    # prod-only bootstrap: exactly 4 accounts (admin/curator/volunteer/client) from INITIAL_<ROLE>_* env vars; idempotent, never seeds business data, refuses the demo password — see README "Initial production accounts"
-python manage.py check_demo_password                   # read-only audit: accounts accepting seed_demo's public password + demo usernames present; exit 1 if any (deploy runbook §1/§9)
-python manage.py check_demo_data                       # read-only: everything seed_demo writes (accounts, rows, byte-identical demo photos in media/); ids/counts only; exit 1 if any — found = tell the owner, delete nothing (runbook §3a/§9/§12)
-python manage.py rename_legacy_uploads [--dry-run] [--quarantine-unreferenced DIR --verify-backup media.tgz]   # pre-milestone-6 avatars/reports/pet photos under personal file names → <uuid>.<ext>, rows updated, old files removed; once at deploy with the app stopped (runbook §7), before backfill_image_variants. Unreferenced leftovers: only counted, or MOVED (never deleted) outside MEDIA_ROOT after verifying media.tgz holds them byte-identical (§9; deleted 30 days later, §13)
+python manage.py check_demo_password                   # read-only audit: accounts accepting seed_demo's public password + demo usernames present; exit 1 if any (deploy/MIGRATION.md steps 1/8)
+python manage.py check_demo_data                       # read-only: everything seed_demo writes (accounts, rows, byte-identical demo photos in media/); ids/counts only; exit 1 if any — found = tell the owner, delete nothing (deploy/MIGRATION.md steps 4.5/8/11; deploy/deploy.sh runs it after every redeploy)
+python manage.py rename_legacy_uploads [--dry-run] [--quarantine-unreferenced DIR --verify-backup media.tgz]   # pre-milestone-6 avatars/reports/pet photos under personal file names → <uuid>.<ext>, rows updated, old files removed; once at deploy with the app stopped (deploy/MIGRATION.md 6.7), before backfill_image_variants. Unreferenced leftovers: only counted, or MOVED (never deleted) outside MEDIA_ROOT after verifying media.tgz holds them byte-identical (step 8; deleted 30 days later, step 13)
 curl -s localhost:8000/health/ ; curl -s localhost:8000/health/ready/   # liveness / readiness (server/health.py) — public, no secrets
 
 python manage.py test --parallel 4                       # full suite (see FEATURES_PROGRESS.md for the current count)
 python manage.py test myapp.tests.MatchingAlgorithmTests  # one test class
 python manage.py test myapp.tests.MatchingAlgorithmTests.test_closer_volunteer_ranks_higher  # one test
 python manage.py test accounts                           # one app
-# Same suite in the production image (Linux, linux/amd64 like the server; base image pinned in the
-# Dockerfile). On Linux, Python 3.14 starts workers with forkserver, which Django 5.2 can't clone a
-# SQLite test DB for — and even against postgres:16 its forkserver workers die with AppRegistryNotReady
-# (2026-10-04) — so either no --parallel, or the fork variant below (works with SQLite and postgres:16):
-docker build --platform linux/amd64 -t khayrkhoh:test . && docker run --rm --platform linux/amd64 \
-  -e DJANGO_SECRET_KEY=x -e DJANGO_DEBUG=True -e DJANGO_ALLOWED_HOSTS='*' khayrkhoh:test python manage.py test
-# (or force the pre-3.14 Linux default: python -c "import multiprocessing as m,sys,runpy; m.set_start_method('fork');
-#  sys.argv=['manage.py','test','--parallel','8']; runpy.run_path('manage.py', run_name='__main__')" — ~30 min under qemu)
 # Test modules that need a temp MEDIA_ROOT use myapp/testing.py::TempMediaRoot, never mkdtemp + rmtree in
-# tearDownModule: forked workers share that path and one would delete it under another.
+# tearDownModule: parallel workers share that path and one would delete it under another.
+
+# Production (on the server, as the deploy user — see "Production" below):
+/opt/khayrkhoh/deploy/deploy.sh                          # redeploy: pull → pip → .env check → collectstatic → migrate → restart → readiness
+journalctl -u khayrkhoh-web -f                           # app logs (also khayrkhoh-celery, khayrkhoh-telegram-bot)
+sudo systemctl restart khayrkhoh-web khayrkhoh-celery khayrkhoh-telegram-bot   # after a .env change
 ```
 
 No linter/formatter is configured in this repo.
@@ -154,13 +172,15 @@ A hardening pass added a cross-cutting layer that is easy to regress — keep it
   persists the hash; every lookup hashes the incoming token before querying.
 - **Cache-based rate limiting.** Login (per-IP **and** per-username counters), password reset
   (per-IP), Telegram-link redemption (per-chat) and the AI assistant (`ai_chat_view`, per-user)
-  throttle via `django.core.cache`. Production uses **Redis** (`DJANGO_REDIS_URL`, the `redis`
-  compose service; sessions are `cached_db` then) — set in `docker-compose.yml`, overriding
+  throttle via `django.core.cache`. Production uses **Redis** (`DJANGO_REDIS_URL` =
+  `redis://127.0.0.1:6379/0`, the local redis-server; sessions are `cached_db` then), overriding
   `DJANGO_DB_CACHE`, which stays only as a dependency-free fallback. Without either, `CACHES` is
   the process-local `LocMemCache` (dev/tests), where the web throttles only bite within one worker.
-  **The IP comes from `server/client_ip.py::client_ip()` — never `REMOTE_ADDR` directly**: inside
-  Docker behind nginx `REMOTE_ADDR` is the bridge gateway for everyone (milestone 6 fix — all
-  visitors shared one login/password-reset bucket). It trusts nginx's `X-Real-IP` only with
+  **The IP comes from `server/client_ip.py::client_ip()` — never `REMOTE_ADDR` directly**: behind
+  nginx `REMOTE_ADDR` is the proxy's address for everyone (milestone 6 fix, found in the Docker era
+  — all visitors shared one login/password-reset bucket). The uvicorn worker
+  (`server/asgi_worker.py`) runs with `proxy_headers=False` on purpose, so this helper stays the
+  only place that reads proxy headers. It trusts nginx's `X-Real-IP` only with
   `DJANGO_BEHIND_TLS_PROXY=True` and a loopback/private peer, and `CF-Connecting-IP` only with
   `DJANGO_BEHIND_CLOUDFLARE=True` and an address in `CLOUDFLARE_IP_RANGES` (`docs/CLOUDFLARE.md`).
 - **Secrets never reach logs.** `server/log_filters.py::RedactSecretsFilter` (on the `console`
@@ -508,16 +528,37 @@ in Stages 5–7.
 
 ### Production (khayrkhoh.tj)
 
-Production prep (2026-09) added: `STATIC_ROOT` (`server/settings.py`, required for
-`collectstatic` — was previously missing, dev never needed it since `runserver` serves straight
-from `STATICFILES_DIRS`); a `Dockerfile` + `docker-compose.yml` (`web` + `telegram_bot` app containers only — PostgreSQL
-is an external pre-existing `shared_postgres` container reached over the network named by
-`SHARED_POSTGRES_NETWORK`, **do not add a second Postgres container/service**); and
-`create_initial_production_accounts` (see **Commands**) as the only sanctioned way to get accounts
-onto a production DB — `seed_demo` must never run there. This project has **no single
-`DATABASE_URL` variable** — PostgreSQL connection info stays as the pre-existing discrete
-`DJANGO_DB_NAME` / `_USER` / `_PASSWORD` / `_HOST` / `_PORT` vars; don't introduce one without a
-concrete reason, it would duplicate the existing mechanism. The About Us hero video lives in
+Ubuntu 24.04 host, **no Docker** (see the rule at the top). Everything production-specific is in
+`deploy/`:
+
+- **One ASGI app for pages and WebSockets**: `khayrkhoh-web.service` = gunicorn with
+  `server.asgi_worker.UvicornWorker` (a subclass of `uvicorn_worker.UvicornWorker` — the old
+  `uvicorn.workers` module is deprecated — keeping `ws_max_size=16384`, `proxy_headers=False`, no
+  access log, `lifespan="off"`) serving `server.asgi:application` on `127.0.0.1:8000`, 3 workers;
+  `deploy/gunicorn.conf.py` forces `DJANGO_DB_CONN_MAX_AGE=0` for it (persistent DB connections are
+  unsafe under ASGI). nginx (`deploy/nginx/khayrkhoh.conf`) proxies `/` and `/ws/` (Upgrade) there
+  and serves `/static/`, `/media/` and the `internal` `/protected-media/` from disk. Channels fan-out
+  across the workers goes through Redis DB 2; consumer state is per-connection, so several workers
+  are safe.
+- `khayrkhoh-celery.service` (`--pool=threads`), `khayrkhoh-telegram-bot.service`,
+  `khayrkhoh-community-bot.service` (disabled until configured). Only one poller per bot token.
+- PostgreSQL 16 and Redis from apt, localhost only, tuned by `deploy/postgresql/` (sized for the
+  3.8 GB host) and `deploy/redis/` (AOF, 128 MB, `volatile-lru`; DB 0 cache, 1 Celery, 2 Channels).
+  Logs → journald (capped, `deploy/journald/`); `cron.log` and nginx rotate (`deploy/logrotate/`).
+- `.env` is read twice — by systemd (`EnvironmentFile=`) and python-dotenv (`manage.py`, cron);
+  `deploy/check_env.py` (run via `systemd-run`) proves both read the same values and that the
+  production ones are right, printing names only.
+- **Redeploy = `deploy/deploy.sh`** (never seeds anything; collectstatic before migrate; waits for
+  `/health/ready/`; read-only `check_demo_data` at the end). Fresh server = `DEPLOY.md`. The
+  one-time move of the live server off Docker, together with the Feature Pack v2 rollout, rollback
+  plan and the mandatory dress rehearsal = `deploy/MIGRATION.md`.
+
+Production prep (2026-09) also added `STATIC_ROOT` (`server/settings.py`, required for
+`collectstatic`) and `create_initial_production_accounts` (see **Commands**) as the only
+sanctioned way to get accounts onto a production DB — `seed_demo` must never run there. This
+project has **no single `DATABASE_URL` variable** — PostgreSQL connection info stays as the
+discrete `DJANGO_DB_NAME` / `_USER` / `_PASSWORD` / `_HOST` / `_PORT` vars; don't introduce one
+without a concrete reason, it would duplicate the existing mechanism. The About Us hero video lives in
 `static/videos/` as four git-tracked, audio-less, seamless 4.3 s loops —
 `hero-loop-{mobile,desktop}.{webm,mp4}` (VP9 before H.264; mobile 480×264 via
 `<source media="(max-width: 768px)">`, desktop 640×352 = the native source resolution, **don't
@@ -528,8 +569,8 @@ competes with the page's own resources on the slow uplink. The same script pause
 off-screen / in hidden tabs, honours `prefers-reduced-motion` (aborts the download, hides it) and
 toggles `.topbar--over-video` (no backdrop blur over a playing video). It used to be read from
 `media/videos/` via `default_storage.url()`, which is gitignored and would have been silently
-missing on a fresh production clone; don't move it back. See README → **Docker
-deployment (production)** for the full command sequence and → **Initial production accounts** /
+missing on a fresh production clone; don't move it back. See `DEPLOY.md` for the full command
+sequence and README → **Initial production accounts** /
 **Demo data — NEVER in production** for the account-bootstrap rules.
 
 ### SEO (`server/seo.py`, `server/i18n_prerender.py`)
@@ -562,7 +603,7 @@ deployment (production)** for the full command sequence and → **Initial produc
   left alone (i18n.js replaces `textContent` anyway). Brand assets (favicons, 1200×630
   `og-image.png`, `logo-512.png`) live in `static/images/brand/`.
 - One canonical host: nginx 301s `www.khayrkhoh.tj` and plain HTTP to `https://khayrkhoh.tj`
-  (DEPLOY.md step 10).
+  (`deploy/nginx/khayrkhoh.conf`).
 
 ### Templates/static
 
@@ -608,10 +649,10 @@ Stage 9 polish conventions (in `style.css`):
   hero looks unchanged.
 - **CSS/JS go through `{% asset 'css/x.css' %}`** (`myapp/templatetags/assets.py`), not
   `{% static %}`: without the manifest it appends `?v=<content hash>`; with
-  `DJANGO_STATIC_MANIFEST=True` (production, set in `docker-compose.yml`) it returns the
+  `DJANGO_STATIC_MANIFEST=True` (production `.env`) it returns the
   `ManifestStaticFilesStorage` hashed name. Hashed files get a 1-year immutable cache in nginx.
-  Consequence: **collectstatic must run before `web` (re)starts** — DEPLOY.md "Redeploying" uses
-  `docker compose run --rm web … collectstatic` then `up -d`; a missing static file referenced by
+  Consequence: **collectstatic must run before the app (re)starts** — `deploy/deploy.sh` runs it
+  (before migrate) and only then restarts the units; a missing static file referenced by
   a template raises under the manifest, so add new static files to the repo, not just to prod.
 - **Fonts (Google Fonts, `preconnect` + `display=swap`) and Leaflet (unpkg, SRI) stay on their
   CDNs on purpose** — measured 2026-09-30 they reach visitors 5–12× faster than this origin's

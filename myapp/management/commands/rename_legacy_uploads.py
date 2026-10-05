@@ -5,8 +5,8 @@ name the user's phone or computer gave it — often the person's real name
 (``avatars/Ivanov_Ivan.jpg``) — and ``/media/`` is public, so that name was
 part of a public URL and of every page that shows the photo. New uploads are
 stored as ``<uuid>.<ext>`` (``images.clean_original``); this command brings the
-old ones in line. Run once at deploy, **after the media backup** (runbook §2),
-with the app containers stopped (runbook §7 — no upload or profile save can
+old ones in line. Run once at deploy, **after the media backup** (deploy/MIGRATION.md step 2),
+with the app services stopped (deploy/MIGRATION.md — no upload or profile save can
 race the rename), before ``backfill_image_variants``.
 
 For every stored file whose name is not already random:
@@ -28,7 +28,7 @@ random (left behind when a user replaced their photo — Django never deletes th
 previous file) are only counted. ``--quarantine-unreferenced DIR`` moves them out
 of MEDIA_ROOT (so nginx no longer serves them) into ``DIR``, keeping their
 relative paths — never deletes; the runbook deletes ``DIR`` 30 days later. It
-requires ``--verify-backup media.tgz`` (runbook §2): the archive must read to
+requires ``--verify-backup media.tgz`` (MIGRATION.md step 2): the archive must read to
 the end without a gzip/tar error and hold every one of those files with the
 same bytes, otherwise nothing is moved (exit code 1). Chat photos are not
 touched: they have had random names since milestone 3 and are not public.

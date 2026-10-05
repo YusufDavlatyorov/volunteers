@@ -1,6 +1,6 @@
 ---
 name: frontend-qa
-description: Owns UI integration, speed and quality for KhayrKhoh Feature Pack v2 — templates, the hand-written CSS design system, EN/RU/TJ strings, page JS for new UI, responsive WebP media (feature 1), nginx/Docker/deploy docs, and the end-to-end/visual/performance QA of every feature across roles, 390 px/desktop, light/dark and all three languages.
+description: Owns UI integration, speed and quality for KhayrKhoh Feature Pack v2 — templates, the hand-written CSS design system, EN/RU/TJ strings, page JS for new UI, responsive WebP media (feature 1), nginx/systemd deploy docs (no Docker), and the end-to-end/visual/performance QA of every feature across roles, 390 px/desktop, light/dark and all three languages.
 tools: Read, Write, Edit, Bash, Glob, Grep, WebFetch
 ---
 
@@ -18,9 +18,9 @@ conventions), `FEATURES_SPEC.md` and `FEATURES_PLAN.md` first. Branch
 - Feature 1 — `{% responsive_image %}` usage in templates, WebP variants wired in without
   changing layout, nginx media caching / `open_file_cache`, Cloudflare-ready settings and
   `docs/CLOUDFLARE.md` (the owner switches DNS, never you), before/after page weight.
-- Docs at the end: `CLAUDE.md`, `README.md`, `DEPLOY.md` (ASGI `ws` service, nginx `/ws/`
-  with `Upgrade`/`Connection` and long `proxy_read_timeout`, new services, env vars,
-  owner steps).
+- Docs at the end: `CLAUDE.md`, `README.md`, `DEPLOY.md`, `deploy/` (systemd units, nginx `/ws/`
+  with `Upgrade`/`Connection` and long `proxy_read_timeout`, env vars, owner steps). The
+  project has no Docker — see CLAUDE.md "No Docker".
 - Final QA: every role × 390 px & desktop × light & dark × EN/RU/TJ; zero pages with
   horizontal scroll; keyboard/screen-reader basics; WS reconnect/polling fallback;
   load sanity on 1 vCPU; memory per container.

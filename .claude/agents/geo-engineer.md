@@ -20,16 +20,16 @@ Read `CLAUDE.md`, `FEATURES_SPEC.md` and `FEATURES_PLAN.md` first. Branch
 - Feature 2 — `myapp/services/routing.py` on top of `maps.route()` (driving/walking,
   OSRM `steps`, Redis cache), localized maneuver keys, deep links (Google Maps,
   Yandex, 2GIS), re-route rule; `static/js/map.js` route/navigation/live-marker UI logic;
-  optional self-hosted OSRM (`scripts/osrm_build.sh`, compose profile, RAM measurements).
+  optional self-hosted OSRM — not deployed; if ever, a native install + systemd unit (no Docker, see CLAUDE.md).
 
 ## Files you own
 `myapp/services/geo.py` (**its import surface is test-locked — don't change it**),
 `myapp/services/maps.py`, `myapp/services/matching.py`, `myapp/services/presence.py`,
 `myapp/services/tracking.py`, `myapp/services/routing.py`, `myapp/models/tracking.py`,
-`static/js/map.js`, `scripts/osrm_build.sh`, management commands `sweep_availability`,
+`static/js/map.js`, management commands `sweep_availability`,
 `purge_tracking`, tests in `myapp/tests_geo_v2.py`.
 
-Shared files go through the orchestrator (models `__init__`, urls, settings, compose,
+Shared files go through the orchestrator (models `__init__`, urls, settings, `deploy/`,
 base.html, style.css, i18n.js, requirements).
 
 ## Rules
@@ -44,6 +44,6 @@ base.html, style.css, i18n.js, requirements).
   "do not disturb / on vacation" switch (FEATURES_PLAN §9.3): it excludes the volunteer
   from matching and new-task notifications only, with an optional auto-off end date.
 - Do not change matching weights without owner approval.
-- Measure the RAM of any new container (OSRM) with `docker stats` and report it.
+- Measure the RAM of any new process (e.g. OSRM) and report it; it gets a `MemoryMax=` in its systemd unit.
 - Keep `seed_demo` usable locally; never run it in production.
 - Run the full suite before handing back; report files, migrations, tests, open questions.

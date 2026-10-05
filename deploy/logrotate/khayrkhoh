@@ -1,0 +1,15 @@
+# KhayrKhoh — /etc/logrotate.d/khayrkhoh: the cron jobs' log
+# (deploy/crontab.example appends to /var/log/khayrkhoh/cron.log).
+# The services themselves log to journald (deploy/journald/khayrkhoh.conf).
+# Check: sudo logrotate --debug /etc/logrotate.d/khayrkhoh
+/var/log/khayrkhoh/*.log {
+    su deploy deploy
+    weekly
+    rotate 8
+    maxsize 50M
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0640 deploy deploy
+}

@@ -247,7 +247,7 @@ class RenameLegacyUploadsTests(TestCase):
         self.assertEqual(pet.image.name, random_name)
 
     def backup(self, files, corrupt=False):
-        """A media.tgz like runbook §2 (``tar -C <parent> -czf media.tgz <media dir>``)."""
+        """A media.tgz like MIGRATION.md step 2 (``tar -C <parent> -czf media.tgz <media dir>``)."""
         fd, path = tempfile.mkstemp(suffix=".tgz")
         os.close(fd)
         self.addCleanup(os.unlink, path)

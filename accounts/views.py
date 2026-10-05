@@ -39,7 +39,7 @@ PASSWORD_RESET_WINDOW_SECONDS = 15 * 60
 
 
 def _client_ip(request):
-    # Behind nginx/Docker REMOTE_ADDR is the bridge gateway for everyone —
+    # Behind nginx REMOTE_ADDR is the proxy's address for everyone —
     # the shared helper reads the trusted proxy headers (server/client_ip.py).
     return client_ip(request)
 

@@ -1,9 +1,10 @@
 """
 ASGI entry point — HTTP (Django) + WebSockets (Channels).
 
-Production runs this under uvicorn in the `ws` compose service; nginx sends only
-/ws/ there (HTTP stays on the WSGI gunicorn `web` service), but the `http`
-branch is the regular Django app so this callable can serve both.
+Production serves everything from this callable: gunicorn with uvicorn workers
+(deploy/systemd/khayrkhoh-web.service, server/asgi_worker.py) on
+127.0.0.1:8000; nginx proxies pages and /ws/ there and serves static/media
+itself.
 
 WebSockets: session auth (AuthMiddlewareStack) behind an Origin check against
 ALLOWED_HOSTS (AllowedHostsOriginValidator). Protocol: docs/WS_PROTOCOL.md.

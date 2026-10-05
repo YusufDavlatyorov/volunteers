@@ -1,7 +1,8 @@
 # KhayrKhoh WebSocket protocol (v1)
 
-One endpoint: **`/ws/`** (served by the `ws` compose service — uvicorn running
-`server/asgi.py`; nginx routes `/ws/` there with `Upgrade`/`Connection` headers).
+One endpoint: **`/ws/`** (served by the same gunicorn + uvicorn-worker app as the pages —
+`khayrkhoh-web.service` running `server/asgi.py`; nginx passes `/ws/` with
+`Upgrade`/`Connection` headers).
 Code: `myapp/realtime/` (`consumers.py`, `events.py`, `groups.py`, `ratelimit.py`,
 `publish.py`). Tests: `myapp/tests_realtime.py`, `myapp/tests_realtime_tracking.py`,
 `myapp/tests_chat.py`.
@@ -207,7 +208,7 @@ the `chat.send` rejections `empty`, `too_long` (+ `invalid`, `rate_limited`,
 | `chat.typing` | 1 / 2 s | `error rate_limited` (dropped) |
 
 Frames larger than 4 KB close the socket with 4408 (uvicorn also caps frames at
-16 KB via `--ws-max-size`).
+16 KB — `ws_max_size` in `server/asgi_worker.py`).
 
 ## Publishing from server code
 
