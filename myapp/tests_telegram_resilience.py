@@ -37,17 +37,21 @@ from myapp.telegram import polling
 TOKEN = "1234567890:AAHfake_" + "x" * 27
 assert len(TOKEN.split(":", 1)[1]) == 35
 
+# Runs the real management command (run_telegram_bot / run_community_bot) — its
+# token check, polling.run and Django's CommandError → exit code handling — with
+# only bot_app.build wrapped to point the bot at the fake API.
 RUNNER = r"""
 import importlib, os, sys
 sys.path.insert(0, sys.argv[1])
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "server.settings")
 import django
 django.setup()
-from myapp.telegram import polling
 bot_app = importlib.import_module(f"myapp.telegram.{sys.argv[2]}.app")
-application = bot_app.build(os.environ["KK_TEST_TOKEN"], base_url=f"http://127.0.0.1:{sys.argv[3]}/bot")
-print("runner: polling", flush=True)
-polling.run(application, bot_app.ALLOWED_UPDATES)
+real_build = bot_app.build
+bot_app.build = lambda token, **kw: real_build(token, base_url=f"http://127.0.0.1:{sys.argv[3]}/bot", **kw)
+from django.core.management import execute_from_command_line
+command = {"main_bot": "run_telegram_bot", "community_bot": "run_community_bot"}[sys.argv[2]]
+execute_from_command_line(["manage.py", command])
 """
 
 
@@ -136,9 +140,11 @@ class BotProcess:
         self.output_file = tempfile.TemporaryFile(mode="w+")
         env = {
             **os.environ,
-            "KK_TEST_TOKEN": TOKEN,
-            # Never the developer's own bot / mail settings from .env.
-            "TELEGRAM_BOT_TOKEN": "", "TELEGRAM_COMMUNITY_BOT_TOKEN": "",
+            # The fake token for the bot under test — never the developer's own
+            # bot / mail settings from .env (env wins over .env).
+            "TELEGRAM_BOT_TOKEN": TOKEN if bot == "main_bot" else "",
+            "TELEGRAM_COMMUNITY_BOT_TOKEN": TOKEN if bot == "community_bot" else "",
+            "TELEGRAM_COMMUNITY_CHAT_IDS": "general:-1001234567890",
             "SMTP_USER": "", "SMTP_PASSWORD": "",
             "DJANGO_LOG_LEVEL": log_level, "PYTHONUNBUFFERED": "1",
         }
@@ -193,6 +199,7 @@ class PollingHelperTests(SimpleTestCase):
         with self.assertRaises(CommandError) as ctx:
             polling.run(app, ["message"])
         self.assertNotIn(TOKEN, str(ctx.exception))
+        self.assertEqual(ctx.exception.returncode, polling.EXIT_INVALID_TOKEN)
         self.assertIsNone(ctx.exception.__cause__)
         self.assertTrue(ctx.exception.__suppress_context__)
 
@@ -227,7 +234,9 @@ class BotResilienceTests(SimpleTestCase):
         bot = BotProcess("main_bot", api.port)
         try:
             self.assertTrue(_wait(lambda: not bot.alive(), 20), "the bot kept running with a rejected token")
-            self.assertNotEqual(bot.proc.returncode, 0)
+            # EX_CONFIG: systemd's RestartPreventExitStatus=78 then leaves the unit stopped.
+            self.assertEqual(polling.EXIT_INVALID_TOKEN, 78)
+            self.assertEqual(bot.proc.returncode, polling.EXIT_INVALID_TOKEN)
             time.sleep(1)
             self.assertEqual(api.count("getMe"), 1)          # no retries
             self.assertEqual(api.count("getUpdates"), 0)
