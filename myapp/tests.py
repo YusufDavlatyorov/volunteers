@@ -3326,7 +3326,8 @@ class EmergencyNotificationFailureTests(TestCase):
         with mock.patch("myapp.services.emergency.notify", return_value=0) as nu:
             with self.assertLogs("myapp.services.emergency", level="ERROR") as logs:
                 report, created = emergency.report_emergency(volunteer=self.volunteer, help_request=self.task)
-        nu.assert_called_once()
+        # One staff alert (+ the separate sos_nearby to region volunteers).
+        self.assertEqual([c.args[1] for c in nu.call_args_list].count("sos_new"), 1)
         self.assertTrue(created)
         report.refresh_from_db()
         self.assertIsNotNone(report.notified_at)          # claimed, so no duplicate spam later

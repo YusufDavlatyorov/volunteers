@@ -1,111 +1,122 @@
-/* ===== GOOGLE FONTS (loaded in base.html) ===== */
-/* Display face: Playfair Display (serif — headings, brand wordmark, big numbers). */
-/* Body/UI face: Inter (everything else — nav, buttons, paragraphs, labels, footer). */
+/* ===== GOOGLE FONTS (loaded in base.html) =====
+   One face for the whole site: Inter (--font-sans) — the navbar's font, used by
+   body text, headings, numbers, form controls, maps, charts and toasts alike.
+   The only exception is the «Хайрхоҳ» logo wordmark (--font-brand, Cormorant
+   Garamond). Nothing else sets a font-family; new CSS uses var(--font-sans). */
 
 /* ===== THEME VARIABLES =====
-   Reference design system: a confident blue primary (#1E40AF) for buttons, links,
-   the logo and label-headings; a teal (#006A61) for support/"help" actions; pale
-   blue grounds for alternating sections, CTA blocks and soft cards; an amber wash
-   for status badges. Light is authoritative; the dark theme derives the same roles. */
+   Light, soft palette (2026-10-09). The two brand colours — blue #2A3BA5 and
+   orange #F2A23A — are for accents and primary buttons only; grounds, cards,
+   badges and section fills are pale tints of them, borders and shadows are
+   faint, status colours are muted (still ≥ 4.5:1 as text on their tints).
+   Dark theme: neutral dark-grey surfaces (no black, no navy), lighter brand
+   tints for fills, dark ink on them. Every colour on the site comes from here. */
 :root, [data-theme="light"] {
+    --brand-blue: #2A3BA5;
+    --brand-orange: #F2A23A;
     --brand-name: #2A3BA5;
-    --bg: #ffffff;
+    --bg: #f8f9fc;
     --surface: #ffffff;
-    --surface-2: #eef2fb;
-    --text: #0b1220;
-    --text-2: #33404f;
-    --muted: #5b6473;          /* ≥ 4.8:1 on every light plate (was #6b7280: 3.9 on --cta-bg) */
-    --primary: #1e40af;
+    --surface-2: #f1f3f9;
+    --text: #1d2433;
+    --text-2: #3c4555;
+    --muted: #5a6373;          /* ≥ 4.8:1 on every light plate */
+    --primary: #2A3BA5;
     --on-primary: #ffffff;     /* text on filled primary / teal / danger buttons, tabs, pills */
-    --primary-hover: #17337f;
-    --primary-2: #006a61;
-    --primary-2-hover: #00544d;
-    --primary-glow: rgba(30,64,175,0.10);
-    --accent: #92610e;
-    --accent-glow: #fef3c5;
-    --danger: #b8432f;
-    --danger-glow: rgba(184,67,47,0.10);
-    --ok: #006a61;
-    --info: #1e6fa8;
-    --info-glow: rgba(30,111,168,0.12);
-    --line: #e3e7f4;
-    --shadow: 0 1px 2px rgba(15,23,42,0.05), 0 10px 28px rgba(30,64,175,0.07);
-    --shadow-hover: 0 4px 10px rgba(30,64,175,0.08), 0 22px 44px rgba(30,64,175,0.13);
-    --nav-shadow: 0 1px 2px rgba(15,23,42,0.04), 0 4px 16px rgba(30,64,175,0.05);
+    --primary-hover: #23318c;
+    --primary-2: #1c7168;
+    --primary-2-hover: #175f57;
+    --primary-glow: rgba(42,59,165,0.08);
+    --accent: #8a5a12;         /* text on --accent-glow; the fill colour is --brand-orange */
+    --accent-glow: #fdf2df;
+    --danger: #b04a3c;
+    --danger-glow: rgba(176,74,60,0.08);
+    --danger-line: rgba(176,74,60,0.32);   /* soft border of alert cards/banners */
+    --ok: #1c7168;
+    --info: #2e6a99;
+    --info-glow: rgba(46,106,153,0.09);
+    --line: #e7eaf2;
+    --shadow: 0 1px 2px rgba(29,36,51,0.04), 0 4px 14px rgba(29,36,51,0.04);
+    --shadow-hover: 0 2px 6px rgba(29,36,51,0.05), 0 12px 28px rgba(42,59,165,0.08);
+    --nav-shadow: 0 1px 2px rgba(29,36,51,0.03);
     --card-bg: #ffffff;
-    --card-border: #e4e9f6;
+    --card-border: #e9ecf3;
     --nav-bg: rgba(255,255,255,0.92);
     --nav-bg-solid: rgba(255,255,255,0.97);
     --input-bg: #ffffff;
-    --bubble-bg: #eef2fb;
-    /* Reference-system section grounds */
-    --section-alt: #f8f9ff;   /* alternating sections */
-    --cta-bg: #dce9ff;        /* CTA blocks + footer */
-    --card-soft: #e5eeff;     /* testimonial / soft plates */
-    --stats-gradient: linear-gradient(135deg, #1e40af, #204ac0);
-    --hero-from: #17337f;
-    --hero-via: #1e40af;
-    --hero-to: #204ac0;
-    --hero-ink: rgba(255,255,255,0.92);
-    --hero-ink-muted: rgba(255,255,255,0.74);
-    --peak-1: #1e40af;
-    --peak-2: #2456c6;
-    --peak-3: #1e6fa8;
-    --peak-4: #0a7e73;
-    --peak-5: #006a61;
-    --hero-scrim: linear-gradient(155deg, rgba(23,51,127,0.92) 0%, rgba(30,64,175,0.82) 45%, rgba(32,74,192,0.52) 100%);
-    --ok-glow: rgba(0,106,97,0.13);
+    --bubble-bg: #f0f2fa;
+    /* Section grounds */
+    --section-alt: #f3f5fb;   /* alternating sections */
+    --cta-bg: #eef1fb;        /* CTA blocks + footer */
+    --card-soft: #f0f3fc;     /* testimonial / soft plates */
+    --stats-gradient: linear-gradient(135deg, #2A3BA5, #3b4dbb);
+    --hero-from: #23318c;
+    --hero-via: #2A3BA5;
+    --hero-to: #3b4dbb;
+    --hero-ink: rgba(255,255,255,0.94);
+    --hero-ink-muted: rgba(255,255,255,0.78);
+    --peak-1: #2A3BA5;
+    --peak-2: #4757bd;
+    --peak-3: #5f7fb8;
+    --peak-4: #3f9488;
+    --peak-5: #1f7a70;
+    --hero-scrim: linear-gradient(155deg, rgba(35,49,140,0.86) 0%, rgba(42,59,165,0.72) 45%, rgba(59,77,187,0.42) 100%);
+    --ok-glow: rgba(31,122,112,0.10);
+    /* Category bands on opportunity cards: pale tint + a coloured icon. */
+    --media-ink: #2A3BA5;
 }
 
 [data-theme="dark"] {
-    --brand-name: #b4c1ff;
-    --bg: #0e131d;
-    --surface: #151b28;
-    --surface-2: #1c2436;
-    --text: #eef1f8;
-    --text-2: #c7cede;
-    --muted: #8b93a7;
-    --primary: #7da2f0;
-    /* The dark theme's fills are light (#7da2f0 / #3fb0a3 / #e08871): white
-       text on them was 2.5:1. Dark ink reads ≥ 5.9:1 on all of them. */
-    --on-primary: #0b1220;
-    --primary-hover: #6b90de;
-    --primary-2: #3fb0a3;
-    --primary-2-hover: #57bcb0;
-    --primary-glow: rgba(125,162,240,0.15);
-    --accent: #e8c877;
-    --accent-glow: rgba(232,200,119,0.15);
-    --danger: #e08871;
-    --danger-glow: rgba(224,136,113,0.12);
-    --ok: #3fb0a3;
-    --info: #6fb0d8;
-    --info-glow: rgba(111,176,216,0.16);
-    --line: rgba(255,255,255,0.09);
-    --shadow: 0 1px 2px rgba(0,0,0,0.30), 0 10px 26px rgba(0,0,0,0.34);
-    --shadow-hover: 0 4px 10px rgba(0,0,0,0.34), 0 24px 48px rgba(0,0,0,0.44);
-    --nav-shadow: 0 1px 2px rgba(0,0,0,0.30), 0 4px 16px rgba(0,0,0,0.22);
-    --card-bg: #151b28;
-    --card-border: rgba(255,255,255,0.08);
-    --nav-bg: rgba(14,19,29,0.92);
-    --nav-bg-solid: rgba(14,19,29,0.97);
-    --input-bg: #1c2436;
-    --bubble-bg: rgba(125,162,240,0.10);
-    --section-alt: #141b2b;
-    --cta-bg: #16233b;
-    --card-soft: #1c2b48;
-    --stats-gradient: linear-gradient(135deg, #1c3a8a, #24499f);
-    --hero-from: #0a1220;
-    --hero-via: #13224a;
-    --hero-to: #17325e;
+    --brand-name: #b9c1f5;
+    --bg: #18191d;
+    --surface: #212227;
+    --surface-2: #2a2c32;
+    --text: #eceef2;
+    --text-2: #c9ccd4;
+    --muted: #9da2ad;
+    --primary: #93a0f0;
+    /* The dark theme's fills are light (#93a0f0 / #5cbfae / #e39a8a): white
+       text on them would be ~2.4:1. Dark ink reads ≥ 6:1 on all of them. */
+    --on-primary: #15161a;
+    --primary-hover: #a6b1f4;
+    --primary-2: #5cbfae;
+    --primary-2-hover: #72cabb;
+    --primary-glow: rgba(147,160,240,0.13);
+    --accent: #f4b968;
+    --accent-glow: rgba(242,162,58,0.14);
+    --danger: #e39a8a;
+    --danger-glow: rgba(227,154,138,0.12);
+    --danger-line: rgba(227,154,138,0.34);
+    --ok: #5cbfae;
+    --info: #86b6dc;
+    --info-glow: rgba(134,182,220,0.13);
+    --line: rgba(255,255,255,0.08);
+    --shadow: 0 1px 2px rgba(0,0,0,0.20), 0 6px 18px rgba(0,0,0,0.18);
+    --shadow-hover: 0 2px 6px rgba(0,0,0,0.24), 0 14px 32px rgba(0,0,0,0.26);
+    --nav-shadow: 0 1px 2px rgba(0,0,0,0.22);
+    --card-bg: #212227;
+    --card-border: rgba(255,255,255,0.07);
+    --nav-bg: rgba(24,25,29,0.92);
+    --nav-bg-solid: rgba(24,25,29,0.97);
+    --input-bg: #2a2c32;
+    --bubble-bg: #2c2e35;
+    --section-alt: #1d1e23;
+    --cta-bg: #222328;
+    --card-soft: #26282e;
+    --stats-gradient: linear-gradient(135deg, #343a5c, #3d4570);
+    --hero-from: #1b1c21;
+    --hero-via: #262a3d;
+    --hero-to: #30365a;
     --hero-ink: rgba(255,255,255,0.94);
-    --hero-ink-muted: rgba(255,255,255,0.68);
-    --peak-1: #7da2f0;
-    --peak-2: #6f97e6;
-    --peak-3: #5aa6d0;
-    --peak-4: #3fb0a3;
-    --peak-5: #57bcb0;
-    --hero-scrim: linear-gradient(155deg, rgba(10,18,32,0.94) 0%, rgba(19,34,74,0.88) 45%, rgba(23,50,94,0.55) 100%);
-    --ok-glow: rgba(63,176,163,0.16);
+    --hero-ink-muted: rgba(255,255,255,0.72);
+    --peak-1: #93a0f0;
+    --peak-2: #8796e6;
+    --peak-3: #7aaed4;
+    --peak-4: #5cbfae;
+    --peak-5: #72cabb;
+    --hero-scrim: linear-gradient(155deg, rgba(24,25,29,0.90) 0%, rgba(38,42,61,0.82) 45%, rgba(48,54,90,0.50) 100%);
+    --ok-glow: rgba(92,191,174,0.13);
+    --media-ink: #b9c1f5;
 }
 
 /* ===== LAYOUT TOKENS =====
@@ -122,6 +133,10 @@
     --space-7: 3rem;     /* 48px */
     --space-8: 4rem;     /* 64px */
     --space-9: 5rem;     /* 80px */
+
+    /* Typefaces — see the note at the top of this file. */
+    --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    --font-brand: 'Cormorant Garamond', 'Cormorant Fallback', 'PT Serif', serif;
 
     /* Height of the sticky topbar row — used as the `top` offset for anything
        else that sticks (the dashboard side rail). Keep in sync with .topbar. */
@@ -184,13 +199,34 @@
 :where(.card:not(.stat-card)) > :where(:not(:last-child)) { margin-bottom: var(--space-sm); }
 html { scroll-behavior: smooth; }
 body {
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-family: var(--font-sans);
     background: var(--bg);
     color: var(--text);
     line-height: 1.6;
     transition: background 0.4s ease, color 0.3s ease;
+    /* Long unbroken strings — a 60-char name, a 100-char email, a URL, a
+       200-char "word" in a description or chat message — wrap inside their box
+       instead of widening the page (horizontal scroll). Inherited everywhere;
+       single-line places (navbar, list rows, table cells with .truncate) opt
+       out with white-space: nowrap + an ellipsis + a title attribute. */
+    overflow-wrap: anywhere;
 }
+/* Flex / grid children may shrink below their content (the default
+   min-width: auto pins them to their longest word). Media keep their size. */
+:where(.card, .grid, .two-col, .button-row, .page-header, .section-head, .profile-head, .row-rank, .mini-list-item, .opportunity-body, .dash-rail) > :where(:not(img, svg, picture, video, canvas, .avatar)) { min-width: 0; }
+/* Table cells: `anywhere` would shrink every column to one letter in the
+   auto table layout ("Душанб|е", "09 Oct, 16:1|6"). break-word still breaks
+   an over-long string, but only once the column can't grow any more. */
+td, th { overflow-wrap: break-word; }
+/* One-line text with an ellipsis; pair it with title="full text". */
+.truncate { display: block; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 a { color: inherit; text-decoration: none; transition: color 0.25s ease; }
+/* Form controls don't inherit the font by default (UA styles give them the
+   system face) — make every one use the site's. */
+input, textarea, select, button, optgroup { font-family: inherit; }
+/* MapLibre sets its own Helvetica on the map (controls, popups, attribution);
+   two classes outrank its `.maplibregl-map` rule, whichever file loads last. */
+.gc-map.maplibregl-map, .maplibregl-popup-content { font-family: var(--font-sans); }
 main { min-height: 72vh; }
 img { max-width: 100%; display: block; }
 /* <picture> only chooses a source (WebP/srcset) — it must not add a box of
@@ -222,12 +258,10 @@ picture > source { display: none; }
 :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
 /* ===== TYPOGRAPHY =====
-   Playfair Display (serif) carries headings, the brand wordmark and big numbers
-   (the display voice); Inter carries everything read at length — nav, buttons,
-   paragraphs, labels, the footer (the working voice). */
+   Headings and big numbers use the same face as everything else (Inter);
+   weight and size carry the hierarchy. */
 h1, h2, h3, .display, .metric {
-    font-family: 'Playfair Display', Georgia, 'Times New Roman', serif;
-    letter-spacing: -0.005em;
+    letter-spacing: -0.015em;
     color: var(--text);
 }
 h1 { margin: 0.4rem 0 1rem; font-size: clamp(2.1rem, 5.6vw, 4.1rem); line-height: 1.06; font-weight: 700; }
@@ -252,7 +286,6 @@ p { color: var(--muted); line-height: 1.65; transition: color 0.3s ease; }
 .eyebrow {
     display: inline-block;
     color: var(--primary);
-    font-family: 'Inter', system-ui, sans-serif;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.14em;
@@ -304,7 +337,6 @@ p { color: var(--muted); line-height: 1.65; transition: color 0.3s ease; }
     gap: var(--space-2);
     font-weight: 700;
     font-size: 1.08rem;
-    font-family: 'Playfair Display', Georgia, 'Times New Roman', serif;
     color: var(--primary);
 }
 /* Logo (static/img/logo-mark*.svg) + brand name, navbar and footer. The name
@@ -336,7 +368,7 @@ p { color: var(--muted); line-height: 1.65; transition: color 0.3s ease; }
 [data-theme="dark"] .brand-logo--light { display: none; }
 [data-theme="dark"] .brand-logo--dark { display: block; }
 .navbar__brand-name {
-    font-family: 'Cormorant Garamond', 'Cormorant Fallback', 'PT Serif', serif;
+    font-family: var(--font-brand);
     font-weight: 700;
     font-style: italic;
     font-size: 28px;
@@ -352,6 +384,15 @@ p { color: var(--muted); line-height: 1.65; transition: color 0.3s ease; }
     .navbar__brand-name { font-size: 22px; }
     .brand-logo { width: 30px; height: 30px; }
 }
+/* 320–359px phones: the toolbar (language, theme, bell, menu) leaves ~40px,
+   so the wordmark would ellipsize to "Хайр…". Show the logo mark alone; the
+   name stays for screen readers (visually hidden, still the link's text). */
+@media (max-width: 359px) {
+    .topbar .navbar__brand-name {
+        position: absolute; width: 1px; height: 1px; overflow: hidden;
+        clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+    }
+}
 .brand-mark {
     display: grid;
     place-items: center;
@@ -359,7 +400,6 @@ p { color: var(--muted); line-height: 1.65; transition: color 0.3s ease; }
     height: 2.3rem;
     border-radius: 10px;
     color: white;
-    font-family: 'Playfair Display', Georgia, 'Times New Roman', serif;
     font-weight: 700;
     font-size: 0.9rem;
     background: linear-gradient(135deg, var(--primary), var(--primary-2));
@@ -546,6 +586,8 @@ p { color: var(--muted); line-height: 1.65; transition: color 0.3s ease; }
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    max-width: 100%;         /* a long label wraps (centred) instead of widening a 320px page */
+    text-align: center;
     gap: 0.5rem;
     min-height: 2.7rem;
     padding: 0.8rem 1.65rem;
@@ -841,7 +883,7 @@ form.inline-form { display: inline-block; }
     padding: var(--space-3) var(--space-4);
     border-radius: 10px;
     background: var(--danger-glow);
-    border: 1px solid var(--danger);
+    border: 1px solid var(--danger-line);
     color: var(--danger);
     font-size: 0.88rem;
     font-weight: 600;
@@ -983,7 +1025,7 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
 /* Names in list rows: one line, ellipsis (the full name is on the profile). */
 .row-rank h3 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row-rank p { overflow-wrap: anywhere; }
-.row-rank .rank-num { font-family: 'Playfair Display', Georgia, 'Times New Roman', serif; font-weight: 700; font-size: 1.1rem; color: var(--muted); min-width: 1.6rem; }
+.row-rank .rank-num { font-weight: 700; font-variant-numeric: tabular-nums; font-size: 1.1rem; color: var(--muted); min-width: 1.6rem; }
 
 /* ===== DATA TABLE (CRM lists) =====
    One scannable table on desktop; on narrow screens each row folds into a
@@ -1120,8 +1162,9 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
     background: var(--surface-2);
     border: 1px solid var(--line);
     border-radius: 10px;
-    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
-    font-size: 0.86rem;
+    font-size: 0.9rem;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.04em;
     color: var(--text);
     overflow-x: auto;
     white-space: pre;
@@ -1146,7 +1189,6 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
 .status-screen .status-card h1 { font-size: clamp(1.5rem, 3vw, 1.95rem); margin: 0.6rem 0 0.5rem; }
 .status-screen .status-card p { margin: 0 auto 0.4rem; max-width: 34rem; }
 .status-screen .status-code {
-    font-family: 'Playfair Display', Georgia, 'Times New Roman', serif;
     font-weight: 700;
     font-size: 0.9rem;
     letter-spacing: 0.12em;
@@ -1182,20 +1224,27 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
     height: 108px;
     display: grid;
     place-items: center;
-    color: rgba(255,255,255,0.92);
+    color: var(--media-ink);
 }
 .opportunity-media svg { width: 34px; height: 34px; }
-.opportunity-media .tag.urgent { position: absolute; top: 0.65rem; right: 0.65rem; background: rgba(255,255,255,0.92); }
+.opportunity-media .tag.urgent { position: absolute; top: 0.65rem; right: 0.65rem; background: var(--card-bg); }
 /* Larger media band + bigger icon for a single-item detail view. */
 .opportunity-media--lg { height: 180px; }
 .opportunity-media--lg svg { width: 44px; height: 44px; }
-.media-medical { background: linear-gradient(135deg, #1e40af, #006a61); }
-.media-grocery { background: linear-gradient(135deg, #006a61, #0a7e73); }
-.media-transport { background: linear-gradient(135deg, #17337f, #1e6fa8); }
-.media-household { background: linear-gradient(135deg, #92610e, #b8432f); }
-.media-emotional { background: linear-gradient(135deg, #b8432f, #92610e); }
-.media-documents { background: linear-gradient(135deg, #33404f, #1e40af); }
-.media-other { background: linear-gradient(135deg, #6b7280, #33404f); }
+.media-medical { background: linear-gradient(135deg, #e9ecfa, #e3f2ef); }
+.media-grocery { background: linear-gradient(135deg, #e3f2ef, #eef6ec); }
+.media-transport { background: linear-gradient(135deg, #e6ecf8, #e9ecfa); }
+.media-household { background: linear-gradient(135deg, #fdf2df, #fbe9e4); }
+.media-emotional { background: linear-gradient(135deg, #fbe9e4, #fdf2df); }
+.media-documents { background: linear-gradient(135deg, #eef0f5, #e9ecfa); }
+.media-other { background: linear-gradient(135deg, #f1f3f7, #eceef3); }
+[data-theme="dark"] .media-medical { background: linear-gradient(135deg, #2b2f45, #26363a); }
+[data-theme="dark"] .media-grocery { background: linear-gradient(135deg, #26363a, #2b3530); }
+[data-theme="dark"] .media-transport { background: linear-gradient(135deg, #283143, #2b2f45); }
+[data-theme="dark"] .media-household { background: linear-gradient(135deg, #3a3226, #3a2c2a); }
+[data-theme="dark"] .media-emotional { background: linear-gradient(135deg, #3a2c2a, #3a3226); }
+[data-theme="dark"] .media-documents { background: linear-gradient(135deg, #2c2e35, #2b2f45); }
+[data-theme="dark"] .media-other { background: linear-gradient(135deg, #2a2c32, #26282e); }
 .opportunity-body { padding: var(--space-4); display: flex; flex-direction: column; gap: 0.55rem; flex: 1; }
 .opportunity-body h3 { margin: 0.1rem 0 0; }
 /* Status pills keep their natural width (the column would stretch them). */
@@ -1235,7 +1284,6 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
     display: flex;
     align-items: center;
     justify-content: center;
-    font-family: 'Playfair Display', Georgia, 'Times New Roman', serif;
     font-weight: 700;
     font-size: 1.7rem;
     color: var(--primary);
@@ -1552,7 +1600,7 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
 .emergency-sos__summary::-webkit-details-marker { display: none; }
 .emergency-sos[open] .emergency-sos__summary { border-radius: 10px 10px 0 0; }
 .emergency-confirm {
-    border: 1px solid var(--danger);
+    border: 1px solid var(--danger-line);
     border-top: none;
     border-radius: 0 0 12px 12px;
     background: var(--danger-glow);
@@ -1598,7 +1646,7 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
     gap: var(--space-3);
     margin-top: var(--space-4);
     padding: var(--space-3) var(--space-4);
-    border: 1px solid var(--danger);
+    border: 1px solid var(--danger-line);
     border-radius: 12px;
     background: var(--danger-glow);
 }
@@ -1610,7 +1658,7 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
     gap: var(--space-3);
     padding: var(--space-4);
     margin-bottom: var(--space-4);
-    border: 1px solid var(--danger);
+    border: 1px solid var(--danger-line);
     border-left-width: 4px;
     border-radius: 12px;
     background: var(--danger-glow);
@@ -1628,9 +1676,9 @@ a.emergency-banner--link:hover { background: var(--surface-2); }
 .detail-reason { margin-top: var(--space-4); }
 .detail-reason p { margin: 0.25rem 0 0; }
 
-.stat-card--alert { border-color: var(--danger); }
+.stat-card--alert { border-color: var(--danger-line); background: linear-gradient(var(--danger-glow), var(--danger-glow)), var(--card-bg); }
 .stat-card--alert .metric { color: var(--danger); }
-.card--alert { border-color: var(--danger); }
+.card--alert { border-color: var(--danger-line); }
 .data-table tr.row-alert td:first-child { box-shadow: inset 3px 0 0 var(--danger); }
 .mini-list-item--link { display: block; text-decoration: none; color: inherit; }
 .mini-list-item--link:hover { background: var(--surface-2); }

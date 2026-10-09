@@ -14,7 +14,7 @@
                             <div class="avatar avatar-fallback avatar-sm">{{ profile.full_name|default:profile.user.username|first|upper }}</div>
                         {% endif %}
                         <div>
-                            <h3>{{ profile.full_name|default:profile.user.username }}</h3>
+                            <h3 title="{{ profile.full_name|default:profile.user.username }}">{{ profile.full_name|default:profile.user.username }}</h3>
                             {% if profile.user.region %}<p class="row-region" data-i18n="region.{{ profile.user.region }}">{{ profile.user.get_region_display }}</p>{% endif %}
                             {% review_summary profile compact=True %}
                             {% badge_row badges|badges_for:profile.user_id %}

@@ -160,7 +160,12 @@ still `open → acknowledged → resolved`. Transitions are
 (`action=acknowledge|resolve|cancel`). `_can_view_emergency` gates the detail page: staff see
 every report, a volunteer sees only their own (read-only, no controls). CRM list + tabs at
 `/myapp/emergency/`; open count on the admin dashboard; open+located reports show as `--danger`
-`gc-pin--emergency` markers in the staff branch of `map_data_view`. See `services/emergency.py`.
+`gc-pin--emergency gc-pin--sos` (pulsing) markers in `map_data_view` — staff see all, a volunteer
+those of their own region (no name, no link except their own report). **Live:** the service publishes
+`sos.marker` (`realtime/publish.sos_marker`) to `staff` + `volunteers_<region>` on report /
+acknowledge (point) and resolve / cancel (removal, no coordinates); `SosGuard` re-checks role + current
+region per socket; region volunteers also get one `sos_nearby` notification (in-app + Telegram, no
+location). The ops map adds/drops the marker without a reload; `?sos=<id>` centres on it. See `services/emergency.py`.
 
 ### Security & abuse controls
 
@@ -254,9 +259,10 @@ A hardening pass added a cross-cutting layer that is easy to regress — keep it
   `clean()` normalize (so the Django admin is covered), forms' `clean_<field>` too. Error code
   `invalid_phone` → `err.invalid_phone` (EN/RU/TJ). Inputs use `forms.TelInput`
   (`type=tel`, `inputmode=tel`, `+992 XX XXX XX XX` placeholder, blur mask in `base.html`).
-- **Name limits**: `Users.USERNAME_MAX_LENGTH` = 30, `FULL_NAME_MAX_LENGTH` = 60, enforced by model
-  `MaxLengthValidator`s (+ form `maxlength`, + `update_profile`); the **DB columns keep their old
-  size** (150 / 255) so existing longer values survive. Long names never widen a page: list rows
+- **Name limits**: `Users.USERNAME_MAX_LENGTH` = 30, `FULL_NAME_MAX_LENGTH` = 60 (+ form `maxlength`,
+  + `update_profile`, whose JSON error carries `error_i18n: err.max_length`). `Profile.full_name` is a
+  **60-char column** since accounts 0013 (owner 2026-10-09) — that migration refuses to run (ids only,
+  no truncation) while a longer name exists; `username` keeps its 150 column + a validator. Long names never widen a page: list rows
   ellipsis (`.row-rank h3`), headings/detail wrap (`overflow-wrap: anywhere`), flex/grid items
   `min-width: 0`, `.request-row` uses `minmax(0, 1fr)`.
 - **`_can_view_task`** (`myapp/views.py`) gates task-detail access: a volunteer sees only their
@@ -433,7 +439,11 @@ Business logic that needs to be unit-testable without the ORM or network lives h
 
 `myapp/context_processors.py::maps_config` pushes `maps.tile_layer()` into every template as
 `maps_tile_config`; `base.html` renders it with `{{ maps_tile_config|json_script:"gc-maps-tile" }}`
-(XSS-safe) and `static/js/map.js` reads that element instead of hard-coding a tile URL. A
+(XSS-safe) and `static/js/map.js` reads that element instead of hard-coding a tile URL. **Maps follow the site theme**:
+`vector_style()["dark_url"]` (OpenFreeMap `dark` / MapTiler `streets-v2-dark`) and `tile_layer()["dark"]`
+(CARTO `dark_all`) are the dark twins; map.js swaps the style live on a theme toggle
+(`setStyle(..., {diff: false})` → `style.load` → every `onStyle()` layer — buildings, route, accuracy,
+heat — comes back; DOM markers survive). Route/building colours are theme-aware too. A
 misconfigured provider degrades to `{}` and map.js falls back to OSM — a bad `MAPS_PROVIDER`
 never 500s an unrelated page.
 
@@ -670,7 +680,15 @@ sequence and README → **Initial production accounts** /
 ### Templates/static
 
 All templates extend `templates/base.html` (navbar, theme toggle, toast messages, language
-switcher). No CSS framework — `static/css/style.css` is a hand-written design system (light/dark
+switcher). **One font**: Inter via `--font-sans` (body, headings, numbers, form controls, maps, Chart.js,
+Django admin via `templates/admin/base_site.html`); the only exception is the logo wordmark
+(`--font-brand`, Cormorant Garamond). Playfair is gone — never add a `font-family` other than these vars.
+**Palette (2026-10-09)**: soft tints; brand blue `#2A3BA5` / orange `#F2A23A` (`--brand-blue`,
+`--brand-orange`) for accents and primary buttons only; dark theme = neutral dark greys (`#18191d`
+ground), no navy/black; `--danger-line` for soft alert borders; all text pairs ≥ 4.5:1. **Long text**:
+`body { overflow-wrap: anywhere }` (+ `td, th { overflow-wrap: break-word }` so table columns don't
+shrink to letters), `min-width: 0` on common flex/grid children, `.truncate` + `title` for one-liners —
+no page scrolls horizontally at 320 px with a 60-char name / 100-char email / 200-char word. No CSS framework — `static/css/style.css` is a hand-written design system (light/dark
 via `[data-theme]` CSS variables). `crispy_forms` / `crispy_bootstrap5` and `django_filters` are in
 `requirements.txt` and `INSTALLED_APPS` but **unused** (no `{% crispy %}`, no `FormHelper`, no
 `django_filters` import anywhere) — forms render through the `templates/partials/_form.html` +

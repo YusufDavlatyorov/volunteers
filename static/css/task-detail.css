@@ -271,13 +271,11 @@
 .route-card [hidden],
 .recommend-card [hidden] { display: none !important; }
 
-/* Route metrics: numbers keep the display style; the origin label is words,
-   so it uses the body face at a readable size and wraps on phones. */
+/* Route metrics: the origin label is words, so it gets body size and wraps on phones. */
 .route-card .map-route-meta { gap: var(--space-3) var(--space-5); }
 .route-card .map-route-meta .metric { font-size: 1.6rem; min-width: 0; }
 .route-card .map-route-meta .metric--text strong {
     display: block;
-    font-family: 'Inter', system-ui, sans-serif;
     font-size: 1rem;
     line-height: 1.35;
     padding-top: 0.35rem;

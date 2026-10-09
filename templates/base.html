@@ -44,19 +44,19 @@
     <link rel="icon" href="{% static 'images/brand/favicon-32.png' %}" sizes="32x32" type="image/png">
     <link rel="icon" href="{% static 'images/brand/favicon-48.png' %}" sizes="48x48" type="image/png">
     <link rel="apple-touch-icon" href="{% static 'images/brand/apple-touch-icon.png' %}" sizes="180x180">
-    <meta name="theme-color" content="#1e40af" media="(prefers-color-scheme: light)">
-    <meta name="theme-color" content="#0a1220" media="(prefers-color-scheme: dark)">
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#18191d" media="(prefers-color-scheme: dark)">
     {% block structured_data %}{% if seo.json_ld %}<script type="application/ld+json">{{ seo.json_ld }}</script>{% endif %}{% endblock %}
     {{ maps_tile_config|json_script:"gc-maps-tile" }}
     {# Fonts stay on Google's CDN on purpose: measured 2026-09-30, fonts.gstatic.com #}
     {# delivers 5-10x faster to visitors than this origin's thin uplink, so moving the #}
     {# ~125 KB of woff2 here made first paint slower. preconnect + display=swap: text #}
     {# renders immediately in the fallback face; nothing is render-blocked by fonts. #}
-    {# Cormorant Garamond (bold italic) is only the brand name next to the logo; it rides #}
-    {# the same css2 request so it costs no extra round trip. #}
+    {# One face for the site (Inter, --font-sans in style.css). Cormorant Garamond (bold #}
+    {# italic) is only the brand name next to the logo; it rides the same css2 request. #}
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;0,700;0,800;1,600&family=Cormorant+Garamond:ital,wght@1,700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Cormorant+Garamond:ital,wght@1,700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{% asset 'css/style.css' %}">
     {% block extra_css %}{% endblock %}
 </head>

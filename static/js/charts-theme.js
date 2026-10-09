@@ -71,10 +71,11 @@
             text: v('--text', dark ? '#e7ebf3' : '#111827'),
             text2: v('--text-2', dark ? '#c7cede' : '#33404f'),
             muted: v('--muted', dark ? '#8b93a7' : '#5b6473'),
-            surface: v('--card-bg', dark ? '#151b28' : '#ffffff'),
+            surface: v('--card-bg', dark ? '#212227' : '#ffffff'),
             line: v('--line', dark ? 'rgba(255,255,255,0.09)' : '#e3e7f4'),
             grid: dark ? 'rgba(255,255,255,0.06)' : 'rgba(17,24,39,0.06)',
-            font: css.fontFamily || 'Inter, system-ui, sans-serif',
+            // The site's one face (style.css --font-sans), same as the navbar.
+            font: v('--font-sans', '') || css.fontFamily || 'Inter, system-ui, sans-serif',
         };
     }
 
@@ -430,8 +431,8 @@
     window.GCChartTheme = {
         PALETTE, HEAT, ENTITY, mode, palette, color, alpha, tokens, lang, t, locale, num, pct,
         shortDate, fullDate, weekRange, apply, datasets, options, onChange,
-        // The map's base layer stays light in both site themes, so the heat ramp
-        // is the calendar's light scale (the dark one is for dark surfaces).
-        heatColors: () => HEAT.light.slice(),
+        // The map's base layer follows the site theme (map.js), so the heat ramp
+        // is the calendar's scale for the current theme.
+        heatColors: () => HEAT[mode()].slice(),
     };
 })();

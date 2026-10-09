@@ -21,6 +21,7 @@ ACK = "ack"
 LOCATION_UPDATED = "location.updated"
 TRACKING_STOPPED = "tracking.stopped"
 MAP_MARKER = "map.marker"
+SOS_MARKER = "sos.marker"
 CHAT_MESSAGE = "chat.message"
 CHAT_MESSAGE_UPDATED = "chat.message_updated"
 CHAT_TYPING = "chat.typing"
@@ -152,6 +153,25 @@ def volunteer_live_marker_payload(task_id, lat, lng, ts):
 def volunteer_live_marker_removed_payload(task_id):
     """``map.marker`` removal (tracking stopped / task ended) — no coordinates."""
     return {"kind": "volunteer_live", "task_id": task_id, "removed": True}
+
+
+def sos_marker_payload(report):
+    """``sos.marker`` on ``staff`` + ``volunteers_<region>``: an active SOS
+    and where it is. Ids, region, status and the point only — no names, no
+    contacts, no reason text. Sent only while the report is open/acknowledged."""
+    return {
+        "id": report.pk,
+        "region": report.region or "",
+        "status": report.status,
+        "lat": _num(report.latitude),
+        "lng": _num(report.longitude),
+        "created_at": _iso(report.created_at),
+    }
+
+
+def sos_marker_removed_payload(report):
+    """``sos.marker`` removal (resolved / cancelled) — no coordinates."""
+    return {"id": report.pk, "region": report.region or "", "removed": True}
 
 
 # --------------------------------------------------------------------------- #

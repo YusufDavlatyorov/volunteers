@@ -998,6 +998,31 @@ def map_data_view(request):
         my_active = HelpRequest.objects.filter(volunteer=user, status="active").exclude(latitude__isnull=True)
         for task in my_active:
             points.append(_task_point(task, "Моя задача"))
+
+        # Active SOS of the volunteer's own region (pulsing marker, kept live by
+        # the ``sos.marker`` WS event). Point + status only: no reporter name,
+        # no task link — except on the volunteer's own report.
+        if user.region:
+            sos = (
+                EmergencyReport.objects.filter(
+                    status__in=EmergencyReport.OPEN_STATUSES, region=user.region, latitude__isnull=False,
+                )
+                .order_by("-created_at")[:MAP_EMERGENCY_LIMIT]
+            )
+            for report in sos:
+                points.append({
+                    "id": report.pk,
+                    "kind": "emergency",
+                    "lat": float(report.latitude),
+                    "lng": float(report.longitude),
+                    "title": "Сигнал опасности",
+                    "subtitle": report.get_region_display(),
+                    "status": report.status,
+                    "region": report.region,
+                    "color": "--danger",
+                    "glyph": "!",
+                    "url": reverse("emergency_detail", args=[report.pk]) if report.volunteer_id == user.pk else "",
+                })
     elif user.is_client:
         tasks = (
             HelpRequest.objects.filter(client=user)

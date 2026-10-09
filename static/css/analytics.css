@@ -105,12 +105,12 @@
 .chart-delta--bad { color: var(--delta-bad); background: var(--delta-bad-bg); }
 .chart-headline__vs { font-size: 0.8rem; color: var(--muted); }
 .analytics-root {
-    --delta-good: #1b7a4a; --delta-good-bg: rgba(27, 122, 74, 0.1);
-    --delta-bad: #b42318; --delta-bad-bg: rgba(180, 35, 24, 0.09);
+    --delta-good: #23774f; --delta-good-bg: rgba(35, 119, 79, 0.09);
+    --delta-bad: #b04a3c; --delta-bad-bg: rgba(176, 74, 60, 0.08);
 }
 [data-theme="dark"] .analytics-root {
-    --delta-good: #5fd39a; --delta-good-bg: rgba(95, 211, 154, 0.12);
-    --delta-bad: #ff8a80; --delta-bad-bg: rgba(255, 138, 128, 0.12);
+    --delta-good: #6cc9a0; --delta-good-bg: rgba(95, 211, 154, 0.12);
+    --delta-bad: #e39a8a; --delta-bad-bg: rgba(255, 138, 128, 0.12);
 }
 .chart-box { position: relative; height: 16rem; min-width: 0; }
 .chart-card--wide .chart-box { height: 18rem; }

@@ -317,11 +317,16 @@ def update_profile(request):
     # requires the verified code round-trip in telegram_link_view.
     request.user.save()
 
-    full_name = request.POST.get("full_name", profile.full_name)
+    full_name = request.POST.get("full_name", profile.full_name).strip()
     if len(full_name) > Users.FULL_NAME_MAX_LENGTH:
-        return JsonResponse(
-            {"success": False, "error": f"Имя не длиннее {Users.FULL_NAME_MAX_LENGTH} символов."}, status=400
-        )
+        # `error_i18n` + `error_args`: the same err.max_length key the forms
+        # use, so a client can show it in EN/RU/TJ (`error` stays Russian).
+        return JsonResponse({
+            "success": False,
+            "error": f"Имя не длиннее {Users.FULL_NAME_MAX_LENGTH} символов.",
+            "error_i18n": "err.max_length",
+            "error_args": {"limit_value": Users.FULL_NAME_MAX_LENGTH, "show_value": len(full_name)},
+        }, status=400)
     profile.full_name = full_name
     raw_age = request.POST.get("age")
     if raw_age:

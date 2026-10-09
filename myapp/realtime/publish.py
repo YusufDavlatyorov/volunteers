@@ -12,14 +12,14 @@ from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 
 from .events import envelope
-from .groups import MAP_STAFF_GROUP, STAFF_GROUP, task_group, user_group
+from .groups import MAP_STAFF_GROUP, STAFF_GROUP, region_volunteers_group, task_group, user_group
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
     "STAFF_GROUP", "MAP_STAFF_GROUP", "user_group", "task_group", "envelope",
     "send_to_group", "send_to_user", "send_to_task", "send_to_staff", "send_to_map_staff",
-    "task_changed",
+    "task_changed", "sos_marker",
 ]
 
 
@@ -54,6 +54,25 @@ def send_to_staff(event_type, payload):
 
 def send_to_map_staff(event_type, payload):
     return send_to_group(MAP_STAFF_GROUP, event_type, payload)
+
+
+def sos_marker(report):
+    """An SOS appeared (open, located), changed, or ended: tell every staff
+    socket and the volunteers of the report's region. While the report is
+    open/acknowledged and located the payload carries the point; otherwise a
+    removal (no coordinates) — the location is shared only while it is active.
+    The consumer re-checks role + region per socket (``SosGuard``)."""
+    from .events import SOS_MARKER, sos_marker_payload, sos_marker_removed_payload
+
+    if report.is_open and report.has_location:
+        payload = sos_marker_payload(report)
+    else:
+        payload = sos_marker_removed_payload(report)
+    sent = send_to_staff(SOS_MARKER, payload)
+    group = region_volunteers_group(report.region)
+    if group:
+        send_to_group(group, SOS_MARKER, payload)
+    return sent
 
 
 def task_changed(task):

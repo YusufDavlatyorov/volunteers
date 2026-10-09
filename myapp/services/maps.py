@@ -86,10 +86,26 @@ def _timeout():
 # OSM height, so they extrude to the 5 m default, a few tagged up to ~66 m).
 # The raster ``tile_layer()`` stays as the fallback style if this one fails.
 _OPENFREEMAP_STYLE = "https://tiles.openfreemap.org/styles/liberty"
+# Dark twins, used while the site is in its dark theme (static/js/map.js swaps
+# the style live on a theme toggle). OpenFreeMap "dark" keeps the same
+# OpenMapTiles schema (flat ``building`` layer; map.js adds the extrusion).
+_OPENFREEMAP_DARK_STYLE = "https://tiles.openfreemap.org/styles/dark"
+# CARTO's keyless dark raster basemap: the dark counterpart of every raster
+# stage (OSM has no dark tiles).
+_CARTO_DARK_TILE = {
+    "url": "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+    "attribution": (
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors '
+        '&copy; <a href="https://carto.com/attributions">CARTO</a>'
+    ),
+    "max_zoom": 20,
+    "subdomains": "abcd",
+}
 
 
 def vector_style():
-    """``{"url", "provider"}`` of the vector style, or ``{}`` for raster only.
+    """``{"url", "dark_url", "provider"}`` of the vector style, or ``{}`` for
+    raster only. ``dark_url`` is the same provider's dark style (dark site theme).
 
     ``MAPS_VECTOR_STYLE``: ``openfreemap`` (default, no key) | ``maptiler``
     (needs ``MAPTILER_API_KEY`` — a browser-side key by design: restrict it to
@@ -102,12 +118,13 @@ def vector_style():
         if key:
             return {
                 "url": f"https://api.maptiler.com/maps/streets-v2/style.json?key={key}",
+                "dark_url": f"https://api.maptiler.com/maps/streets-v2-dark/style.json?key={key}",
                 "provider": "maptiler",
             }
         logger.warning("MAPS_VECTOR_STYLE=maptiler but MAPTILER_API_KEY is empty; using OpenFreeMap.")
     elif choice != "openfreemap":
         logger.warning("Unknown MAPS_VECTOR_STYLE=%r; using OpenFreeMap.", choice)
-    return {"url": _OPENFREEMAP_STYLE, "provider": "openfreemap"}
+    return {"url": _OPENFREEMAP_STYLE, "dark_url": _OPENFREEMAP_DARK_STYLE, "provider": "openfreemap"}
 
 
 def tile_layer():
@@ -118,6 +135,8 @@ def tile_layer():
     config = _primary_tile_layer()
     if config.get("url") != _CARTO_TILE["url"]:
         config["fallback"] = dict(_CARTO_TILE)
+    # The dark site theme's raster stage (keyless; replaces both raster stages).
+    config["dark"] = dict(_CARTO_DARK_TILE)
     return config
 
 

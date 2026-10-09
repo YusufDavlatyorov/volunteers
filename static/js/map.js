@@ -6,7 +6,12 @@
    OpenFreeMap by default — 3D buildings, tilt, rotation). If it can't load
    for a visitor, the map falls back to the raster tiles of maps.tile_layer()
    (OSM), then to their keyless CARTO `fallback`; if that fails too, a
-   localized message replaces the blank area. */
+   localized message replaces the blank area.
+
+   Theme: every map follows the site theme (html[data-theme]) — the dark
+   twin of each stage (vector `dark_url`, raster `dark`) while the site is
+   dark — and swaps live when the visitor toggles it (setStyle; custom layers
+   come back through onStyle(), DOM markers survive a style swap). */
 
 const GCMap = {
     DEFAULT_CENTER: [38.5598, 68.7870], // Dushanbe
@@ -35,6 +40,12 @@ const GCMap = {
                 max_zoom: 20,
                 subdomains: 'abcd',
             },
+            dark: {
+                url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+                max_zoom: 20,
+                subdomains: 'abcd',
+            },
             vector: {},
         };
         try {
@@ -44,6 +55,44 @@ const GCMap = {
         } catch (e) {
             return OSM;
         }
+    },
+
+    /* 'dark' | 'light' — the site theme (base.html sets html[data-theme]). */
+    theme() {
+        return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+    },
+
+    /* The fallback chain for one theme: vector → raster → keyless raster.
+       Dark: the provider's dark vector style, then CARTO dark raster. */
+    _stages(cfg, theme) {
+        const stages = [];
+        const dark = theme === 'dark';
+        const vector = cfg.vector || {};
+        const vurl = dark ? (vector.dark_url || vector.url) : vector.url;
+        if (vurl) stages.push({ kind: 'vector', style: vurl });
+        if (dark && cfg.dark && cfg.dark.url) {
+            stages.push({ kind: 'raster', style: this.rasterStyle(cfg.dark) });
+        } else {
+            stages.push({ kind: 'raster', style: this.rasterStyle(cfg) });
+            if (cfg.fallback && cfg.fallback.url) stages.push({ kind: 'raster', style: this.rasterStyle(cfg.fallback) });
+        }
+        return stages;
+    },
+
+    /* One MutationObserver for every map on the page: runs each registered
+       callback when html[data-theme] changes. */
+    _onThemeChange(fn) {
+        if (!this._themeFns) {
+            this._themeFns = [];
+            let last = this.theme();
+            new MutationObserver(() => {
+                const now = this.theme();
+                if (now === last) return;
+                last = now;
+                this._themeFns.forEach((f) => { try { f(now); } catch (e) { /* one map must not break the others */ } });
+            }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+        }
+        this._themeFns.push(fn);
     },
 
     available() {
@@ -161,10 +210,7 @@ const GCMap = {
         container.classList.add('gc-map');
 
         const cfg = this.tileConfig();
-        const stages = [];
-        if (cfg.vector && cfg.vector.url) stages.push({ kind: 'vector', style: cfg.vector.url });
-        stages.push({ kind: 'raster', style: this.rasterStyle(cfg) });
-        if (cfg.fallback && cfg.fallback.url) stages.push({ kind: 'raster', style: this.rasterStyle(cfg.fallback) });
+        let stages = this._stages(cfg, this.theme());
         let stage = 0;
 
         const center = opts.center || this.DEFAULT_CENTER;
@@ -194,6 +240,7 @@ const GCMap = {
         map.__gcStyleFns = [];
         map.__gcStyleReady = false;
         map.__gc3d = is3d;
+        map.__gcTheme = this.theme();
 
         // --- style fallback chain -------------------------------------------
         let okTiles = 0;
@@ -217,11 +264,31 @@ const GCMap = {
                 const btn = container.querySelector('.gc-ctrl-3d');
                 if (btn) btn.closest('.maplibregl-ctrl').style.display = 'none';
             }
-            map.setStyle(stages[stage].style);
+            map.setStyle(stages[stage].style, { diff: false });   // full reload → style.load → onStyle() re-adds our layers
         }
+        // Site theme toggled: the same stage kind in the other theme. A vector
+        // map stays vector (its dark/light twin); a map already on a raster
+        // fallback stays raster. Custom layers return via onStyle().
+        this._onThemeChange((theme) => {
+            if (theme === map.__gcTheme) return;
+            map.__gcTheme = theme;
+            const kind = stage < stages.length ? stages[stage].kind : 'raster';
+            stages = self._stages(cfg, theme);
+            stage = Math.max(0, stages.findIndex((st) => st.kind === kind));
+            okTiles = 0;
+            failures = 0;
+            if (notice) { notice.remove(); notice = null; }
+            map.__gcStyleReady = false;
+            map.setStyle(stages[stage].style, { diff: false });   // full reload → style.load → onStyle() re-adds our layers
+        });
         map.on('style.load', () => {
             map.__gcStyleReady = true;
             map.__gcStyleFns.forEach((fn) => { try { fn(map); } catch (e) { /* keep going */ } });
+        });
+        // OpenFreeMap's dark style names a few POI icons its sprite lacks
+        // (e.g. circle-11): an empty 1×1 image instead of a console warning.
+        map.on('styleimagemissing', (e) => {
+            if (e && e.id && !map.hasImage(e.id)) map.addImage(e.id, { width: 1, height: 1, data: new Uint8Array(4) });
         });
         map.on('data', (e) => {
             if (e.dataType === 'source' && e.tile) {
@@ -290,11 +357,14 @@ const GCMap = {
             ext = map.getLayer(id) ? { id, minzoom: 14 } : null;
         }
         if (ext) {
-            // Calm, slightly brand-tinted massing: taller = a touch bluer.
+            // Calm, slightly brand-tinted massing: taller = a touch bluer
+            // (light map) / a touch lighter (dark map).
+            const ramp = map.__gcTheme === 'dark'
+                ? [0, '#2e3036', 30, '#383b47', 80, '#444a60']
+                : [0, '#e7e5e0', 30, '#d6dae8', 80, '#c3c9e2'];
             map.setPaintProperty(ext.id, 'fill-extrusion-color', [
                 'interpolate', ['linear'], ['coalesce', ['get', 'render_height'], 5],
-                0, '#e7e5e0', 30, '#d6dae8', 80, '#c3c9e2',
-            ]);
+            ].concat(ramp));
             map.setPaintProperty(ext.id, 'fill-extrusion-height', ['coalesce', ['get', 'render_height'], ['get', 'height'], 5]);
             map.setPaintProperty(ext.id, 'fill-extrusion-base', ['coalesce', ['get', 'render_min_height'], ['get', 'min_height'], 0]);
             map.setPaintProperty(ext.id, 'fill-extrusion-opacity', 0.88);
@@ -455,6 +525,14 @@ const GCMap = {
     /* ---------- route line (under the buildings) ---------- */
 
     ROUTE_ALT_COLOR: '#7b8394',
+
+    /* Route line + casing for the current map theme: brand blue on a light
+       map; a light brand tint with a dark casing on a dark map. */
+    _routePaint(map) {
+        return map.__gcTheme === 'dark'
+            ? { line: '#93a0f0', casing: '#1b1c21', alt: '#8a8f9c' }
+            : { line: this.ROUTE_COLOR, casing: this.ROUTE_CASING, alt: this.ROUTE_ALT_COLOR };
+    },
     ROUTE_DASH: [1, 2],   // on foot: a dashed line, so it never reads as the car route
 
     /* geometry: [[lat, lng], ...] of the chosen route, or null to clear.
@@ -503,13 +581,14 @@ const GCMap = {
                 else map.getSource(id).setData(data);
             });
             const layout = { 'line-cap': 'round', 'line-join': 'round' };
+            const colors = this._routePaint(map);
             // Order matters: each layer is inserted right under `before`, so the
             // later ones sit on top — alternatives, then casing, then the line.
             if (!map.getLayer('gc-route-alt')) {
                 map.addLayer({
                     id: 'gc-route-alt', type: 'line', source: 'gc-route-alt', layout,
                     paint: {
-                        'line-color': this.ROUTE_ALT_COLOR,
+                        'line-color': colors.alt,
                         'line-opacity': 0.55,
                         'line-width': ['interpolate', ['linear'], ['zoom'], 10, 4, 16, 5],
                     },
@@ -524,7 +603,7 @@ const GCMap = {
                 map.addLayer({
                     id: 'gc-route-casing', type: 'line', source: 'gc-route', layout,
                     paint: {
-                        'line-color': this.ROUTE_CASING,
+                        'line-color': colors.casing,
                         'line-width': ['interpolate', ['linear'], ['zoom'], 10, 8, 16, 10],
                         'line-opacity': 0.95,
                     },
@@ -534,7 +613,7 @@ const GCMap = {
                 map.addLayer({
                     id: 'gc-route-line', type: 'line', source: 'gc-route', layout,
                     paint: {
-                        'line-color': this.ROUTE_COLOR,
+                        'line-color': colors.line,
                         'line-width': ['interpolate', ['linear'], ['zoom'], 10, 5, 16, 6],
                     },
                 }, before);
@@ -741,7 +820,9 @@ const GCMap = {
        controller object; does not fetch data itself (the page owns the fetch). */
     _opsStyle(point) {
         if (point.kind === 'me') return { color: '--primary', glyph: '•', cls: '' };
-        if (point.kind === 'emergency') return { color: '--danger', glyph: '!', cls: 'gc-pin--emergency' };
+        // An SOS report: the ring plus a filled red pulse (.gc-pin--sos), so it
+        // never reads like an "emergency priority" request.
+        if (point.kind === 'emergency') return { color: '--danger', glyph: '!', cls: 'gc-pin--emergency gc-pin--sos' };
         if (point.kind === 'pet') {
             // Lost pets still need finding (amber highlight); found pets are good news (teal).
             return { color: point.report_type === 'found' ? '--ok' : '--accent', glyph: 'P', cls: '' };
@@ -779,7 +860,9 @@ const GCMap = {
         let meMarker = null;
         const self = this;
 
-        function render() {
+        // fit = false keeps the viewer's camera (a live SOS update must not
+        // yank the map away from where they are looking).
+        function render(fit) {
             markers.forEach((m) => m.remove());
             markers = [];
             const bounds = [];
@@ -791,7 +874,33 @@ const GCMap = {
                 markers.push(self.marker(map, [point.lat, point.lng], el));
                 bounds.push([point.lat, point.lng]);
             });
-            if (bounds.length) self.fitPoints(map, bounds, { padding: 48, maxZoom: 14 });
+            if (fit !== false && bounds.length) self.fitPoints(map, bounds, { padding: 48, maxZoom: 14 });
+        }
+
+        /* Live SOS (sos.marker on the WS — staff, and volunteers of the SOS's
+           region; the server re-checks both per socket): add / update the
+           pulsing marker while the SOS is active, drop it on removal. */
+        function onSos(p) {
+            const id = Number(p && p.id);
+            if (!id) return;
+            const prev = allPoints.find((q) => q.kind === 'emergency' && q.id === id);
+            allPoints = allPoints.filter((q) => q !== prev);
+            if (!p.removed && isFinite(p.lat) && isFinite(p.lng)) {
+                allPoints.push(Object.assign({
+                    kind: 'emergency',
+                    id,
+                    title: self.t('map.legend_sos', null, 'SOS report'),
+                    subtitle: '',
+                    url: opts.sosUrl ? opts.sosUrl(id) : '',
+                }, prev || {}, {
+                    lat: p.lat, lng: p.lng, status: p.status, region: p.region,
+                }));
+            }
+            render(false);
+            if (opts.onSos) { try { opts.onSos(p, !prev && !p.removed); } catch (e) { /* UI bug must not stop the map */ } }
+        }
+        if (opts.live !== false) {
+            this.whenRealtime((rt) => rt.on('sos.marker', onSos));
         }
 
         function locate() {
@@ -828,6 +937,16 @@ const GCMap = {
         return {
             map,
             render(points) { allPoints = points || []; render(); },
+            /* Centre on one point (e.g. ?sos=<id> from a notification); returns it or null. */
+            focusPoint(kind, id) {
+                const point = allPoints.find((q) => q.kind === kind && q.id === Number(id));
+                if (point) {
+                    const go = () => map.easeTo({ center: [point.lng, point.lat], zoom: Math.max(map.getZoom(), 14), duration: self._reducedMotion() ? 0 : 700 });
+                    // Before the first style.load the 3D setup's jumpTo would cancel the ease.
+                    if (map.__gcStyleReady) go(); else map.once('style.load', go);
+                }
+                return point || null;
+            },
             applyFilter(fn) { predicate = fn || (() => true); render(); },
             locate,
             get points() { return allPoints; },

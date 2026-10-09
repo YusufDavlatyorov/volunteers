@@ -80,7 +80,7 @@
 .hero-actions .ghost { color: white; border-color: rgba(255,255,255,0.35); }
 .hero-actions .ghost:hover { border-color: white; background: rgba(255,255,255,0.08); }
 /* Primary CTA on the dark hero: a solid white pill with blue text for contrast. */
-.hero-actions .primary { background: #fff; color: var(--primary); }
+.hero-actions .primary { background: #fff; color: var(--brand-blue); }   /* brand blue in both themes: the dark --primary is a light tint (2.4:1 on white) */
 .hero-actions .primary:hover { background: #fff; box-shadow: 0 8px 22px rgba(0,0,0,0.28); }
 .hero-strip {
     position: relative;

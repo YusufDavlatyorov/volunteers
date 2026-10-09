@@ -15,7 +15,7 @@
 }
 /* Dark: an empty day is a faint plate, and more activity gets *brighter*. */
 [data-theme="dark"] .act-card {
-    --act-0: #262d3d;
+    --act-0: #2c2e35;
     --act-1: #303f86;
     --act-2: #4658c2;
     --act-3: #7182e6;
