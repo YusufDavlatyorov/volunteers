@@ -102,72 +102,81 @@
 </section>
 
 <section class="section section-xl alt">
-    <div class="grid grid-wide grid-top">
-        <div class="card reveal {% if open_emergencies %}card--alert{% endif %}">
-            <div class="section-head"><h3 data-i18n="emg.feed_title">Active emergencies</h3><a class="button ghost" href="{% url 'emergency_list' %}" data-i18n="common.view_all">View all</a></div>
-            {% if open_emergencies %}
-                <div class="mini-list">
-                    {% for report in open_emergencies %}
-                        <a class="mini-list-item mini-list-item--link" href="{% url 'emergency_detail' report.id %}">
-                            <h4>{% include "myapp/_emergency_status_tag.html" with status=report.status status_display=report.get_status_display %} {{ report.volunteer.username }}</h4>
-                            <p data-i18n-skip>#{{ report.help_request_id }} · {{ report.get_region_display|default:"—" }} · {{ report.created_at|timesince }} <span data-i18n="va.ago_suffix">ago</span></p>
-                        </a>
-                    {% endfor %}
-                </div>
-            {% else %}
-                <p class="opportunity-desc" data-i18n="emg.feed_empty">No active emergencies.</p>
-            {% endif %}
-        </div>
-        <div class="card reveal">
-            <div class="section-head"><h3 data-i18n="crm.activity_title">Recent Activity</h3></div>
-            {% include "myapp/_activity_feed.html" %}
-        </div>
-        {% if user.is_superuser %}
-            <div class="card reveal">
-                <div class="section-head"><h3 data-i18n="admin.recent_applications">Recent Volunteer Applications</h3><a class="button ghost" href="{% url 'volunteer_applications' %}" data-i18n="common.view_all">View all</a></div>
-                {% if recent_applications %}
+    {% comment %}
+    Two independent columns, each stacking its own cards top-down: the long
+    activity feed alone on the right, the short feeds on the left — so a
+    short card never sits in a row stretched to the feed's height.
+    {% endcomment %}
+    <div class="panel-columns">
+        <div class="panel-column">
+            <div class="card reveal {% if open_emergencies %}card--alert{% endif %}">
+                <div class="section-head"><h3 data-i18n="emg.feed_title">Active emergencies</h3><a class="button ghost" href="{% url 'emergency_list' %}" data-i18n="common.view_all">View all</a></div>
+                {% if open_emergencies %}
                     <div class="mini-list">
-                        {% for application in recent_applications %}
+                        {% for report in open_emergencies %}
+                            <a class="mini-list-item mini-list-item--link" href="{% url 'emergency_detail' report.id %}">
+                                <h4>{% include "myapp/_emergency_status_tag.html" with status=report.status status_display=report.get_status_display %} {{ report.volunteer.username }}</h4>
+                                <p data-i18n-skip>#{{ report.help_request_id }} · {{ report.get_region_display|default:"—" }} · {{ report.created_at|timesince }} <span data-i18n="va.ago_suffix">ago</span></p>
+                            </a>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="opportunity-desc" data-i18n="emg.feed_empty">No active emergencies.</p>
+                {% endif %}
+            </div>
+            {% if user.is_superuser %}
+                <div class="card reveal">
+                    <div class="section-head"><h3 data-i18n="admin.recent_applications">Recent Volunteer Applications</h3><a class="button ghost" href="{% url 'volunteer_applications' %}" data-i18n="common.view_all">View all</a></div>
+                    {% if recent_applications %}
+                        <div class="mini-list">
+                            {% for application in recent_applications %}
+                                <div class="mini-list-item">
+                                    <h4>{{ application.user.username }} <span class="tag {% if application.status == 'rejected' %}urgent{% elif application.status == 'approved' %}success{% else %}accent{% endif %}" data-i18n="va.status_{{ application.status }}">{{ application.get_status_display }}</span></h4>
+                                    <p>{{ application.get_region_display|default:"—" }} · {{ application.created_at|timesince }} <span data-i18n="va.ago_suffix">ago</span></p>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <p class="opportunity-desc" data-i18n="va.no_pending">No pending applications</p>
+                    {% endif %}
+                </div>
+            {% endif %}
+            <div class="card reveal">
+                <div class="section-head"><h3 data-i18n="events.upcoming">Upcoming Events</h3><a class="button ghost" href="{% url 'event_list' %}" data-i18n="common.view_all">View all</a></div>
+                {% if upcoming_events %}
+                    <div class="mini-list">
+                        {% for event in upcoming_events %}
                             <div class="mini-list-item">
-                                <h4>{{ application.user.username }} <span class="tag {% if application.status == 'rejected' %}urgent{% elif application.status == 'approved' %}success{% else %}accent{% endif %}" data-i18n="va.status_{{ application.status }}">{{ application.get_status_display }}</span></h4>
-                                <p>{{ application.get_region_display|default:"—" }} · {{ application.created_at|timesince }} <span data-i18n="va.ago_suffix">ago</span></p>
+                                <h4>{{ event.title }}</h4>
+                                <p>{{ event.date|date:"d M, H:i" }} · {{ event.get_region_display }}</p>
                             </div>
                         {% endfor %}
                     </div>
                 {% else %}
-                    <p class="opportunity-desc" data-i18n="va.no_pending">No pending applications</p>
+                    <p class="opportunity-desc" data-i18n="events.no_upcoming">No upcoming events.</p>
                 {% endif %}
             </div>
-        {% endif %}
-        <div class="card reveal">
-            <div class="section-head"><h3 data-i18n="events.upcoming">Upcoming Events</h3><a class="button ghost" href="{% url 'event_list' %}" data-i18n="common.view_all">View all</a></div>
-            {% if upcoming_events %}
-                <div class="mini-list">
-                    {% for event in upcoming_events %}
-                        <div class="mini-list-item">
-                            <h4>{{ event.title }}</h4>
-                            <p>{{ event.date|date:"d M, H:i" }} · {{ event.get_region_display }}</p>
-                        </div>
-                    {% endfor %}
-                </div>
-            {% else %}
-                <p class="opportunity-desc" data-i18n="events.no_upcoming">No upcoming events.</p>
-            {% endif %}
+            <div class="card reveal">
+                <div class="section-head"><h3 data-i18n="broadcasts.title">Broadcasts</h3><a class="button ghost" href="{% url 'broadcast_list' %}" data-i18n="common.view_all">View all</a></div>
+                {% if recent_broadcasts %}
+                    <div class="mini-list">
+                        {% for broadcast in recent_broadcasts %}
+                            <div class="mini-list-item">
+                                <h4>{{ broadcast.subject }}</h4>
+                                <p>{{ broadcast.created_at|date:"d M" }} · {{ broadcast.get_region_display }} · {{ broadcast.sent_count }} <span data-i18n="broadcasts.recipients">recipients</span></p>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="opportunity-desc" data-i18n="broadcasts.empty">No broadcasts sent yet.</p>
+                {% endif %}
+            </div>
         </div>
-        <div class="card reveal">
-            <div class="section-head"><h3 data-i18n="broadcasts.title">Broadcasts</h3><a class="button ghost" href="{% url 'broadcast_list' %}" data-i18n="common.view_all">View all</a></div>
-            {% if recent_broadcasts %}
-                <div class="mini-list">
-                    {% for broadcast in recent_broadcasts %}
-                        <div class="mini-list-item">
-                            <h4>{{ broadcast.subject }}</h4>
-                            <p>{{ broadcast.created_at|date:"d M" }} · {{ broadcast.get_region_display }} · {{ broadcast.sent_count }} <span data-i18n="broadcasts.recipients">recipients</span></p>
-                        </div>
-                    {% endfor %}
-                </div>
-            {% else %}
-                <p class="opportunity-desc" data-i18n="broadcasts.empty">No broadcasts sent yet.</p>
-            {% endif %}
+        <div class="panel-column">
+            <div class="card reveal">
+                <div class="section-head"><h3 data-i18n="crm.activity_title">Recent Activity</h3></div>
+                {% include "myapp/_activity_feed.html" %}
+            </div>
         </div>
     </div>
 </section>

@@ -6,10 +6,15 @@ requests, volunteers or reviews exist — locked by query-count tests in
 ``myapp/tests_analytics.py``. Each chart is cached for ``CACHE_TTL`` (5 min;
 Redis in production) per (chart, period, region).
 
-Filters (``parse_filters``): a preset of 7 / 30 / 90 days (default 30) or a
-custom ``from``/``to`` range (≤ ``MAX_RANGE_DAYS``), plus an optional region.
-Days are local (Asia/Dushanbe — ``TIME_ZONE`` is UTC). Ranges longer than
-``WEEKLY_AFTER_DAYS`` are bucketed by week.
+Filters (``parse_filters`` — the ONE place the page's GET parameters are read;
+every chart, KPI, CSV and the heatmap gets the same ``Filters``):
+``?period=7d|30d|3m|1y|custom`` (default 30d; 3m = 90 days, 1y = 365), with
+``from``/``to`` (ISO dates) only for ``custom`` (≤ ``MAX_RANGE_DAYS``, never in
+the future, from ≤ to), plus an optional ``region``. Invalid input never raises:
+the defaults are used and ``Filters.error`` says so. The old ``?days=7|30|90``
+links keep working. Days are local (Asia/Dushanbe — ``TIME_ZONE`` is UTC); "to"
+includes its whole day. Ranges longer than ``WEEKLY_AFTER_DAYS`` are bucketed by
+week. ``Filters.previous()`` is the same-length period right before.
 
 Thresholds are never re-inlined: the overdue / stale trends use
 ``overdue.was_overdue_q`` / ``stale.was_stale_q`` (the same
@@ -61,8 +66,12 @@ from .overdue import was_overdue_q
 from .stale import was_stale_q
 
 LOCAL_TZ = ZoneInfo("Asia/Dushanbe")
-PRESETS = (7, 30, 90)
+# period token -> days; the order is the dropdown order ("custom" comes last).
+PERIODS = {"7d": 7, "30d": 30, "3m": 90, "1y": 365}
+CUSTOM = "custom"
+PRESETS = tuple(PERIODS.values())
 DEFAULT_DAYS = 30
+DEFAULT_PERIOD = "30d"
 MAX_RANGE_DAYS = 366
 WEEKLY_AFTER_DAYS = 92
 CACHE_TTL = 300
@@ -83,11 +92,17 @@ class Filters:
     start_date: date      # inclusive, local
     end_date: date        # inclusive, local
     region: str = ""
-    preset: int | None = DEFAULT_DAYS
+    preset: int | None = DEFAULT_DAYS   # days of a preset period, None = custom range
+    error: str = ""       # "" or "invalid": the URL's filters were replaced by the defaults
 
     @property
     def days(self) -> int:
         return (self.end_date - self.start_date).days + 1
+
+    @property
+    def period(self) -> str:
+        """The ``?period=`` token: 7d / 30d / 3m / 1y, or custom."""
+        return next((token for token, days in PERIODS.items() if days == self.preset), CUSTOM)
 
     @property
     def weekly(self) -> bool:
@@ -98,20 +113,28 @@ class Filters:
         return datetime.combine(self.start_date, time.min, tzinfo=LOCAL_TZ)
 
     @property
-    def end(self):  # exclusive
+    def end(self):  # exclusive: midnight after end_date, so "to" includes its whole day
         return datetime.combine(self.end_date + timedelta(days=1), time.min, tzinfo=LOCAL_TZ)
+
+    def previous(self) -> "Filters":
+        """The period of the same length right before this one (same region)."""
+        end = self.start_date - timedelta(days=1)
+        return Filters(end - timedelta(days=self.days - 1), end, self.region, self.preset)
 
     def key(self, chart) -> str:
         return f"{CACHE_VERSION}:{chart}:{self.start_date}:{self.end_date}:{self.region or '-'}"
 
     def querystring(self) -> str:
-        if self.preset:
-            parts = [f"days={self.preset}"]
-        else:
-            parts = [f"from={self.start_date}", f"to={self.end_date}"]
+        parts = [f"period={self.period}"]
+        if self.period == CUSTOM:
+            parts += [f"from={self.start_date}", f"to={self.end_date}"]
         if self.region:
             parts.append(f"region={self.region}")
         return "&".join(parts)
+
+
+def local_today(now=None) -> date:
+    return timezone.localtime(now or timezone.now(), LOCAL_TZ).date()
 
 
 def _parse_date(value):
@@ -121,26 +144,49 @@ def _parse_date(value):
         return None
 
 
+def _preset(days, region, today, error=""):
+    return Filters(today - timedelta(days=days - 1), today, region, days, error)
+
+
 def parse_filters(params, today=None) -> Filters:
-    """From a QueryDict / dict. A custom range longer than MAX_RANGE_DAYS is
-    trimmed to its last MAX_RANGE_DAYS; anything invalid falls back to the last
-    30 days; never raises."""
-    today = today or timezone.localtime(timezone.now(), LOCAL_TZ).date()
+    """From a QueryDict / dict; never raises.
+
+    ``period`` = a PERIODS token or ``custom`` (+ ``from``/``to``). The legacy
+    ``days`` (7/30/90) and a bare ``from``/``to`` pair are still understood.
+    Anything invalid — an unknown period, a custom range with a missing or
+    unreadable date, from after to, a date in the future — falls back to the
+    last 30 days with ``error="invalid"`` (the page says so). A valid custom
+    range longer than MAX_RANGE_DAYS is trimmed to its last MAX_RANGE_DAYS.
+    An unknown region is simply "all regions"."""
+    today = today or local_today()
     region = params.get("region", "") or ""
     region = region if region in REGIONS else ""
+    period = (params.get("period") or "").strip()
+    if not period:
+        legacy = (params.get("days") or "").strip()
+        if legacy:
+            period = {7: "7d", 30: "30d", 90: "3m"}.get(_int(legacy), "?")
+        elif params.get("from") or params.get("to"):
+            period = CUSTOM
+        else:
+            period = DEFAULT_PERIOD
+    if period in PERIODS:
+        return _preset(PERIODS[period], region, today)
+    if period != CUSTOM:
+        return _preset(DEFAULT_DAYS, region, today, "invalid")
     start, end = _parse_date(params.get("from")), _parse_date(params.get("to"))
-    if start and end and not params.get("days"):
-        end = min(end, today)
-        if start <= end:
-            # Too long a range is trimmed to the last MAX_RANGE_DAYS, not dropped.
-            start = max(start, end - timedelta(days=MAX_RANGE_DAYS - 1))
-            return Filters(start, end, region, None)
+    if not start or not end or start > end or end > today:
+        return _preset(DEFAULT_DAYS, region, today, "invalid")
+    # Too long a range is trimmed to the last MAX_RANGE_DAYS, not dropped.
+    start = max(start, end - timedelta(days=MAX_RANGE_DAYS - 1))
+    return Filters(start, end, region, None)
+
+
+def _int(value):
     try:
-        days = int(params.get("days", DEFAULT_DAYS))
+        return int(value)
     except (TypeError, ValueError):
-        days = DEFAULT_DAYS
-    days = days if days in PRESETS else DEFAULT_DAYS
-    return Filters(today - timedelta(days=days - 1), today, region, days)
+        return None
 
 
 # --------------------------------------------------------------------------- #
@@ -530,10 +576,92 @@ def all_charts(f: Filters) -> dict:
     return {name: chart(name, f) for name in CHARTS}
 
 
+# --------------------------------------------------------------------------- #
+# card headers: the period's headline number + change vs the previous period
+# --------------------------------------------------------------------------- #
+
+def _sum_series(data, index=0):
+    series = data["series"]
+    return sum(v or 0 for v in series[index]["values"]) if len(series) > index else 0
+
+
+def _sum_all(data):
+    return sum(v or 0 for s in data["series"] for v in s["values"])
+
+
+def _avg_stars(data):
+    counts = data["series"][0]["values"]
+    rated = sum(counts)
+    return round(sum((i + 1) * n for i, n in enumerate(counts)) / rated, 1) if rated else None
+
+
+# chart -> (how its headline is read from the chart data, given get(name) -> data).
+# Read from the same cached chart dicts the cards draw, so a header can never
+# disagree with its chart; nothing is recomputed. Active volunteers = the
+# distinct volunteers who completed something in the period = the workload total.
+HEADLINES = {
+    "requests_timeline": lambda get: _sum_series(get("requests_timeline")),
+    "funnel": lambda get: get("funnel")["kpis"]["completed"],
+    "help_types": lambda get: _sum_series(get("help_types")),
+    "regions": lambda get: _sum_series(get("regions")),
+    "priorities": lambda get: _sum_series(get("priorities")),
+    "delays": lambda get: _sum_all(get("delays")),
+    "volunteer_activity": lambda get: _sum_series(get("workload")),
+    "workload": lambda get: _sum_series(get("workload")),
+    "availability": lambda get: _sum_series(get("availability")),
+    "emergencies": lambda get: get("emergencies")["kpis"]["total"],
+    "ratings": lambda get: _avg_stars(get("ratings")),
+    "ratings_timeline": lambda get: _avg_stars(get("ratings")),
+    "donations_status": lambda get: _sum_series(get("donations_status")),
+    "donations_category": lambda get: _sum_series(get("donations_category")),
+    "chat_flags_topics": lambda get: get("chat_flags_topics")["kpis"]["flagged"],
+    "chat_flags_help_types": lambda get: get("chat_flags_topics")["kpis"]["flagged"],
+    "registrations": lambda get: _sum_all(get("registrations")),
+}
+# Live snapshots: no "previous period" exists for them.
+LIVE_CHARTS = {"availability"}
+# Charts whose growth is bad news (the change chip turns red when it goes up).
+UP_IS_BAD = {"delays", "emergencies", "chat_flags_topics", "chat_flags_help_types"}
+DECIMAL_HEADLINES = {"ratings", "ratings_timeline"}
+
+
+def change_percent(current, previous):
+    """Whole-percent change, or None when it can't be stated honestly (an
+    empty previous period has no "+∞%")."""
+    if current is None or not previous:
+        return None
+    return round((current - previous) * 100 / previous)
+
+
+def headlines(f: Filters) -> dict:
+    """{chart: {value, previous, change, direction, good, live, decimals}}.
+    ``previous`` comes from ``f.previous()`` (same length, right before, same
+    region) through the same cached charts; ``direction`` is up/down/same, or
+    None when there is nothing to compare."""
+    prev_f = f.previous()
+    out = {}
+    for name, read in HEADLINES.items():
+        value = read(lambda n: chart(n, f))
+        live = name in LIVE_CHARTS
+        previous = None if live else read(lambda n: chart(n, prev_f))
+        change = None if live else change_percent(value, previous)
+        direction = None
+        if change is not None:
+            direction = "same" if value == previous else ("up" if value > previous else "down")
+        good = None
+        if direction in ("up", "down"):
+            good = (direction == "up") != (name in UP_IS_BAD)
+        out[name] = {
+            "value": value, "previous": previous, "change": change, "direction": direction,
+            "good": good, "live": live, "decimals": 1 if name in DECIMAL_HEADLINES else 0,
+        }
+    return out
+
+
 def dashboard_trend(days=14) -> dict:
     """The compact "requests, last 14 days" card on the curator/admin
     dashboard — the cached ``requests_timeline`` of that window."""
-    today = timezone.localtime(timezone.now(), LOCAL_TZ).date()
+    today = local_today()
     f = Filters(today - timedelta(days=days - 1), today, "", None)
     data = chart("requests_timeline", f)
     values = {s["key"]: s["values"] for s in data["series"]}
@@ -629,13 +757,22 @@ UI_STRINGS = {
                 "ru": "Динамика платформы для координаторов. Цифры обновляются раз в 5 минут.",
                 "tj": "Тағйироти платформа барои ҳамоҳангсозон. Рақамҳо ҳар 5 дақиқа навсозӣ мешаванд."},
     "an.period": {"en": "Period", "ru": "Период", "tj": "Давра"},
-    "an.days_7": {"en": "7 days", "ru": "7 дней", "tj": "7 рӯз"},
-    "an.days_30": {"en": "30 days", "ru": "30 дней", "tj": "30 рӯз"},
-    "an.days_90": {"en": "90 days", "ru": "90 дней", "tj": "90 рӯз"},
-    "an.custom": {"en": "Custom range", "ru": "Свой период", "tj": "Давраи дилхоҳ"},
     "an.from": {"en": "From", "ru": "С", "tj": "Аз"},
     "an.to": {"en": "To", "ru": "По", "tj": "То"},
     "an.apply": {"en": "Apply", "ru": "Применить", "tj": "Татбиқ кардан"},
+    "an.p.7d": {"en": "7 days", "ru": "7 дней", "tj": "7 рӯз"},
+    "an.p.30d": {"en": "30 days", "ru": "30 дней", "tj": "30 рӯз"},
+    "an.p.3m": {"en": "3 months", "ru": "3 месяца", "tj": "3 моҳ"},
+    "an.p.1y": {"en": "Year", "ru": "Год", "tj": "Сол"},
+    "an.p.custom": {"en": "Custom range", "ru": "Свой период", "tj": "Давраи дилхоҳ"},
+    "an.from_aria": {"en": "Start date", "ru": "Начало периода", "tj": "Санаи оғоз"},
+    "an.to_aria": {"en": "End date", "ru": "Конец периода", "tj": "Санаи анҷом"},
+    "an.reset": {"en": "Reset", "ru": "Сбросить", "tj": "Тоза кардан"},
+    "an.err.required": {"en": "Pick both dates.", "ru": "Укажите обе даты.", "tj": "Ҳарду санаро интихоб кунед."},
+    "an.err.future": {"en": "Dates can't be in the future.", "ru": "Дата не может быть в будущем.", "tj": "Сана наметавонад дар оянда бошад."},
+    "an.err.order": {"en": "“From” can't be later than “To”.", "ru": "Дата «С» не может быть позже даты «По».", "tj": "Санаи «Аз» наметавонад аз санаи «То» дертар бошад."},
+    "an.err.too_long": {"en": "The period can't be longer than 366 days.", "ru": "Период не может быть длиннее 366 дней.", "tj": "Давра наметавонад аз 366 рӯз дарозтар бошад."},
+    "an.err.url": {"en": "The filters in the link were invalid — showing the last 30 days.", "ru": "Фильтры в ссылке некорректны — показаны последние 30 дней.", "tj": "Филтрҳои пайванд нодурустанд — 30 рӯзи охир нишон дода шуд."},
     "an.region": {"en": "Region", "ru": "Регион", "tj": "Минтақа"},
     "an.all_regions": {"en": "All regions", "ru": "Все регионы", "tj": "Ҳама минтақаҳо"},
     "an.updated": {"en": "Data as of", "ru": "Данные на", "tj": "Маълумот то"},
@@ -646,8 +783,18 @@ UI_STRINGS = {
     "an.csv_hint": {"en": "Download this chart's data (CSV)", "ru": "Скачать данные графика (CSV)",
                     "tj": "Боргирии маълумоти диаграмма (CSV)"},
     "an.table": {"en": "Show as a table", "ru": "Показать таблицей", "tj": "Ҳамчун ҷадвал нишон додан"},
-    "an.no_data": {"en": "No data for this period.", "ru": "За этот период данных нет.",
-                   "tj": "Барои ин давра маълумот нест."},
+    "an.no_data": {"en": "No data for the selected period", "ru": "Нет данных за выбранный период", "tj": "Барои давраи интихобшуда маълумот нест"},
+    "an.vs_prev": {"en": "vs previous period", "ru": "к прошлому периоду", "tj": "нисбат ба давраи гузашта"},
+    "an.prev_value": {"en": "{n} in the previous period", "ru": "{n} в прошлом периоде", "tj": "{n} дар давраи гузашта"},
+    "an.prev_empty": {"en": "No data in the previous period", "ru": "В прошлом периоде данных нет", "tj": "Дар давраи гузашта маълумот нест"},
+    "an.delta_up": {"en": "up {p}", "ru": "рост на {p}", "tj": "афзоиш {p}"},
+    "an.delta_down": {"en": "down {p}", "ru": "снижение на {p}", "tj": "коҳиш {p}"},
+    "an.delta_same": {"en": "no change", "ru": "без изменений", "tj": "бетағйир"},
+    "an.live_now": {"en": "current state", "ru": "текущее состояние", "tj": "ҳолати ҷорӣ"},
+    "an.total": {"en": "total", "ru": "всего", "tj": "ҳамагӣ"},
+    "an.date_short": {"en": "{m} {d}", "ru": "{d} {m}", "tj": "{d} {m}"},
+    "an.u.h": {"en": "h", "ru": "ч", "tj": "соат"},
+    "an.u.min": {"en": "min", "ru": "мин", "tj": "дақ"},
     "an.open": {"en": "Analytics", "ru": "Аналитика", "tj": "Таҳлил"},
     "an.trend_title": {"en": "Requests, last {days} days", "ru": "Запросы за {days} дней", "tj": "Дархостҳо дар {days} рӯзи охир"},
     # KPI tiles

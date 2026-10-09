@@ -1,45 +1,79 @@
 /* CRM analytics (Feature Pack v2, feature 10) — loaded only on /myapp/crm/analytics/.
-   Chart colours are tokens read by static/js/crm-analytics.js, selected per
-   theme (not an automatic flip) and validated with the dataviz palette checker
-   against the card surfaces (#ffffff light / #151b28 dark): adjacent CVD ΔE ≥ 8.4,
-   normal-vision ΔE ≥ 19.8. Light slots 3–4 sit under 3:1 on white — every chart
-   therefore carries a legend (≥ 2 series) and a table view. */
-.analytics-root {
-    --series-1: #2a78d6;
-    --series-2: #eb6834;
-    --series-3: #1baf7a;
-    --series-4: #eda100;
-    --chart-text: #33404f;
-    --chart-muted: #6b7280;
-    --chart-grid: #e8ebf3;
-    --chart-axis: #c9cfdd;
-    --chart-heat-1: #86b6ef;
-    --chart-heat-2: #2a78d6;
-    --chart-heat-3: #104281;
-}
-[data-theme="dark"] .analytics-root {
-    --series-1: #3987e5;
-    --series-2: #d95926;
-    --series-3: #199e70;
-    --series-4: #c98500;
-    --chart-text: #c7cede;
-    --chart-muted: #8b93a7;
-    --chart-grid: rgba(255,255,255,0.07);
-    --chart-axis: rgba(255,255,255,0.16);
-}
+   Chart colours, fonts, grid and tooltips come from static/js/charts-theme.js
+   (one theme for every chart); this file lays the cards out. */
 
-.analytics-filters {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-end;
-    gap: var(--space-3) var(--space-4);
+/* Filter panel: one row of equal 44px controls (same radius, font, gaps);
+   3 columns below 1100px; on phones (≤ 720px) 2 columns with full-width buttons. */
+.an-filter {
+    --an-h: 44px;
+    --an-r: 10px;
     padding: var(--space-3) var(--space-4);
 }
-.analytics-filters__group { border: 0; margin: 0; padding: 0; min-width: 0; display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: flex-end; }
-.analytics-filters__group legend { padding: 0; margin-bottom: 0.3rem; float: left; width: 100%; }
-.analytics-filters__range label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.82rem; color: var(--muted); }
-.analytics-filters .control { min-width: 0; max-width: 100%; }
-.analytics-presets { margin: 0; }
+.an-filter__row {
+    display: grid;
+    grid-template-columns: minmax(9rem, 1fr) minmax(10.5rem, 1.1fr) minmax(10.5rem, 1.1fr) minmax(10rem, 1.2fr) auto auto;
+    gap: var(--space-3);
+    align-items: center;
+}
+.an-filter__item { min-width: 0; margin: 0; }
+.an-filter .an-ctl {
+    height: var(--an-h);
+    min-height: var(--an-h);
+    border-radius: var(--an-r);
+    font-size: 0.9rem;
+    margin: 0;
+}
+.an-filter select.an-ctl { width: 100%; padding: 0 0.4rem 0 0.75rem; font-weight: 600; cursor: pointer; text-overflow: ellipsis; }
+.an-filter__btn { padding: 0 1.3rem; white-space: nowrap; }
+.an-filter__btn.primary:hover { transform: none; }
+/* A date field: the "С / По" prefix and the native date input in one box. */
+.an-date {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0 0.6rem 0 0.8rem;
+    border: 1px solid var(--line);
+    background: var(--input-bg);
+    color: var(--text);
+    font-weight: 600;
+    cursor: text;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+.an-date:focus-within { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-glow); }
+.an-date__pre { flex: none; color: var(--muted); font-size: 0.85rem; }
+.an-filter .an-date input {
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
+    height: 100%;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    font-variant-numeric: tabular-nums;
+    font-size: 0.9rem;
+}
+.an-filter .an-date input:focus { box-shadow: none; }
+.an-date:has(input:disabled) { background: var(--surface-2); cursor: default; }
+.an-filter .an-date input:disabled { color: var(--muted); opacity: 1; -webkit-text-fill-color: var(--muted); cursor: default; }
+.an-date:has(input[aria-invalid="true"]) { border-color: var(--danger); }
+[data-theme="dark"] .an-filter input[type="date"] { color-scheme: dark; }
+.an-filter__error { grid-column: 1 / -1; margin: calc(-1 * var(--space-1)) 0 0; color: var(--danger); font-size: 0.85rem; font-weight: 600; }
+.an-filter__error[hidden] { display: none; }
+
+@media (max-width: 1100px) {
+    .an-filter__row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 720px) {
+    .an-filter__row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .an-filter__item--period { order: 1; }
+    .an-filter__item--region { order: 2; }
+    .an-filter .an-date { order: 3; }
+    .an-filter__error { order: 4; }
+    .an-filter__btn { order: 5; grid-column: 1 / -1; width: 100%; }
+}
 .analytics-meta { margin: var(--space-2) 0 var(--space-4); }
 .analytics-kpis { margin-bottom: var(--space-4); }
 .analytics-kpis .metric { font-variant-numeric: tabular-nums; }
@@ -52,15 +86,61 @@
 }
 .chart-card { min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); }
 .chart-card--wide { grid-column: 1 / -1; }
-.chart-card__head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.chart-card__head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-2); }
+.chart-card__titles { min-width: 0; display: flex; flex-direction: column; gap: 0.35rem; }
 .chart-card__head h3 { margin: 0; font-size: 1.05rem; overflow-wrap: anywhere; min-width: 0; }
 .chart-card__csv { flex: none; min-height: 2.25rem; padding: 0.3rem 0.8rem; font-size: 0.8rem; }
 .chart-card__note { margin: 0; }
 .chart-card__note:empty { display: none; }
+/* Headline: the period's number + change vs the previous period. */
+.chart-headline { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.6rem; }
+.chart-headline__value { font-size: 1.6rem; font-weight: 800; line-height: 1.1; color: var(--text); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.chart-delta {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    padding: 0.1rem 0.5rem; border-radius: 999px;
+    font-size: 0.8rem; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap;
+    background: var(--surface-2); color: var(--muted);
+}
+.chart-delta--good { color: var(--delta-good); background: var(--delta-good-bg); }
+.chart-delta--bad { color: var(--delta-bad); background: var(--delta-bad-bg); }
+.chart-headline__vs { font-size: 0.8rem; color: var(--muted); }
+.analytics-root {
+    --delta-good: #1b7a4a; --delta-good-bg: rgba(27, 122, 74, 0.1);
+    --delta-bad: #b42318; --delta-bad-bg: rgba(180, 35, 24, 0.09);
+}
+[data-theme="dark"] .analytics-root {
+    --delta-good: #5fd39a; --delta-good-bg: rgba(95, 211, 154, 0.12);
+    --delta-bad: #ff8a80; --delta-bad-bg: rgba(255, 138, 128, 0.12);
+}
 .chart-box { position: relative; height: 16rem; min-width: 0; }
 .chart-card--wide .chart-box { height: 18rem; }
+.chart-box--doughnut, .chart-card--wide .chart-box--doughnut { height: 15rem; }
+.chart-box--rows, .chart-card--wide .chart-box--rows { height: var(--box-h); }
 .chart-box canvas { display: block; max-width: 100%; }
+/* Empty period: the text sits in the chart area itself (same height, no jump). */
+.chart-empty {
+    position: absolute; inset: 0; margin: 0;
+    display: flex; align-items: center; justify-content: center; text-align: center;
+    padding: var(--space-4); color: var(--muted); font-size: 0.9rem;
+    border: 1px dashed var(--line); border-radius: 12px;
+}
 .chart-empty[hidden] { display: none; }
+/* Chart tooltip (charts-theme.js externalTooltip): the card's own surface. */
+.chart-tip {
+    position: absolute; top: 0; left: 0; z-index: 2; pointer-events: none;
+    min-width: 8rem; max-width: min(18rem, 90%);
+    padding: 0.55rem 0.7rem; border-radius: 8px;
+    background: var(--card-bg); color: var(--text); border: 1px solid var(--line);
+    box-shadow: 0 8px 24px rgba(17, 24, 39, 0.14), 0 2px 6px rgba(17, 24, 39, 0.08);
+    font-size: 0.8rem; line-height: 1.35; opacity: 0;
+    transition: opacity 0.12s ease, transform 0.12s ease;
+}
+[data-theme="dark"] .chart-tip { box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5); }
+.chart-tip__title { font-weight: 700; margin-bottom: 0.3rem; color: var(--text); }
+.chart-tip__row { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 0.45rem; color: var(--text-2); }
+.chart-tip__row i { width: 0.55rem; height: 0.55rem; border-radius: 50%; }
+.chart-tip__row b { color: var(--text); font-variant-numeric: tabular-nums; padding-left: 0.6rem; }
+@media (prefers-reduced-motion: reduce) { .chart-tip { transition: none; } }
 .chart-table summary { cursor: pointer; font-size: 0.85rem; color: var(--primary-2); font-weight: 600; padding: 0.3rem 0; }
 /* Compact tables (chart data + top list): stay a table on phones and scroll
    sideways inside their card (.table-scroll) instead of stacking into cards. */
@@ -74,6 +154,7 @@
 .analytics-table tbody tr:last-child td { border-bottom: none; }
 .analytics-table td.num, .analytics-table th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
+.chart-card__body { position: relative; }
 .analytics-heat {
     height: 22rem;
     border-radius: 12px;
@@ -83,11 +164,13 @@
 }
 
 @media (max-width: 600px) {
-    .analytics-filters { padding: var(--space-3); }
-    .analytics-filters__group, .analytics-filters__range { width: 100%; }
-    .analytics-filters__range label { flex: 1 1 8rem; }
-    .analytics-filters select.control { width: 100%; }
-    .analytics-filters .button { width: 100%; }
+    .an-filter { padding: var(--space-3); }
+    .an-filter__row { gap: var(--space-2); }
+    .an-date { gap: 0.3rem; padding: 0 0.4rem 0 0.6rem; }
+    .an-filter .an-date input { font-size: 0.85rem; }
+    .an-filter .an-date input::-webkit-calendar-picker-indicator { margin: 0; padding: 0; width: 0.9rem; }
+    .an-filter .an-ctl { font-size: 0.85rem; }
+    .an-filter select.an-ctl { padding-left: 0.6rem; }
     .chart-box, .chart-card--wide .chart-box { height: 14rem; }
     .analytics-heat { height: 18rem; }
 }

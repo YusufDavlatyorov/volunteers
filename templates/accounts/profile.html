@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% load static assets realtime_ui responsive %}
 {% block title %}Dashboard - KhayrKhoh{% endblock %}
-{% block extra_css %}<link rel="stylesheet" href="{% asset 'css/dashboard.css' %}">{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% asset 'css/dashboard.css' %}">{% if activity %}<link rel="stylesheet" href="{% asset 'css/activity.css' %}">{% endif %}{% endblock %}
 {% block content %}
 <section class="section">
     <div class="dash-greeting reveal">
@@ -34,6 +34,8 @@
             {% elif dash_role == "curator" %}
                 {% include "myapp/dashboard/_curator.html" %}
             {% endif %}
+
+            {% if activity %}{% include "myapp/_activity_calendar.html" %}{% endif %}
 
             {% if volunteer_application and volunteer_application.status != "approved" %}
                 <div class="card reveal">
@@ -194,4 +196,4 @@
     </div>
 </section>
 {% endblock %}
-{% block extra_js %}{% if user.is_volunteer %}<script src="{% asset 'js/profile-location.js' %}" defer></script><script src="{% asset 'js/achievements.js' %}" defer></script>{% endif %}{% endblock %}
+{% block extra_js %}{% if user.is_volunteer %}<script src="{% asset 'js/profile-location.js' %}" defer></script><script src="{% asset 'js/achievements.js' %}" defer></script>{% endif %}{% if activity %}<script src="{% asset 'js/activity.js' %}" defer></script>{% endif %}{% endblock %}

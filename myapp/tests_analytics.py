@@ -93,8 +93,8 @@ class FilterTests(AnalyticsBase):
     def test_custom_range_is_validated_and_trimmed(self):
         f = an.parse_filters({"from": "2026-09-01", "to": "2026-09-10"}, today=TODAY)
         self.assertEqual((f.start_date, f.end_date, f.preset), (date(2026, 9, 1), date(2026, 9, 10), None))
-        # future end clipped to today, inverted / garbage → default
-        self.assertEqual(an.parse_filters({"from": "2026-09-20", "to": "2027-01-01"}, today=TODAY).end_date, TODAY)
+        # a future end, an inverted range or garbage → the default (stage 3: no silent clipping)
+        self.assertEqual(an.parse_filters({"from": "2026-09-20", "to": "2027-01-01"}, today=TODAY).days, 30)
         self.assertEqual(an.parse_filters({"from": "2026-09-10", "to": "2026-09-01"}, today=TODAY).days, 30)
         self.assertEqual(an.parse_filters({"from": "nope", "to": "2026-09-01"}, today=TODAY).days, 30)
         long = an.parse_filters({"from": "2024-01-01", "to": "2026-09-30"}, today=TODAY)
@@ -326,12 +326,14 @@ class ViewTests(AnalyticsBase):
         response = self.client.get(reverse("crm_analytics") + "?days=7&region=dushanbe")
         self.assertContains(response, 'id="analyticsData"')
         self.assertContains(response, "vendor/chartjs-4.4.7/chart.umd.min.js")
-        self.assertContains(response, "vendor/leaflet-heat-0.2.0/leaflet-heat.js")
+        # The heatmap is MapLibre's native heatmap layer (no leaflet-heat plugin).
+        self.assertContains(response, "vendor/maplibre-gl-5.24.0/maplibre-gl.js")
+        self.assertNotContains(response, "leaflet")
         self.assertNotContains(response, "cdn.jsdelivr.net")
         raw = re.search(r'<script id="analyticsData"[^>]*>(.*?)</script>', response.content.decode(), re.S).group(1)
         payload = json.loads(raw)
         self.assertEqual(set(payload["charts"]), set(an.CHARTS))
-        self.assertEqual(payload["qs"], "days=7&region=dushanbe")
+        self.assertEqual(payload["qs"], "period=7d&region=dushanbe")
         for chart in ("help_types", "funnel", "requests_timeline"):
             self.assertContains(response, f'data-chart="{chart}"')
         body = response.content.decode()
