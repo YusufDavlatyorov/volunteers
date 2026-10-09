@@ -155,6 +155,35 @@
 }
 .seg-toggle__btn:hover { color: var(--primary); }
 .seg-toggle__btn[aria-pressed="true"] { background: var(--surface); color: var(--primary); box-shadow: var(--shadow); }
+.route-toggles { display: flex; flex-wrap: wrap; gap: 0 var(--space-3); }
+/* Route variants above the map: "1,8 км · 22 мин" chips, the drawn one pressed. */
+.route-variants { margin: 0 0 var(--space-3); }
+.route-variants[hidden] { display: none; }
+.route-variants .meta-label { display: block; margin-bottom: 0.35rem; }
+.route-variants__row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.route-variant {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2.4rem;
+    padding: 0.4rem 0.9rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--text);
+    font-size: 0.88rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+.route-variant:hover { border-color: var(--primary); }
+.route-variant[aria-pressed="true"] { border-color: #2A3BA5; box-shadow: inset 0 0 0 1px #2A3BA5; font-weight: 700; }
+.route-variant__dot { width: 10px; height: 10px; border-radius: 50%; background: #7b8394; opacity: 0.7; flex: 0 0 auto; }
+.route-variant[aria-pressed="true"] .route-variant__dot { background: #2A3BA5; opacity: 1; }
+.route-variant__badge { padding: 0.1rem 0.5rem; border-radius: 999px; background: var(--ok-glow); color: var(--ok); font-size: 0.72rem; font-weight: 700; }
+@media (max-width: 480px) {
+    .route-toggles .seg-toggle { flex: 1 1 100%; }
+    .route-toggles .seg-toggle__btn { flex: 1 1 0; }
+}
 .route-approx { font-size: 0.8rem; color: var(--muted); font-weight: 600; }
 .route-approx[hidden] { display: none; }
 

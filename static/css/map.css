@@ -1,5 +1,5 @@
-/* ===== map.css — Leaflet map surfaces =====
-   Consumers (wherever a Leaflet map renders — same set that loads leaflet.css):
+/* ===== map.css — MapLibre GL map surfaces =====
+   Consumers (wherever a map renders — same set that loads maplibre-gl.css):
      myapp/map.html                 full operations map + split ops panel
      myapp/task_detail.html         route / location mini-map
      myapp/emergency_detail.html    SOS location mini-map
@@ -7,13 +7,20 @@
      myapp/pet_form.html            location picker
      myapp/task_form.html           location picker (create request)
      accounts/edit_profile.html     location picker
+     myapp/crm_analytics.html       request heatmap
    Loaded after style.css via {% block extra_css %}. */
 
-/* ===== MAP (Leaflet) =====
-   Leaflet ships its own minimal chrome; we only theme the parts that show our
-   brand colors (pins, popups) and size the container to match the rest of
-   the card/section system. Leaflet's own CSS file sets a default z-index
-   stack we don't touch. */
+/* ===== MAP (MapLibre GL) =====
+   Every map container gets .gc-map (static/js/map.js createMap). It is its own
+   stacking context at z-index 0, so the canvas, markers and controls inside
+   can never rise above the sticky topbar (z-index 1000) while the page
+   scrolls. Real full screen uses the browser's top layer; the iPhone fallback
+   (.maplibregl-pseudo-fullscreen = position: fixed over the viewport) is lifted
+   above the topbar, the chat button and toasts here. */
+.gc-map { position: relative; z-index: 0; isolation: isolate; }
+.gc-map.maplibregl-pseudo-fullscreen { z-index: 1200 !important; }
+/* A transformed ancestor would trap the fixed full-screen map inside its card. */
+html.gc-map-pseudo-fs .reveal { transform: none !important; }
 .map-page-container { height: 70vh; min-height: 420px; border-radius: 16px; overflow: hidden; box-shadow: var(--shadow); border: 1px solid var(--card-border); }
 .map-picker { height: 320px; border-radius: 12px; overflow: hidden; border: 1px solid var(--card-border); margin-top: var(--space-2); }
 /* Failure state (static/js/map.js showError): fills the map area with a
@@ -31,7 +38,9 @@
     text-align: center;
     line-height: 1.45;
 }
-.map-mini { height: 260px; border-radius: 12px; overflow: hidden; border: 1px solid var(--card-border); }
+.map-mini { height: 320px; border-radius: 12px; overflow: hidden; border: 1px solid var(--card-border); }
+/* The route map is the volunteer's navigation view: give the tilted 3D view room. */
+#routeMap.map-mini { height: clamp(320px, 52vh, 460px); }
 .map-toolbar { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; margin-bottom: var(--space-3); }
 .map-legend { display: flex; flex-wrap: wrap; gap: var(--space-4); margin-bottom: var(--space-3); font-size: 0.82rem; color: var(--text-2); }
 .map-legend-item { display: inline-flex; align-items: center; gap: 0.4rem; }
@@ -44,10 +53,25 @@
 .map-legend-dot--me { background: var(--primary-2); }
 .map-route-meta { display: flex; flex-wrap: wrap; gap: var(--space-5); margin: 0.75rem 0; }
 .map-route-meta .metric { min-width: 120px; }
+/* "No road route right now" (task-route.js): a visible note, not a faint hint. */
+#routeStatus.is-warning { color: var(--accent); font-weight: 600; }
 
-/* ===== MAP PINS & POPUPS =====
-   Custom marker + popup chrome built by static/js/map.js (pinIcon / gc-popup). */
-.gc-pin-wrap { background: transparent; border: none; }
+/* ===== MAP CONTROLS =====
+   MapLibre's zoom / compass / full-screen group plus our 2D/3D toggle
+   (.gc-ctrl-3d). Slightly larger than the 29px default; 40px on touch. */
+.gc-map .maplibregl-ctrl-group { border-radius: 10px; box-shadow: 0 2px 8px rgba(15, 23, 42, 0.18); }
+.gc-map .maplibregl-ctrl-group button { width: 34px; height: 34px; }
+.gc-map .maplibregl-ctrl button.gc-ctrl-3d { font: 700 12px/1 'Inter', system-ui, sans-serif; color: #1f2937; letter-spacing: 0.02em; }
+.gc-map .maplibregl-ctrl button.gc-ctrl-3d:hover { color: #2A3BA5; }
+.gc-map .maplibregl-ctrl button:focus-visible { outline: 2px solid #2A3BA5; outline-offset: -2px; }
+@media (pointer: coarse) {
+    .gc-map .maplibregl-ctrl-group button { width: 40px; height: 40px; }
+}
+.gc-map .maplibregl-ctrl-attrib { font-size: 11px; }
+
+/* ===== MAP PINS =====
+   Marker elements built by static/js/map.js (pinEl / heartPinEl). */
+.gc-pin-wrap { width: 28px; height: 34px; display: flex; justify-content: center; padding-top: 1px; background: transparent; border: none; cursor: pointer; }
 .gc-pin { position: relative; display: block; width: 26px; height: 26px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); background: var(--pin-color, var(--primary)); box-shadow: 0 2px 6px rgba(0,0,0,0.35); border: 2px solid var(--surface); }
 .gc-pin-glyph { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; transform: rotate(45deg); font-size: 12px; line-height: 1; color: var(--surface); font-weight: 700; }
 /* Emergency: a soft expanding ring. Overdue: a dashed halo. Both purely
@@ -73,9 +97,7 @@
     0% { transform: scale(0.85); opacity: 0.7; }
     100% { transform: scale(1.5); opacity: 0; }
 }
-/* Live volunteer position (feature 7): a slow, soft ring in the pin colour.
-   The accuracy circle (L.circle className "gc-accuracy") is themed here so it
-   follows light/dark — CSS beats the SVG presentation attributes. */
+/* Live volunteer position (feature 7): a slow, soft ring in the pin colour. */
 .gc-pin--live::after {
     content: '';
     position: absolute;
@@ -85,15 +107,35 @@
     opacity: 0.5;
     animation: gcPinPulse 2.4s ease-out infinite;
 }
-.leaflet-interactive.gc-accuracy, path.gc-accuracy { stroke: var(--primary-2); fill: var(--primary-2); stroke-opacity: 0.45; fill-opacity: 0.1; }
-[data-theme="dark"] path.gc-accuracy { stroke-opacity: 0.6; fill-opacity: 0.16; }
+/* Route ends in the logo's style: a map pin holding the heart. Start =
+   volunteer (white, blue heart), end = client (logo gradient, white heart);
+   the live volunteer pin pulses at its tip. */
+/* No `position` here: MapLibre positions the marker root (.maplibregl-marker,
+   position: absolute + transform); a relative root would stack markers in flow. */
+.gc-heart-pin { width: 36px; height: 46px; filter: drop-shadow(0 2px 3px rgba(15, 23, 42, 0.35)); }
+.gc-heart-pin svg { display: block; }
+.gc-heart-pin--live::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    bottom: -6px;
+    width: 22px;
+    height: 12px;
+    margin-left: -11px;
+    border-radius: 50%;
+    background: rgba(42, 59, 165, 0.35);
+    animation: gcTipPulse 2.2s ease-out infinite;
+    z-index: -1;
+}
+@keyframes gcTipPulse {
+    0% { transform: scale(0.6); opacity: 0.9; }
+    100% { transform: scale(2.1); opacity: 0; }
+}
 @media (prefers-reduced-motion: reduce) {
     .gc-pin--emergency::after { animation: none; opacity: 0.6; }
     .gc-pin--live::after { animation: none; opacity: 0.45; }
+    .gc-heart-pin--live::before { animation: none; opacity: 0.5; }
 }
-.leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--card-bg); color: var(--text); }
-.gc-popup a { color: var(--primary); font-weight: 600; }
-.gc-popup-sub { color: var(--muted); font-size: 0.82rem; }
 
 /* ===== OPERATIONAL MAP =====
    A split view: interactive map on the left, a detail panel on the right that
@@ -170,5 +212,6 @@
 }
 @media (max-width: 480px) {
     .map-page-container { height: 52vh; min-height: 300px; border-radius: 12px; }
-    .map-picker, .map-mini { height: 220px; }
+    .map-picker, .map-mini { height: 240px; }
+    #routeMap.map-mini { height: 340px; }
 }

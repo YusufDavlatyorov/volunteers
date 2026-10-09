@@ -2,7 +2,7 @@
 {% load static assets %}
 {% block title %}Operations Map - KhayrKhoh{% endblock %}
 {% block extra_css %}
-{% include "partials/_leaflet_css.html" %}
+{% include "partials/_maplibre_css.html" %}
 <link rel="stylesheet" href="{% asset 'css/map.css' %}">
 {% endblock %}
 {% block content %}
@@ -14,7 +14,7 @@
             <label for="opsFilterStatus" data-i18n="map.filter_status">Status</label>
             <select id="opsFilterStatus" class="control">
                 <option value="" data-i18n="map.filter_any">Any</option>
-                {% for value, label in status_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+                {% for value, label in status_choices %}<option value="{{ value }}" data-i18n="task_status.{{ value }}">{{ label }}</option>{% endfor %}
                 <option value="overdue" data-i18n="map.legend_overdue">Overdue</option>
                 {% if is_ops_staff %}<option value="emergency" data-i18n="map.legend_sos">SOS report</option>{% endif %}
                 <option value="pets" data-i18n="map.filter_pets">Lost &amp; found pets</option>
@@ -24,21 +24,21 @@
             <label for="opsFilterPriority" data-i18n="map.filter_priority">Priority</label>
             <select id="opsFilterPriority" class="control">
                 <option value="" data-i18n="map.filter_any">Any</option>
-                {% for value, label in priority_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+                {% for value, label in priority_choices %}<option value="{{ value }}" data-i18n="priority.{{ value }}">{{ label }}</option>{% endfor %}
             </select>
         </div>
         <div class="field-group">
             <label for="opsFilterRegion" data-i18n="map.filter_region">Region</label>
             <select id="opsFilterRegion" class="control">
                 <option value="" data-i18n="map.filter_any">Any</option>
-                {% for value, label in region_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+                {% for value, label in region_choices %}<option value="{{ value }}" data-i18n="region.{{ value }}">{{ label }}</option>{% endfor %}
             </select>
         </div>
         <div class="field-group">
             <label for="opsFilterType" data-i18n="map.filter_type">Request type</label>
             <select id="opsFilterType" class="control">
                 <option value="" data-i18n="map.filter_any">Any</option>
-                {% for value, label in help_type_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+                {% for value, label in help_type_choices %}<option value="{{ value }}" data-i18n="help.{{ value }}">{{ label }}</option>{% endfor %}
             </select>
         </div>
         <button type="button" class="button ghost" id="opsLocateBtn" data-i18n="map.locate_me">Locate me</button>
@@ -86,7 +86,7 @@
 </section>
 {% endblock %}
 {% block extra_js %}
-{% include "partials/_leaflet_js.html" %}
+{% include "partials/_maplibre_js.html" %}
 <script src="{% asset 'js/map.js' %}"></script>
 {% csrf_token %}
 <script>

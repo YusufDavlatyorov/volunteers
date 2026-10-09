@@ -3,7 +3,7 @@
 {% block title %}{{ report.get_report_type_display }}: {{ report.display_name }} - KhayrKhoh{% endblock %}
 {% block extra_css %}
 {% if show_location_map %}
-{% include "partials/_leaflet_css.html" %}
+{% include "partials/_maplibre_css.html" %}
 <link rel="stylesheet" href="{% asset 'css/map.css' %}">
 {% endif %}
 {% endblock %}
@@ -129,19 +129,14 @@
 {% endblock %}
 {% block extra_js %}
 {% if show_location_map %}
-{% include "partials/_leaflet_js.html" %}
+{% include "partials/_maplibre_js.html" %}
 <script src="{% asset 'js/map.js' %}"></script>
 <script>
 (function () {
     const card = document.getElementById('locationMapCard');
-    if (!card || typeof L === 'undefined') return;
-    const lat = parseFloat(card.dataset.lat);
-    const lng = parseFloat(card.dataset.lng);
-    if (Number.isNaN(lat) || Number.isNaN(lng)) return;
-    const map = L.map('locationMap').setView([lat, lng], 14);
-    GCMap.tileLayer(map);
-    const pinColor = card.dataset.type === 'found' ? '--ok' : '--accent';
-    L.marker([lat, lng], { icon: GCMap.pinIcon(pinColor, 'P') }).addTo(map);
+    if (!card) return;
+    GCMap.initPointMap('locationMap', parseFloat(card.dataset.lat), parseFloat(card.dataset.lng),
+        { color: card.dataset.type === 'found' ? '--ok' : '--accent', glyph: 'P' });
 })();
 </script>
 {% endif %}

@@ -37,7 +37,10 @@
     const etaEl = $('routeEta');
     const etaApproxEl = $('routeEtaApprox');
     const sourceEl = $('routeSource');
-    const modeButtons = Array.from(card.querySelectorAll('.seg-toggle__btn'));
+    const modeButtons = Array.from(card.querySelectorAll('.seg-toggle__btn[data-profile]'));
+    const prefButtons = Array.from(card.querySelectorAll('.seg-toggle__btn[data-preference]'));
+    const variantsEl = $('routeVariants');
+    const variantsRow = $('routeVariantsRow');
 
     /* ---------- small i18n helpers ---------- */
 
@@ -50,10 +53,23 @@
         el.textContent = GCMap.t(key, args);
     }
 
+    function locale() {
+        return { ru: 'ru-RU', tj: 'tg-TJ', en: 'en-GB' }[GCMap._lang()] || 'ru-RU';
+    }
+
+    // "1,8" in RU/TJ, "1.8" in EN (re-rendered on a language switch, below).
+    function num1(x) {
+        try {
+            return new Intl.NumberFormat(locale(), { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(x);
+        } catch (e) {
+            return x.toFixed(1);
+        }
+    }
+
     function distanceArgs(m) {
         if (m == null || !isFinite(m)) return null;
         if (m < 1000) return ['nav.dist_m', { n: Math.max(0, Math.round(m / 10) * 10) }];
-        return ['nav.dist_km', { n: (m / 1000).toFixed(1) }];
+        return ['nav.dist_km', { n: num1(m / 1000) }];
     }
 
     function etaArgs(min) {
@@ -101,6 +117,13 @@
     };
 
     let profile = stored('localStorage', 'gc-route-profile') === 'walking' ? 'walking' : 'driving';
+    // Shorter / faster, remembered per travel mode; default faster by car, shorter on foot.
+    const DEFAULT_PREF = { driving: 'fastest', walking: 'shortest' };
+    function savedPref(p) {
+        const v = stored('localStorage', `gc-route-pref-${p}`);
+        return v === 'shortest' || v === 'fastest' ? v : DEFAULT_PREF[p];
+    }
+    let preference = savedPref(profile);
     let nav = null;
 
     /* Moving along the route never triggers a re-route, so distance + ETA are
@@ -119,7 +142,15 @@
 
     function showStatus(key) {
         statusEl.hidden = false;
+        statusEl.classList.remove('is-warning');
         setText(statusEl, key);
+    }
+
+    /* No road route (data.success false): say why, in the page language. */
+    function noRouteKey(data) {
+        if (data.reason === 'too_far' && data.profile === 'walking') return 'route.walk_too_far';
+        if (data.reason === 'no_route') return data.profile === 'walking' ? 'route.no_walking_route' : 'route.no_road_route';
+        return 'route.road_unavailable';
     }
 
     function showEmpty(reason) {
@@ -132,6 +163,39 @@
         if (next) next.hidden = true;
         const steps = $('routeStepsWrap');
         if (steps) steps.hidden = true;
+        if (variantsEl) variantsEl.hidden = true;
+    }
+
+    /* "1,8 км · 22 мин" chips for the variants; "Shortest" badge on the
+       least distance. Shown only when there is a choice (2+ variants). */
+    function renderVariants(data) {
+        if (!variantsEl || !variantsRow) return;
+        const routes = (data && data.success && data.routes) || [];
+        variantsEl.hidden = routes.length < 2;
+        variantsRow.textContent = '';
+        if (routes.length < 2) return;
+        routes.forEach((r, i) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'route-variant';
+            btn.setAttribute('aria-pressed', String(i === data.selected));
+            const dot = document.createElement('span');
+            dot.className = 'route-variant__dot';
+            dot.setAttribute('aria-hidden', 'true');
+            const d = distanceArgs(r.distance_km != null ? r.distance_km * 1000 : null);
+            const t = etaArgs(r.eta_min != null ? r.eta_min : r.duration_min);
+            const label = document.createElement('span');
+            label.textContent = [d && GCMap.t(d[0], d[1]), t && GCMap.t(t[0], t[1])].filter(Boolean).join(' · ');
+            btn.append(dot, label);
+            if (i === data.shortest_index) {
+                const badge = document.createElement('span');
+                badge.className = 'route-variant__badge';
+                setText(badge, 'route.variant_shortest');
+                btn.appendChild(badge);
+            }
+            btn.addEventListener('click', () => nav && nav.select(i));
+            variantsRow.appendChild(btn);
+        });
     }
 
     function renderMetrics(data) {
@@ -190,7 +254,13 @@
         modeButtons.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.profile === profile)));
     }
 
+    function setPref(p) {
+        preference = p === 'shortest' ? 'shortest' : 'fastest';
+        prefButtons.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.preference === preference)));
+    }
+
     setMode(profile);
+    setPref(preference);
 
     /* ---------- client / staff: watching the volunteer ---------- */
 
@@ -250,10 +320,12 @@
         ownPositions: isVolunteer,
         live: true,
         profile,
+        preference,
         stepsEl: isVolunteer ? $('routeSteps') : null,
         onRoute(data) {
             lastRouteAt = Date.now();
             renderMetrics(data);
+            renderVariants(data);
             renderDeepLinks(data.deep_links);
             if (isVolunteer) renderStepsBox(data);
         },
@@ -261,14 +333,22 @@
             if (state !== 'live' && state !== 'live_stopped' && state !== 'rerouting' && state !== 'loading') silent = false;
             if (state === 'loading') showStatus('route.loading');
             else if (state === 'rerouting') { if (!silent) showStatus('route.rerouting'); }
-            else if (state === 'ready') statusEl.hidden = true;
+            else if (state === 'ready') {
+                // Pins only, no line: say so instead of a bare map (never a straight line).
+                if (detail && detail.success === false) {
+                    showStatus(noRouteKey(detail));
+                    statusEl.classList.add('is-warning');
+                } else {
+                    statusEl.hidden = true;
+                }
+            }
             else if (state === 'empty') showEmpty(detail.reason);
             else if (state === 'error') {
                 if (nav && nav.data) statusEl.hidden = true;
                 else showEmpty('error');
             } else if (state === 'live' && watch) {
                 // A position before the first route (no map view yet): centre on it.
-                if (nav && nav.map && !nav.data) nav.map.setView([detail.lat, detail.lng], 14);
+                if (nav && !nav.data) nav.centerOn(detail.lat, detail.lng, 14);
                 watch.set('live', detail);
                 refreshRoute();
             } else if (state === 'live_stopped' && watch) {
@@ -285,10 +365,27 @@
         btn.addEventListener('click', () => {
             if (btn.dataset.profile === profile) return;
             setMode(btn.dataset.profile);
+            setPref(savedPref(profile));
             store('localStorage', 'gc-route-profile', profile);
-            nav.setProfile(profile);
+            nav.setOptions({ profile, preference });
         });
     });
+    prefButtons.forEach((btn) => {
+        btn.addEventListener('click', () => {
+            if (btn.dataset.preference === preference) return;
+            setPref(btn.dataset.preference);
+            store('localStorage', `gc-route-pref-${profile}`, preference);
+            nav.setOptions({ profile, preference });
+        });
+    });
+
+    // Numbers are formatted per language ("1,8" / "1.8"): redo them on a switch.
+    new MutationObserver(() => {
+        if (!nav || !nav.data || !nav.data.origin) return;
+        renderMetrics(nav.data);
+        renderVariants(nav.data);
+        if (nav.data.success === false) { showStatus(noRouteKey(nav.data)); statusEl.classList.add('is-warning'); }
+    }).observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] });
 
     const firstLoad = nav.load();
 

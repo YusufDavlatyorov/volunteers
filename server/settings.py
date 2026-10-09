@@ -455,17 +455,45 @@ from server.dev_safety import warn_if_real_keys  # noqa: E402
 warn_if_real_keys(debug=DEBUG)
 
 # Maps — a provider-agnostic layer lives in myapp/services/maps.py.
-#   osm    (default) : free Leaflet tiles + OSRM routing + Nominatim geocoding, no key
+#   osm    (default) : free raster tiles + OSRM routing + Nominatim geocoding, no key
 #   mapbox / google  : drop-in, requires MAPS_API_KEY
+# The maps themselves are MapLibre GL (static/js/map.js) on a vector style with
+# 3D buildings — MAPS_VECTOR_STYLE: openfreemap (default, keyless) | maptiler
+# (+ MAPTILER_API_KEY, a browser-side key: restrict it to the site's origin) |
+# off (raster only). The raster tiles above stay the fallback.
 MAPS_PROVIDER = os.getenv('MAPS_PROVIDER', 'osm').strip().lower()
 MAPS_API_KEY = os.getenv('MAPS_API_KEY', '')
 GEOCODING_TIMEOUT_SECONDS = 5
 OSRM_BASE_URL = os.getenv('OSRM_BASE_URL', 'https://router.project-osrm.org').rstrip('/')
-# Walking routes (myapp/services/routing.py): a self-hosted OSRM built with the
-# foot profile (not deployed yet). Empty = walking
-# ETA is a straight-line estimate at 4.5 km/h.
-OSRM_FOOT_BASE_URL = os.getenv('OSRM_FOOT_BASE_URL', '').rstrip('/')
+# Walking routes when there is no ORS key (with one, walking always uses ORS
+# foot-walking): an OSRM server built with the *foot* profile. The public
+# router.project-osrm.org is car-only (asked for foot it returns the car route),
+# so the default is FOSSGIS' free foot server (fair use, needs the app
+# User-Agent: NOMINATIM_USER_AGENT). Unset/empty = that default; `off` = no
+# walking routes (straight-line estimate at 4.5 km/h, "route unavailable").
+_osrm_foot = (os.getenv('OSRM_FOOT_BASE_URL') or 'https://routing.openstreetmap.de/routed-foot').strip()
+OSRM_FOOT_BASE_URL = '' if _osrm_foot.lower() == 'off' else _osrm_foot.rstrip('/')
+MAPS_VECTOR_STYLE = os.getenv('MAPS_VECTOR_STYLE', 'openfreemap').strip().lower()
+MAPTILER_API_KEY = os.getenv('MAPTILER_API_KEY', '')
+# Road routing provider (myapp/services/maps.py routing_provider): `ors` =
+# OpenRouteService (free key, car + foot), called only from the server so the
+# key never reaches a browser; `osrm` = OSRM_BASE_URL / OSRM_FOOT_BASE_URL.
+# Unset → ors when ORS_API_KEY is set, else osrm.
+ROUTING_PROVIDER = os.getenv('ROUTING_PROVIDER', '').strip().lower()
+ORS_API_KEY = os.getenv('ORS_API_KEY', '')
+ORS_BASE_URL = os.getenv('ORS_BASE_URL', 'https://api.openrouteservice.org').rstrip('/')
+if len(sys.argv) > 1 and sys.argv[1] == 'test':
+    # Like the bot tokens above: a developer's real key must not send the
+    # OSRM-mocking tests to the live ORS API. Tests opt in via override_settings.
+    ORS_API_KEY = ''
 NOMINATIM_USER_AGENT = os.getenv('NOMINATIM_USER_AGENT', 'khayrkhoh-dev')
+# Geocoding host (myapp/services/maps.py::_nominatim). Blank = no geocoding.
+# `manage.py test` blanks it like the keys above: a test that saves an address
+# must not depend on the live Nominatim (network, its 1 request/s policy) —
+# the geocoding tests opt in with override_settings and mock the HTTP layer.
+NOMINATIM_BASE_URL = 'https://nominatim.openstreetmap.org'
+if len(sys.argv) > 1 and sys.argv[1] == 'test':
+    NOMINATIM_BASE_URL = ''
 
 # Logging — without this the app's own logger.warning/error calls (the
 # zero-recipient safety net in the overdue/stale/emergency sweeps, OSRM/Nominatim

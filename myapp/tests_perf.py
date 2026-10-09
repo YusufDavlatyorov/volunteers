@@ -1,5 +1,5 @@
 """Performance guarantees: no third-party render dependencies, self-hosted
-fonts/Leaflet, responsive WebP images, cached landing-page aggregates, and
+fonts/MapLibre, responsive WebP images, cached landing-page aggregates, and
 query counts that don't grow with the data (N+1 guards)."""
 
 import re
@@ -15,7 +15,7 @@ from django.urls import reverse
 from accounts.models import Users
 from myapp.models import HelpRequest, PhotoReport
 
-# Third-party hosts the pages may use. Fonts (Google) and Leaflet (unpkg) stay
+# Third-party hosts the pages may use. Fonts (Google) and MapLibre GL (unpkg) stay
 # on their CDNs deliberately: measured 2026-09-30 they deliver 5-12x faster to
 # visitors than this origin's uplink. Anything else (e.g. an expiring fbcdn
 # hot-link) must be self-hosted.
@@ -30,7 +30,7 @@ class ThirdPartyAssetsTests(TestCase):
             hosts.discard("khayrkhoh.tj")
             with self.subTest(url=url):
                 self.assertLessEqual(hosts, ALLOWED_THIRD_PARTY)
-                self.assertNotIn("unpkg.com", hosts)  # Leaflet only on map pages
+                self.assertNotIn("unpkg.com", hosts)  # MapLibre only on map pages
 
     def test_fonts_preconnect_and_swap(self):
         html = self.client.get("/").content.decode()
@@ -38,11 +38,13 @@ class ThirdPartyAssetsTests(TestCase):
         self.assertIn("display=swap", html)
         self.assertNotIn('rel="preload"', html)  # no preloads competing with CSS
 
-    def test_map_pages_load_leaflet_with_sri(self):
+    def test_map_pages_load_maplibre_with_sri(self):
         user = Users.objects.create_user(username="perf_admin", email="perf@example.com", password="x-Perf-12345", is_superuser=True, is_staff=True)
         self.client.force_login(user)
         html = self.client.get(reverse("map")).content.decode()
-        self.assertIn('src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-', html)
+        self.assertIn('src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js" integrity="sha384-', html)
+        self.assertIn('href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css" integrity="sha384-', html)
+        self.assertNotIn("leaflet", html.lower())
 
 
 class ResponsiveImagesTests(TestCase):
