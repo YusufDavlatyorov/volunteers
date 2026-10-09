@@ -3,7 +3,7 @@
 {% block content %}
 <section class="section section-xl">
     {% url 'broadcast' as broadcast_url %}
-    {% include "partials/_page_header.html" with title="Broadcasts" title_i18n="broadcasts.title" lede="Messages sent out to volunteers by region." action_url=broadcast_url action_label="Send Message to Volunteers" action_i18n="admin.broadcast" %}
+    {% include "partials/_page_header.html" with title="Broadcasts" title_i18n="broadcasts.title" lede="Messages sent out to volunteers by region." lede_i18n="broadcasts.lede" action_url=broadcast_url action_label="Send Message to Volunteers" action_i18n="admin.broadcast" %}
 
     {% if broadcasts %}
         <div class="table-scroll">

@@ -11,7 +11,7 @@ from django.utils import timezone
 
 MAX_UPLOAD_SIZE_MB = 5
 # Public rating page cache (myapp.views.rating_view); cleared whenever points change.
-RATING_CACHE_KEY = "rating_page:v2"  # v2: by region + name, no places (2026-10-03)
+RATING_CACHE_KEY = "rating_page:v3"  # v3: one shared list by name, no places (2026-10-09)
 MAX_UPLOAD_SIZE_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024
 
 

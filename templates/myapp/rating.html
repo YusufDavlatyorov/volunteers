@@ -1,23 +1,21 @@
 {% extends "base.html" %}
-{% load reviews achievements_ui responsive %}
+{% load reviews achievements_ui responsive form_i18n %}
 {% block content %}
 <section class="section">
-    {% include "partials/_page_header.html" with title="Rating" title_i18n="rating.title" lede="Our volunteers by region: the clients' average rating and badges. No places and no points — helping is not a contest." lede_i18n="rating.desc" %}
+    {% include "partials/_page_header.html" with title="Rating" title_i18n="rating.title" lede="All our volunteers in one list: the clients' average rating and badges. No places and no points — helping is not a contest." lede_i18n="rating.desc" %}
     {% if page_obj.object_list %}
         <div class="table-list">
             {% for profile in page_obj %}
-                {% ifchanged profile.user.region %}
-                    <h2 class="rating-region">{% if profile.user.region %}<span data-i18n="region.{{ profile.user.region }}">{{ profile.user.get_region_display }}</span>{% else %}—{% endif %}</h2>
-                {% endifchanged %}
                 <div class="request-row reveal">
                     <div class="row-rank">
                         {% if profile.image %}
-                            {% with name=profile.full_name|default:profile.user.username %}{% responsive_image profile.image profile.image_variants variant="thumb" class="avatar avatar-sm" alt="Фото волонтёра "|add:name width=44 height=44 loading="lazy" decoding="async" %}{% endwith %}
+                            {% with name=profile.full_name|default:profile.user.username %}{% responsive_image profile.image profile.image_variants variant="thumb" class="avatar avatar-sm" alt="Фото волонтёра "|add:name data_i18n_alt="rating.photo_alt" data_i18n_args=name|i18n_args:"name" width=44 height=44 loading="lazy" decoding="async" %}{% endwith %}
                         {% else %}
                             <div class="avatar avatar-fallback avatar-sm">{{ profile.full_name|default:profile.user.username|first|upper }}</div>
                         {% endif %}
                         <div>
                             <h3>{{ profile.full_name|default:profile.user.username }}</h3>
+                            {% if profile.user.region %}<p class="row-region" data-i18n="region.{{ profile.user.region }}">{{ profile.user.get_region_display }}</p>{% endif %}
                             {% review_summary profile compact=True %}
                             {% badge_row badges|badges_for:profile.user_id %}
                             {% if profile.bio %}<p>{{ profile.bio|truncatechars:90 }}</p>{% endif %}

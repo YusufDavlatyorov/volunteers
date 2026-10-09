@@ -4,7 +4,11 @@ from django.core.exceptions import ValidationError
 from django.utils import timezone
 
 from myapp.models import HELP_TYPE_CHOICES
+from .form_i18n import localize
 from .models import REGION_CHOICES, Profile, Users
+
+# i18n.js keys for the region <select> every account form shares.
+REGION_FIELD_I18N = {"label": "field.region", "choices": "region.", "empty": "choice.select_region"}
 
 
 class RegistrationForm(forms.ModelForm):
@@ -22,6 +26,14 @@ class RegistrationForm(forms.ModelForm):
     password = forms.CharField(widget=forms.PasswordInput(attrs={"placeholder": "Минимум 8 символов"}))
     confirm_password = forms.CharField(widget=forms.PasswordInput(attrs={"placeholder": "Повторите пароль"}))
 
+    # i18n.js keys (accounts/form_i18n.py); the labels live in register.html.
+    I18N = {
+        "region": REGION_FIELD_I18N,
+        "motivation": {"ph": "form.optional_volunteers_ph"},
+        "password": {"ph": "form.password_min_ph"},
+        "confirm_password": {"ph": "form.password_repeat"},
+    }
+
     def __init__(self, *args, **kwargs):
         kwargs.setdefault("label_suffix", "")
         super().__init__(*args, **kwargs)
@@ -29,6 +41,7 @@ class RegistrationForm(forms.ModelForm):
         # the input's maxlength so the browser stops at 30.
         self.fields["username"].max_length = Users.USERNAME_MAX_LENGTH
         self.fields["username"].widget.attrs["maxlength"] = Users.USERNAME_MAX_LENGTH
+        localize(self, self.I18N)
 
     class Meta:
         model = Users
@@ -44,15 +57,15 @@ class RegistrationForm(forms.ModelForm):
     def clean_username(self):
         username = self.cleaned_data["username"].strip()
         if len(username) < 4:
-            raise forms.ValidationError("Username должен быть минимум 4 символа")
+            raise forms.ValidationError("Username должен быть минимум 4 символа", code="username_too_short")
         if Users.objects.filter(username=username).exists():
-            raise forms.ValidationError("Такой username уже занят")
+            raise forms.ValidationError("Такой username уже занят", code="username_taken")
         return username
 
     def clean_email(self):
         email = self.cleaned_data["email"].strip().lower()
         if Users.objects.filter(email=email).exists():
-            raise forms.ValidationError("Такой email уже используется")
+            raise forms.ValidationError("Такой email уже используется", code="email_taken")
         return email
 
     def clean_password(self):
@@ -109,6 +122,10 @@ class LoginForm(forms.Form):
 class ForgotPasswordForm(forms.Form):
     email = forms.EmailField(label="Email", widget=forms.EmailInput(attrs={"placeholder": "Ваш email"}))
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        localize(self, {"email": {"label": "field.email", "ph": "form.email_ph"}})
+
 
 class ResetPasswordForm(forms.Form):
     new_password = forms.CharField(label="Новый пароль", widget=forms.PasswordInput(attrs={"placeholder": "Новый пароль"}))
@@ -120,6 +137,10 @@ class ResetPasswordForm(forms.Form):
         # the username/email.
         self.user = user
         super().__init__(*args, **kwargs)
+        localize(self, {
+            "new_password": {"label": "form.new_password", "ph": "form.new_password"},
+            "confirm_password": {"label": "form.password_repeat", "ph": "form.password_repeat"},
+        })
 
     def clean(self):
         cleaned = super().clean()
@@ -166,11 +187,17 @@ class ProfileForm(forms.ModelForm):
         required=False,
         help_text="В еженедельном «Спасибо недели» в Telegram-группе волонтёров — рядом с новыми значками.",
     )
-    # data-i18n keys picked up by partials/_field.html.
+    # i18n.js keys (accounts/form_i18n.py), picked up by partials/_field.html.
+    # localize() skips the volunteer-only fields a non-volunteer's form drops.
     I18N = {
-        "is_away": ("profile.away_label", "profile.away_help"),
-        "away_until": ("profile.away_until_label", "profile.away_until_help"),
-        "community_shoutouts": ("profile.shoutouts_label", "profile.shoutouts_help"),
+        "full_name": {"label": "form.full_name", "ph": "form.full_name"},
+        "age": {"label": "form.age"},
+        "image": {"label": "form.profile_photo"},
+        "bio": {"label": "form.bio", "ph": "form.bio_ph"},
+        "skills": {"label": "form.skills", "help": "form.skills_help", "choices": "help."},
+        "is_away": {"label": "profile.away_label", "help": "profile.away_help"},
+        "away_until": {"label": "profile.away_until_label", "help": "profile.away_until_help"},
+        "community_shoutouts": {"label": "profile.shoutouts_label", "help": "profile.shoutouts_help"},
     }
 
     class Meta:
@@ -210,9 +237,7 @@ class ProfileForm(forms.ModelForm):
                 last_day = timezone.localtime(self.instance.away_until) - timezone.timedelta(microseconds=1)
                 self.initial["away_until"] = last_day.date()
             self.fields["away_until"].widget.attrs["min"] = timezone.localdate().isoformat()
-            for name, (label_key, help_key) in self.I18N.items():
-                self.fields[name].i18n_label = label_key
-                self.fields[name].i18n_help = help_key
+        localize(self, self.I18N)
 
     def _is_volunteer(self):
         user_id = getattr(self.instance, "user_id", None)
@@ -239,9 +264,9 @@ class ProfileForm(forms.ModelForm):
         cleaned = super().clean()
         lat, lng = cleaned.get("latitude"), cleaned.get("longitude")
         if (lat is None) != (lng is None):
-            raise forms.ValidationError("Укажите широту и долготу вместе или не указывайте вовсе.")
+            raise forms.ValidationError("Укажите широту и долготу вместе или не указывайте вовсе.", code="coords_pair")
         if lat is not None and lng is not None and not (-90 <= lat <= 90 and -180 <= lng <= 180):
-            raise forms.ValidationError("Некорректные координаты.")
+            raise forms.ValidationError("Некорректные координаты.", code="coords_invalid")
         if "is_away" in self.fields and not cleaned.get("is_away"):
             cleaned["away_until"] = None  # switching it off resets the end date
         return cleaned
@@ -275,8 +300,12 @@ class UserUpdateForm(forms.ModelForm):
             "region": forms.Select(choices=[("", "Выберите регион")] + REGION_CHOICES),
         }
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        localize(self, {"email": {"label": "field.email"}, "region": REGION_FIELD_I18N})
+
     def clean_email(self):
         email = self.cleaned_data["email"].strip().lower()
         if Users.objects.filter(email=email).exclude(pk=self.instance.pk).exists():
-            raise forms.ValidationError("Email уже используется")
+            raise forms.ValidationError("Email уже используется", code="email_taken")
         return email

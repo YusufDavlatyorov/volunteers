@@ -16,7 +16,7 @@ adds progressive JS that fills the hidden lat/lng from the browser location.
         <p data-i18n="emg.sos_lead">Tell a coordinator that something is wrong or unsafe. Curators and admins are alerted immediately.</p>
         <label class="field-group emergency-confirm__field">
             <span data-i18n="emg.reason_label">What is happening? (optional)</span>
-            <textarea name="reason" rows="2" class="control" maxlength="2000" data-i18n-placeholder="emg.reason_ph" placeholder="Short description"></textarea>
+            <textarea name="reason" rows="2" class="control" maxlength="2000" data-i18n-ph="emg.reason_ph" placeholder="Short description"></textarea>
         </label>
         <input type="hidden" name="latitude" id="emgLat" value="{{ task.latitude|default_if_none:'' }}">
         <input type="hidden" name="longitude" id="emgLng" value="{{ task.longitude|default_if_none:'' }}">

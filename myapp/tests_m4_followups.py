@@ -3,7 +3,8 @@
 1. chat retention — photos 90 d / messages 180 d after the task ended, flagged
    or reported messages kept until reviewed + 180 d (``purge_chats`` cron),
    and the curator's "Проверено" action that closes a case;
-2. public rating without places or points, by region then name;
+2. public rating without places or points, by name (one shared list since
+   2026-10-09; the region is shown as small text);
 3. chat-flag statistics in the CRM analytics.
 """
 
@@ -278,16 +279,29 @@ class RatingPageTests(TestCase):
     def _names(self, response):
         return [p.full_name for p in response.context["page_obj"]]
 
-    def test_sorted_by_region_then_name_not_points(self):
+    def test_one_list_sorted_by_name_not_points_or_region(self):
         response = self.client.get(reverse("rating"))
-        self.assertEqual(self._names(response), ["Алишер", "Шамсия", "азиза", "Бахтиёр", "Ёдгор"])
+        # Alphabet order, not code points: Ё sits between Е and Ж, not after Ш.
+        self.assertEqual(self._names(response), ["азиза", "Алишер", "Бахтиёр", "Ёдгор", "Шамсия"])
+
+    def test_tajik_letters_sort_in_alphabet_order(self):
+        for username, name in (("rp_tj1", "Ҳусейн"), ("rp_tj2", "Яхё"), ("rp_tj3", "Хуршед"), ("rp_lat", "Daler")):
+            user = _make(username, is_volunteer=True)
+            Profile.objects.filter(user=user).update(full_name=name)
+        cache.clear()
+        names = self._names(self.client.get(reverse("rating")))
+        self.assertEqual(names[0], "Daler")
+        self.assertLess(names.index("Хуршед"), names.index("Ҳусейн"))
+        self.assertLess(names.index("Ҳусейн"), names.index("Шамсия"))
+        self.assertEqual(names[-1], "Яхё")
 
     def test_no_places_and_no_points(self):
         content = self.client.get(reverse("rating")).content.decode()
         for marker in ("rank-num", "request-row--first", "rank-1", '<div class="metric">', "900"):
             self.assertNotIn(marker, content)
-        self.assertIn('class="rating-region"', content)
-        self.assertIn('data-i18n="region.sogd"', content)
+        # No region headings or tabs — the region is a small label on each row.
+        self.assertNotIn('class="rating-region"', content)
+        self.assertIn('class="row-region" data-i18n="region.sogd"', content)
 
     def test_shows_average_and_badges(self):
         from myapp.models import Achievement, UserAchievement

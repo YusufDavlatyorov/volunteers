@@ -8,6 +8,7 @@
    blue grounds for alternating sections, CTA blocks and soft cards; an amber wash
    for status badges. Light is authoritative; the dark theme derives the same roles. */
 :root, [data-theme="light"] {
+    --brand-name: #2A3BA5;
     --bg: #ffffff;
     --surface: #ffffff;
     --surface-2: #eef2fb;
@@ -30,6 +31,7 @@
     --line: #e3e7f4;
     --shadow: 0 1px 2px rgba(15,23,42,0.05), 0 10px 28px rgba(30,64,175,0.07);
     --shadow-hover: 0 4px 10px rgba(30,64,175,0.08), 0 22px 44px rgba(30,64,175,0.13);
+    --nav-shadow: 0 1px 2px rgba(15,23,42,0.04), 0 4px 16px rgba(30,64,175,0.05);
     --card-bg: #ffffff;
     --card-border: #e4e9f6;
     --nav-bg: rgba(255,255,255,0.92);
@@ -56,6 +58,7 @@
 }
 
 [data-theme="dark"] {
+    --brand-name: #b4c1ff;
     --bg: #0e131d;
     --surface: #151b28;
     --surface-2: #1c2436;
@@ -80,6 +83,7 @@
     --line: rgba(255,255,255,0.09);
     --shadow: 0 1px 2px rgba(0,0,0,0.30), 0 10px 26px rgba(0,0,0,0.34);
     --shadow-hover: 0 4px 10px rgba(0,0,0,0.34), 0 24px 48px rgba(0,0,0,0.44);
+    --nav-shadow: 0 1px 2px rgba(0,0,0,0.30), 0 4px 16px rgba(0,0,0,0.22);
     --card-bg: #151b28;
     --card-border: rgba(255,255,255,0.08);
     --nav-bg: rgba(14,19,29,0.92);
@@ -121,28 +125,63 @@
 
     /* Height of the sticky topbar row — used as the `top` offset for anything
        else that sticks (the dashboard side rail). Keep in sync with .topbar. */
-    --nav-h: 3.85rem;
+    --nav-h: 4.25rem;
 
-    /* Content widths: xl = wide dashboards, lg = default page content,
-       md = long-form reading, sm = multi-field forms, xs = auth cards. */
-    --container-xl: 1400px;
+    /* Content widths: lg = default page content, md = long-form reading,
+       sm = multi-field forms, xs = auth cards. Nothing on the site is wider
+       than 1200px, so xl (the CRM dashboards) is capped at lg too. */
+    --container-xl: 1200px;
     --container-lg: 1200px;
     --container-md: 860px;
     --container-sm: 680px;
     --container-xs: 480px;
+
+    /* Named spacing scale (2026-10-09) — the rhythm the layout rules below use:
+       xs label→field · sm list rows / inside cards · md between fields, card
+       heading→content, phone gutter · lg between blocks, card padding, desktop
+       gutter · xl section top/bottom. Same values as --space-2…--space-5 + 40px. */
+    --space-xs: 8px;
+    --space-sm: 12px;
+    --space-md: 16px;
+    --space-lg: 24px;
+    --space-xl: 40px;
+    /* Side gutter of every page band (.container, .section): md on phones, lg from 768px. */
+    --gutter: var(--space-md);
+}
+@media (min-width: 768px) {
+    :root { --gutter: var(--space-lg); }
 }
 
 /* ===== LAYOUT / CONTAINERS =====
    Reusable width primitives. On very large screens content stops growing
    at its max-width instead of stretching edge to edge. */
-.container, .container-lg { width: min(100% - 2rem, var(--container-lg)); margin-inline: auto; }
-.container-xl { width: min(100% - 2rem, var(--container-xl)); margin-inline: auto; }
-.container-md { width: min(100% - 2rem, var(--container-md)); margin-inline: auto; }
-.container-sm { width: min(100% - 2rem, var(--container-sm)); margin-inline: auto; }
-.container-xs { width: min(100% - 2rem, var(--container-xs)); margin-inline: auto; }
+.container, .container-lg, .container-xl, .container-md, .container-sm, .container-xs {
+    width: 100%;
+    max-width: var(--container-lg);
+    margin-inline: auto;
+    padding-inline: var(--gutter);
+    box-sizing: border-box;
+}
+.container-xl { max-width: var(--container-xl); }
+.container-md { max-width: var(--container-md); }
+.container-sm { max-width: var(--container-sm); }
+.container-xs { max-width: var(--container-xs); }
+/* Full-bleed bars (topbar, footer, the video hero): the background spans the
+   screen and has no side padding of its own — the .container inside caps the
+   content at 1200px and its padding is the gutter, the same as every .section,
+   so the logo, page content and footer line up on one edge. */
 
 /* ===== RESET & BASE ===== */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* ===== SPACING FLOW =====
+   The reset above zeroes every margin, so blocks stacked in a plain (block)
+   parent touched. Flex/grid parents space their children with `gap`; for the
+   block parents that hold page content the rules below add the space. Both use
+   :where() — zero specificity — so a component's own margin always wins and
+   nothing is doubled; the last child never gets one. */
+:where(.section) > :where(:not(:last-child)) { margin-bottom: var(--space-lg); }
+:where(.card:not(.stat-card)) > :where(:not(:last-child)) { margin-bottom: var(--space-sm); }
 html { scroll-behavior: smooth; }
 body {
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
@@ -170,7 +209,7 @@ picture > source { display: none; }
     position: absolute;
     top: -3rem;
     left: 1rem;
-    z-index: 300;
+    z-index: 1100; /* above the topbar when focused */
     padding: 0.7rem 1.1rem;
     border-radius: 8px;
     background: var(--primary);
@@ -227,20 +266,27 @@ p { color: var(--muted); line-height: 1.65; transition: color 0.3s ease; }
    size — when there isn't room it scrolls horizontally inside its own zone
    (scrollbar hidden, an edge fades in to signal there's more, swipe / trackpad
    / wheel all work). This keeps the bar a single clean row at every width from
-   the widest desktop down to the mobile-menu breakpoint. */
+   the widest desktop down to the mobile-menu breakpoint.
+   The bar's background spans the screen; its content sits in a .container
+   (1200px). Height = --nav-h, every item centred vertically; a hairline
+   border plus a soft shadow separate it from the page. */
 .topbar {
     position: sticky;
     top: 0;
-    z-index: 100;
-    display: flex;
-    align-items: center;
-    gap: var(--space-4);
-    padding: var(--space-3) clamp(var(--space-4), 4vw, 3.5rem);
+    z-index: 1000; /* above every in-page layer (maps are isolated at z-index 0, static/css/map.css) */
+    padding: 0;
     background: var(--nav-bg);
     border-bottom: 1px solid var(--line);
+    box-shadow: var(--nav-shadow);
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
     transition: background 0.3s ease, border-color 0.3s ease;
+}
+.topbar > .container {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    min-height: var(--nav-h);
 }
 /* While the playing hero video is under the sticky topbar (about.html toggles
    this), skip the backdrop blur: re-blurring a video every frame is expensive
@@ -260,6 +306,51 @@ p { color: var(--muted); line-height: 1.65; transition: color 0.3s ease; }
     font-size: 1.08rem;
     font-family: 'Playfair Display', Georgia, 'Times New Roman', serif;
     color: var(--primary);
+}
+/* Logo (static/img/logo-mark*.svg) + brand name, navbar and footer. The name
+   is localized by i18n.js (brand.name); Cormorant Garamond covers Cyrillic
+   incl. the Tajik "ҳ", so all three languages render in the same face.
+   Until the web font arrives (display=swap) the name is drawn in a local
+   Times scaled to Cormorant's width, so nothing jumps or overflows on swap. */
+@font-face {
+    font-family: 'Cormorant Fallback';
+    src: local('Times New Roman Bold Italic'), local('TimesNewRomanPS-BoldItalicMT'),
+         local('Liberation Serif Bold Italic'), local('LiberationSerif-BoldItalic'),
+         local('Noto Serif Bold Italic'), local('NotoSerif-BoldItalic');
+    font-style: italic;
+    font-weight: 700;
+    size-adjust: 88%;
+}
+.navbar__brand { display: flex; align-items: center; gap: 10px; text-decoration: none; min-width: 0; }
+/* In the bar the brand gives way last. With the link row visible (> 960px) it
+   never shrinks — the links scroll instead. In the phone bar (links in the
+   burger) it may: on the narrowest phone, with an unusually wide fallback
+   font, the name ellipsizes instead of pushing the bar into horizontal scroll. */
+.topbar .navbar__brand { flex: 0 0 auto; }
+@media (max-width: 960px) {
+    .topbar .navbar__brand { flex: 0 1 auto; }
+}
+.brand-logo { flex: 0 0 auto; width: 36px; height: 36px; transition: transform 0.3s ease; }
+.brand:hover .brand-logo { transform: rotate(-6deg); }
+.brand-logo--dark { display: none; }
+[data-theme="dark"] .brand-logo--light { display: none; }
+[data-theme="dark"] .brand-logo--dark { display: block; }
+.navbar__brand-name {
+    font-family: 'Cormorant Garamond', 'Cormorant Fallback', 'PT Serif', serif;
+    font-weight: 700;
+    font-style: italic;
+    font-size: 28px;
+    line-height: 1;
+    color: var(--brand-name);
+    white-space: nowrap;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding-right: 0.06em;   /* room for the italic overhang that overflow would clip */
+}
+@media (max-width: 767px) {
+    .navbar__brand-name { font-size: 22px; }
+    .brand-logo { width: 30px; height: 30px; }
 }
 .brand-mark {
     display: grid;
@@ -281,7 +372,7 @@ p { color: var(--muted); line-height: 1.65; transition: color 0.3s ease; }
     min-width: 0;
     display: flex;
     align-items: center;
-    gap: var(--space-1);
+    gap: var(--space-5);
     flex-wrap: nowrap;
     overflow-x: auto;
     overflow-y: hidden;
@@ -309,32 +400,72 @@ p { color: var(--muted); line-height: 1.65; transition: color 0.3s ease; }
     font-weight: 600;
     font-size: 0.9rem;
     white-space: nowrap;
-    padding: var(--space-2) var(--space-4);
-    border-radius: 999px;
-    transition: color 0.2s ease, background 0.2s ease;
+    padding: var(--space-2) 0;
+    transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease;
 }
-.nav-links a:hover { color: var(--primary); background: var(--surface-2); }
-/* Current page — a filled primary pill with white text (set via aria-current
-   in base.html from the resolved url name). */
-.nav-links a[aria-current="page"] { color: var(--on-primary); background: var(--primary); }
+/* Menu links are plain text — no fill, no border. Hover changes the colour;
+   the current page (aria-current, set in base.html from the resolved url
+   name) gets the primary colour plus a thin underline. A blue fill is kept
+   for the one call-to-action button (.nav-cta), so the two never look alike. */
+.nav-links a:not(.button)::after {
+    content: '';
+    position: absolute;
+    left: 0; right: 0; bottom: 0.15rem;
+    height: 2px;
+    border-radius: 2px;
+    background: currentColor;
+    transform: scaleX(0);
+    transition: transform 0.2s ease;
+}
+.nav-links a:not(.button):hover { color: var(--primary); }
+.nav-links a:not(.button)[aria-current="page"] { color: var(--primary); }
+.nav-links a:not(.button)[aria-current="page"]::after { transform: scaleX(1); }
+/* Guest sign-in buttons: the site's own .button ghost / primary (as "View all"),
+   at the link row's font size. "Become a volunteer" is the only filled button. */
+.nav-links a.button { padding: 0.6rem 1.35rem; min-height: 2.5rem; font-size: 0.9rem; font-weight: 700; }
+.nav-links a.button.ghost { color: var(--primary); border-color: var(--line); }
+.nav-links a.button.ghost:hover,
+.nav-links a.button.ghost[aria-current="page"] { color: var(--primary); background: var(--surface-2); border-color: var(--primary); }
 .nav-links a.nav-cta { color: var(--on-primary); background: var(--primary); }
 .nav-links a.nav-cta:hover { color: var(--on-primary); background: var(--primary-hover); }
 .nav-links a.nav-cta[aria-current="page"] { color: var(--on-primary); background: var(--primary-hover); }
-/* Logout sits among text links — keep it quiet, not a filled button. */
+/* Guest bar: three groups — brand · menu links · sign-in buttons (+ the
+   language/theme toolbar after them). The groups exist only in the guest
+   markup; outside the guest desktop bar they add no box of their own. */
+.nav-group { display: contents; }
+@media (min-width: 961px) {
+    /* brand · links · buttons + toolbar: the links take equal auto margins, so
+       the space brand→links equals links→buttons at every width and language
+       (an exact page-centre doesn't fit — the Tajik buttons are too wide).
+       Signed-in users keep the plain row (logo left, links, toolbar right). */
+    .topbar--guest .nav-links { display: contents; }
+    .topbar--guest .nav-group { display: flex; align-items: center; }
+    .topbar--guest .nav-group--links { gap: var(--space-6); margin-inline: auto; }
+    .topbar--guest .nav-group--auth { gap: var(--space-3); }
+}
+/* Logout sits among text links — plain text like them, red on hover. */
 .nav-links .nav-logout-form { display: flex; align-items: center; }
 .nav-links .nav-logout {
     min-height: unset;
     white-space: nowrap;
-    padding: var(--space-2) var(--space-4);
+    padding: var(--space-2) 0;
     border: none;
-    border-radius: 999px;
+    border-radius: 0;
     background: transparent;
     color: var(--muted);
     font-weight: 600;
     font-size: 0.9rem;
+    transition: color 0.2s ease;
 }
-.nav-links .nav-logout:hover { color: var(--danger); background: var(--surface-2); transform: none; box-shadow: none; }
-.menu-button { display: none; flex: 0 0 auto; }
+.nav-links .nav-logout:hover { color: var(--danger); background: transparent; transform: none; box-shadow: none; }
+/* Burger (shown below 960px): a 2.5rem rounded square matching the toolbar controls. */
+.menu-button {
+    display: none; flex: 0 0 auto;
+    width: 2.5rem; min-height: 0; aspect-ratio: 1; padding: 0;
+    border: 1px solid var(--line); border-radius: 10px; font-size: 1.1rem;
+    transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+}
+.menu-button:hover, .menu-button[aria-expanded="true"] { color: var(--primary); border-color: var(--primary); }
 
 /* ===== TOOLBAR (lang · settings icon · profile) ===== */
 .toolbar { flex: 0 0 auto; display: flex; align-items: center; gap: var(--space-2); }
@@ -450,7 +581,7 @@ form.inline-form { display: inline-block; }
    Add .section-md/.section-sm alongside it where a page needs a narrower
    reading/form measure instead — see AI Assistant and the auth/form pages. */
 .section {
-    padding: clamp(2.4rem, 6vw, 4.5rem) clamp(1rem, 5vw, 3.5rem);
+    padding: var(--space-xl) var(--gutter);
     max-width: var(--container-lg);
     margin: 0 auto;
 }
@@ -460,11 +591,18 @@ form.inline-form { display: inline-block; }
     border-top: 1px solid var(--line);
     border-bottom: 1px solid var(--line);
 }
-.section.alt > * { max-width: var(--container-lg); margin-left: auto; margin-right: auto; }
+/* A full-bleed .alt band keeps its children on the same content edge as a
+   plain .section (max-width minus both gutters). */
+.section.alt > * { max-width: calc(var(--container-lg) - 2 * var(--gutter)); margin-left: auto; margin-right: auto; }
 .section.section-md { max-width: var(--container-md); }
 .section.section-xl { max-width: var(--container-xl); }
-.section.alt.section-xl > * { max-width: var(--container-xl); }
-.section.alt.section-md > * { max-width: var(--container-md); }
+.section.alt.section-xl > * { max-width: calc(var(--container-xl) - 2 * var(--gutter)); }
+.section.alt.section-md > * { max-width: calc(var(--container-md) - 2 * var(--gutter)); }
+/* An .alt band's background is always full-bleed — only its content is capped
+   (the rules above). Without this, .section-xl/.section-md (same specificity,
+   declared later) capped the band itself and left white strips at the sides. */
+.section.alt.section-xl,
+.section.alt.section-md { max-width: none; }
 .section-head { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; margin-bottom: var(--space-5); }
 .section-head h2 { margin: 0; }
 
@@ -500,6 +638,24 @@ form.inline-form { display: inline-block; }
 .grid.grid-wide { grid-template-columns: repeat(auto-fill, minmax(min(100%, 28rem), 1fr)); }
 /* Panels that size to their own content instead of stretching to the tallest sibling. */
 .grid.grid-top { align-items: start; }
+/* Admin panel feeds: two independent columns, each stacking its own cards
+   top-down, so a short card never sits in a row stretched to a tall one's
+   height (no shared rows → no holes). One column below 768px. */
+.panel-columns {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-5);
+    align-items: start;
+}
+.panel-column { display: flex; flex-direction: column; gap: var(--space-5); min-width: 0; }
+/* Card head: title left, "View all" right, one row, centred vertically —
+   a long title wraps in its own box instead of pushing the button below it. */
+.panel-column .card > .section-head { flex-wrap: nowrap; align-items: center; }
+.panel-column .card > .section-head > h3 { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.panel-column .card > .section-head > .button { flex-shrink: 0; }
+@media (max-width: 767px) {
+    .panel-columns { grid-template-columns: 1fr; }
+}
 .two-col {
     display: grid;
     grid-template-columns: minmax(0, 1.15fr) minmax(300px, 0.85fr);
@@ -526,6 +682,11 @@ form.inline-form { display: inline-block; }
 }
 .card:hover { transform: translateY(-3px); box-shadow: var(--shadow-hover); }
 .card h3 { margin-top: 0.15rem; }
+@media (max-width: 767px) {
+    .card { padding: var(--space-md); }
+}
+/* Card heading → content. */
+.card > h2:first-child, .card > h3:first-child, .card > .section-head { margin-bottom: var(--space-md); }
 
 /* Soft plate — a pale-blue card on a white/CTA ground (icon + heading + text),
    the reference system's testimonial / action-card shape. */
@@ -608,7 +769,7 @@ form.inline-form { display: inline-block; }
 .mini-list { display: grid; }
 .mini-list > * { min-width: 0; }  /* grid items: don't let a long name widen the card */
 .mini-list-item h4, .mini-list-item p { overflow-wrap: anywhere; }
-.mini-list-item { padding: var(--space-3) 0.1rem; border-bottom: 1px solid var(--line); }
+.mini-list-item { padding: var(--space-sm) 0; border-bottom: 1px solid var(--line); }
 .mini-list-item:last-child { border-bottom: none; }
 .mini-list-item h4 { margin: 0 0 0.2rem; font-size: 0.92rem; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
 .mini-list-item p { margin: 0; font-size: 0.8rem; color: var(--muted); }
@@ -666,8 +827,9 @@ form.inline-form { display: inline-block; }
    Field wrappers, hints and errors rendered by templates/partials/_field.html
    and _form.html for every form in the app. Auth-page chrome (.auth-card,
    .auth-submit, .password-toggle, the role picker) lives in auth.css. */
-.field-group { margin-bottom: var(--space-4); }
-.field-label-row { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; }
+.field-group { margin-bottom: var(--space-md); }
+.field-label-row { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; margin-bottom: var(--space-xs); }
+.field-label-row label { margin-bottom: 0; }
 .field-hint-link { font-size: 0.82rem; font-weight: 600; color: var(--primary); }
 .field-hint-link:hover { text-decoration: underline; }
 .field-hint { display: block; margin-top: 0.35rem; color: var(--muted); font-size: 0.82rem; }
@@ -690,7 +852,7 @@ form.inline-form { display: inline-block; }
 .checkbox-input { margin-right: 0; }
 
 form p { margin: 0 0 1rem; }
-label { display: block; margin-bottom: 0.35rem; color: var(--text-2); font-weight: 600; font-size: 0.88rem; }
+label { display: block; margin-bottom: var(--space-xs); color: var(--text-2); font-weight: 600; font-size: 0.88rem; }
 input:not([type="checkbox"]):not([type="radio"]), select, textarea, .control {
     width: 100%;
     min-height: 2.75rem;
@@ -810,8 +972,10 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
 }
 .request-row:hover { border-color: var(--primary); box-shadow: var(--shadow); }
 /* Rating page (no places, no points): volunteers grouped under region headings. */
-.rating-region { font-size: 1.05rem; margin: var(--space-4) 0 0; color: var(--text-2); }
-.rating-region:first-child { margin-top: 0; }
+/* Rating: one shared list; the volunteer's region is small info text under the name. */
+.row-rank .row-region { margin: 0.1rem 0 0; font-size: 0.8rem; font-weight: 600; color: var(--muted); }
+/* Badges and bio under the name: a little air between the lines of a row. */
+.row-rank > div > * + *:not(.row-region) { margin-top: var(--space-xs); }
 .request-row .row-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 .row-rank { display: flex; align-items: center; gap: var(--space-4); min-width: 0; }
 .row-rank > .avatar, .row-rank > picture > .avatar, .row-rank > .rank-num { flex: none; }
@@ -1170,15 +1334,13 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
 .footer {
     background: var(--cta-bg);
     color: var(--text-2);
-    padding: clamp(2.5rem, 5vw, 3.5rem) clamp(1rem, 4vw, 3.5rem) var(--space-6);
+    padding: clamp(2.5rem, 5vw, 3.5rem) 0 var(--space-6);
     border-top: 1px solid var(--line);
 }
 .footer-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
     gap: var(--space-6);
-    max-width: var(--container-lg);
-    margin: 0 auto;
 }
 .footer-col h3 { margin-bottom: var(--space-3); font-size: 1.05rem; }
 .footer-col p { margin-bottom: var(--space-4); font-size: 0.9rem; }
@@ -1200,8 +1362,7 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
     align-items: center;
     flex-wrap: wrap;
     gap: var(--space-3);
-    max-width: var(--container-lg);
-    margin: var(--space-6) auto 0;
+    margin-top: var(--space-6);
     padding-top: var(--space-5);
     border-top: 1px solid var(--line);
     color: var(--muted);
@@ -1232,21 +1393,20 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
    one-line strip you have to swipe through. The brand stays left; the language
    switcher, theme toggle and menu button group on the right. */
 @media (max-width: 960px) {
-    .topbar > .toolbar { margin-left: auto; }
+    .topbar .toolbar { margin-left: auto; }
     .menu-button {
         display: inline-flex;
         order: 3;
         background: var(--surface-2);
         color: var(--text);
-        border-radius: 8px;
     }
     .nav-links {
         flex: none;
         display: none;
         position: absolute;
         left: var(--space-4); right: var(--space-4);
-        top: 4.2rem;
-        max-height: calc(100vh - 5.5rem);
+        top: calc(var(--nav-h) + 0.35rem);
+        max-height: calc(100vh - var(--nav-h) - 1.5rem);
         padding: var(--space-3);
         background: var(--surface);
         border: 1px solid var(--line);
@@ -1262,9 +1422,23 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
                 mask-image: none;
     }
     .nav-links.open { display: flex; gap: var(--space-1); }
-    .nav-links a.nav-cta { text-align: center; }
+    /* In the dropdown a link is a full-width row; the current page gets a
+       light tint instead of the underline. */
+    .nav-links a:not(.button) { padding: 0.6rem 0.85rem; border-radius: 10px; }
+    .nav-links a:not(.button)::after { display: none; }
+    .nav-links a:not(.button):hover,
+    .nav-links a:not(.button)[aria-current="page"] { background: var(--surface-2); }
+    /* Guest: links first, then the sign-in buttons as their own block —
+       separated by a rule, full width, "Become a volunteer" last. */
+    .nav-group--links { display: flex; flex-direction: column; gap: var(--space-1); }
+    .nav-group--auth {
+        display: flex; flex-direction: column; gap: var(--space-2);
+        margin-top: var(--space-2); padding-top: var(--space-3);
+        border-top: 1px solid var(--line);
+    }
+    .nav-group--auth .button { width: 100%; }
     .nav-links .nav-logout-form { display: flex; }
-    .nav-links .nav-logout { width: 100%; justify-content: flex-start; }
+    .nav-links .nav-logout { width: 100%; justify-content: flex-start; padding: 0.6rem 0.85rem; border-radius: 10px; }
     /* The dropdown already carries the Dashboard/profile link, so the corner
        profile chip is redundant here and only costs horizontal room. */
     .nav-avatar { display: none; }
@@ -1296,12 +1470,27 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
     .applicant-row .applicant-body { flex-basis: 100%; min-width: 0; }
 }
 @media (max-width: 600px) {
-    /* Below the mobile-menu breakpoint the serif wordmark plus the hamburger and
-       the toolbar (segmented language switcher + settings toggle) no longer fit
-       one unwrapped row — drop the wordmark, keep the mark (same link, still
-       recognizable) and tighten the row. */
-    .brand span:not(.brand-mark) { display: none; }
-    .topbar { gap: var(--space-2); padding-inline: var(--space-4); }
+    /* Phone: tighten the row so logo + brand name, the toolbar (segmented
+       language switcher, theme toggle, bell) and the burger fit one line. */
+    .topbar > .container { gap: var(--space-2); }
+}
+/* Narrow phones: the signed-in toolbar (languages, theme, bell) plus the burger
+   leave the brand name too little room — tighten the controls a little. */
+@media (max-width: 420px) {
+    .topbar > .container { gap: 6px; }
+    .topbar .toolbar { gap: 3px; }
+    .topbar .navbar__brand { gap: 8px; }
+    .theme-toggle, .bell__button { width: 2rem; height: 2rem; }
+    .menu-button { width: 2.1rem; }
+    .lang-btn { padding: 0.25rem 0.3rem; }
+}
+/* Below 375px (360px Androids) the brand gets one notch smaller, so the
+   longest name (EN, signed-in toolbar with the bell) still fits whole. */
+@media (max-width: 374px) {
+    .topbar > .container { gap: 4px; }
+    .topbar .toolbar { gap: 2px; }
+    .navbar__brand-name { font-size: 20px; }
+    .brand-logo { width: 28px; height: 28px; }
 }
 
 /* Skills checkbox group on the edit-profile form — a wrapping row, not a
@@ -1309,6 +1498,8 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
 .checkbox-group ul { list-style: none; display: flex; flex-wrap: wrap; gap: 0.5rem 0.9rem; margin: 0.35rem 0 0; padding: 0; }
 .checkbox-group li { margin: 0; }
 .checkbox-group label { display: inline-flex; align-items: center; gap: 0.4rem; margin: 0; font-weight: 500; color: var(--text-2); cursor: pointer; }
+/* …but the group's own heading label keeps the normal label → field spacing. */
+.field-group.checkbox-group > label { display: block; margin-bottom: var(--space-xs); font-weight: 600; cursor: default; }
 
 /* ===== CRM: PAGINATION & KPI TILES =====
    Pagination reuses .button/.button-ghost for its controls — only the
@@ -2020,14 +2211,16 @@ a.review-tile:hover { border-color: var(--primary); }
    (myapp/dashboard/_sparkline.html) — no chart library on the dashboard. */
 .trend-spark { display: block; width: 100%; height: 4rem; margin: var(--space-2) 0; overflow: visible; }
 .trend-spark__base { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
-.trend-spark__line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
-.trend-spark__line--created { stroke: #2a78d6; }
-.trend-spark__line--completed { stroke: #eb6834; }
-[data-theme="dark"] .trend-spark__line--created { stroke: #3987e5; }
-[data-theme="dark"] .trend-spark__line--completed { stroke: #d95926; }
+.trend-spark__line { fill: none; stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+/* Colours = static/js/charts-theme.js ENTITY: created → primary, completed → teal
+   (light / dark), the same as on the analytics page (test-locked). */
+.trend-spark__line--created { stroke: #2A3BA5; }
+.trend-spark__line--completed { stroke: #24907F; }
+[data-theme="dark"] .trend-spark__line--created { stroke: #8796F2; }
+[data-theme="dark"] .trend-spark__line--completed { stroke: #4DC4B0; }
 .trend-legend { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); margin: 0; font-size: 0.85rem; color: var(--text-2); }
 .trend-legend__item { display: inline-flex; align-items: center; gap: 0.4rem; }
-.trend-legend__item::before { content: ""; width: 0.6rem; height: 0.6rem; border-radius: 50%; background: #2a78d6; }
-.trend-legend__item--completed::before { background: #eb6834; }
-[data-theme="dark"] .trend-legend__item::before { background: #3987e5; }
-[data-theme="dark"] .trend-legend__item--completed::before { background: #d95926; }
+.trend-legend__item::before { content: ""; width: 0.6rem; height: 0.6rem; border-radius: 50%; background: #2A3BA5; }
+.trend-legend__item--completed::before { background: #24907F; }
+[data-theme="dark"] .trend-legend__item::before { background: #8796F2; }
+[data-theme="dark"] .trend-legend__item--completed::before { background: #4DC4B0; }

@@ -1,5 +1,6 @@
 from django import forms
 
+from accounts.form_i18n import localize
 from accounts.models import REGION_CHOICES
 from .models import (
     Broadcast,
@@ -23,6 +24,14 @@ from .validators import PHONE_PLACEHOLDER, normalize_tj_phone
 FIELD_CLASS = {
     "class": "control",
 }
+
+# i18n.js keys for the fields several forms share (accounts/form_i18n.py).
+DESCRIPTION_I18N = {"label": "form.description"}
+REGION_I18N = {"label": "field.region", "choices": "region.", "empty": "choice.select_region"}
+HELP_TYPE_I18N = {"label": "form.help_type", "choices": "help."}
+PRIORITY_I18N = {"label": "form.priority", "choices": "priority."}
+COORDS_PAIR_ERROR = "Укажите широту и долготу вместе или не указывайте вовсе."
+COORDS_INVALID_ERROR = "Некорректные координаты."
 
 
 class TelInput(forms.TextInput):
@@ -72,6 +81,18 @@ class HelpRequestForm(forms.ModelForm):
             "longitude": forms.HiddenInput(),
         }
 
+    I18N = {
+        "help_type": HELP_TYPE_I18N,
+        "priority": PRIORITY_I18N,
+        "description": {**DESCRIPTION_I18N, "ph": "form.request_desc_ph"},
+        "address": {"label": "form.address", "ph": "form.address"},
+        "phone": {"label": "form.phone"},
+    }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        localize(self, self.I18N)
+
     def clean_priority(self):
         return self.cleaned_data.get("priority") or HelpRequest.PRIORITY_NORMAL
 
@@ -96,9 +117,9 @@ class HelpRequestForm(forms.ModelForm):
         cleaned = super().clean()
         lat, lng = cleaned.get("latitude"), cleaned.get("longitude")
         if (lat is None) != (lng is None):
-            raise forms.ValidationError("Укажите широту и долготу вместе или не указывайте вовсе.")
+            raise forms.ValidationError(COORDS_PAIR_ERROR, code="coords_pair")
         if lat is not None and lng is not None and not is_valid_coordinate(lat, lng):
-            raise forms.ValidationError("Некорректные координаты.")
+            raise forms.ValidationError(COORDS_INVALID_ERROR, code="coords_invalid")
         return cleaned
 
 
@@ -119,6 +140,15 @@ class EventForm(forms.ModelForm):
             "date": forms.DateTimeInput(attrs={**FIELD_CLASS, "type": "datetime-local"}, format="%Y-%m-%dT%H:%M"),
         }
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        localize(self, {
+            "title": {"label": "form.event_title", "ph": "form.event_title_ph"},
+            "description": DESCRIPTION_I18N,
+            "region": REGION_I18N,
+            "date": {"label": "form.datetime"},
+        })
+
 
 class BroadcastForm(forms.ModelForm):
     class Meta:
@@ -135,6 +165,14 @@ class BroadcastForm(forms.ModelForm):
             "region": forms.Select(attrs=FIELD_CLASS),
         }
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        localize(self, {
+            "subject": {"label": "form.subject", "ph": "form.subject_ph"},
+            "message": {"label": "form.message", "ph": "form.broadcast_ph"},
+            "region": REGION_I18N,
+        })
+
 
 class PhotoReportForm(forms.ModelForm):
     def __init__(self, *args, user=None, **kwargs):
@@ -148,6 +186,14 @@ class PhotoReportForm(forms.ModelForm):
         if user is not None and not (user.is_superuser or user.is_curator):
             help_requests = help_requests.filter(volunteer=user)
         self.fields["help_request"].queryset = help_requests
+        localize(self, {
+            "title": {"label": "form.title"},
+            "description": DESCRIPTION_I18N,
+            "image": {"label": "form.photo"},
+            "region": REGION_I18N,
+            "event": {"label": "form.event"},
+            "help_request": {"label": "form.help_request"},
+        })
 
     class Meta:
         model = PhotoReport
@@ -208,6 +254,19 @@ class PetReportForm(forms.ModelForm):
             "longitude": forms.HiddenInput(),
         }
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        localize(self, {
+            "report_type": {"label": "form.pet_report_type", "choices": "pet.type_"},
+            "pet_name": {"label": "form.pet_name", "ph": "form.pet_name_ph"},
+            "species": {"label": "pet.field_species", "choices": "species."},
+            "breed": {"label": "form.breed"},
+            "description": {**DESCRIPTION_I18N, "ph": "form.pet_desc_ph"},
+            "region": REGION_I18N,
+            "contact_phone": {"label": "form.contact_phone"},
+            "image": {"label": "form.photo_optional"},
+        })
+
     def clean_contact_phone(self):
         return normalize_tj_phone(self.cleaned_data.get("contact_phone"))
 
@@ -215,9 +274,9 @@ class PetReportForm(forms.ModelForm):
         cleaned = super().clean()
         lat, lng = cleaned.get("latitude"), cleaned.get("longitude")
         if (lat is None) != (lng is None):
-            raise forms.ValidationError("Укажите широту и долготу вместе или не указывайте вовсе.")
+            raise forms.ValidationError(COORDS_PAIR_ERROR, code="coords_pair")
         if lat is not None and lng is not None and not is_valid_coordinate(lat, lng):
-            raise forms.ValidationError("Некорректные координаты.")
+            raise forms.ValidationError(COORDS_INVALID_ERROR, code="coords_invalid")
         return cleaned
 
 
@@ -306,6 +365,20 @@ class DonationForm(forms.Form):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["product"].queryset = Product.objects.filter(is_active=True).order_by("name")
+        localize(self, {
+            "donor_type": {"label": "form.donor_type", "choices": "don.donor_type_"},
+            "organization_name": {"label": "form.org_name", "ph": "form.org_name_ph"},
+            "product": {"label": "form.product", "empty": "form.product_other"},
+            "item_name": {"label": "form.item_name", "ph": "form.item_name_ph"},
+            "category": {"label": "don.col_category", "choices": "don.category_"},
+            "quantity": {"label": "form.quantity"},
+            "unit": {"label": "form.unit", "ph": "form.unit_ph"},
+            "description": {**DESCRIPTION_I18N, "ph": "form.optional_ph"},
+            "fulfilment": {"label": "form.fulfilment", "choices": "don.fulfilment_"},
+            "location": {"label": "form.location"},
+            "region": {"label": "field.region", "choices": "region."},
+            "message": {"label": "form.message_coordinator", "ph": "form.optional_ph"},
+        })
 
     def clean(self):
         cleaned = super().clean()
@@ -316,9 +389,11 @@ class DonationForm(forms.Form):
             cleaned["category"] = product.category
             cleaned["unit"] = cleaned.get("unit") or product.unit
         elif not (cleaned.get("item_name") or "").strip():
-            raise forms.ValidationError("Выберите товар из каталога или укажите, что вы хотите передать.")
+            raise forms.ValidationError(
+                "Выберите товар из каталога или укажите, что вы хотите передать.", code="donation_item_required"
+            )
         if cleaned.get("donor_type") == "business" and not (cleaned.get("organization_name") or "").strip():
-            self.add_error("organization_name", "Укажите название организации.")
+            self.add_error("organization_name", forms.ValidationError("Укажите название организации.", code="organization_required"))
         return cleaned
 
 
@@ -327,6 +402,17 @@ class HelpRequestFilterForm(forms.Form):
     region = forms.ChoiceField(label="Регион", choices=[("", "Все регионы")] + REGION_CHOICES, required=False, widget=forms.Select(attrs=FIELD_CLASS))
     priority = forms.ChoiceField(label="Приоритет", choices=[("", "Любой приоритет")] + PRIORITY_CHOICES, required=False, widget=forms.Select(attrs=FIELD_CLASS))
     is_urgent = forms.BooleanField(required=False, label="Только срочные")
+
+    I18N = {
+        "help_type": {**HELP_TYPE_I18N, "empty": "choice.any_help_type"},
+        "region": {**REGION_I18N, "empty": "choice.any_region"},
+        "priority": {**PRIORITY_I18N, "empty": "choice.any_priority"},
+        "is_urgent": {"label": "form.urgent_only"},
+    }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        localize(self, self.I18N)
 
 
 class TaskManagementFilterForm(forms.Form):
@@ -349,3 +435,14 @@ class TaskManagementFilterForm(forms.Form):
         label="Поиск",
         widget=forms.TextInput(attrs={**FIELD_CLASS, "placeholder": "Описание, адрес, клиент, телефон"}),
     )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        localize(self, {
+            **HelpRequestFilterForm.I18N,
+            "status": {"label": "form.status", "choices": "task_status.", "empty": "choice.any_status"},
+            "volunteer": {"label": "form.volunteer", "ph": "form.volunteer_ph"},
+            "date_from": {"label": "form.date_from"},
+            "date_to": {"label": "form.date_to"},
+            "q": {"label": "form.search", "ph": "form.search_ph"},
+        })

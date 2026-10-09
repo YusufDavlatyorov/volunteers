@@ -120,7 +120,7 @@ class ProductionCollectstaticTests(SimpleTestCase):
             with override_settings(STATIC_ROOT=root, STORAGES=MANIFEST_STORAGES):
                 call_command("collectstatic", interactive=False, verbosity=0)
                 manifest = json.loads((Path(root) / "staticfiles.json").read_text())["paths"]
-                for name in ("vendor/chartjs-4.4.7/chart.umd.min.js", "vendor/leaflet-1.9.4/leaflet.js",
+                for name in ("vendor/chartjs-4.4.7/chart.umd.min.js", "vendor/maplibre-gl-5.24.0/maplibre-gl.js",
                              "js/i18n.js", "js/realtime.js", "js/chat.js", "css/style.css"):
                     self.assertIn(name, manifest)
                     self.assertTrue((Path(root) / manifest[name]).is_file())

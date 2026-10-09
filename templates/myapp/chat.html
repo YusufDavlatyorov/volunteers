@@ -84,14 +84,14 @@ text only — never auto-linked. Data hooks: see the header of chat.js.
                         {% else %}
                             {% if m.hidden %}<span class="tag muted" data-i18n="chat.hidden_tag">Hidden</span>{% endif %}
                             {% if is_staff %}{% if m.flags or m.open_reports or m.reviewed %}
-                            <p class="chat-msg__flags" title="Автоматический флаг — его видят только кураторы. Сообщение не заблокировано." data-i18n-tooltip="chat.flag.hint">
+                            <p class="chat-msg__flags" title="Автоматический флаг — его видят только кураторы. Сообщение не заблокировано." data-i18n-title="chat.flag.hint" data-i18n-tooltip="chat.flag.hint">
                                 {% for code in m.flags %}<span class="tag urgent" data-i18n="chat.flag.{{ code }}">{{ code }}</span>{% endfor %}
                                 {% if m.open_reports %}<span class="tag urgent" data-i18n="chat.reports_tag" data-i18n-args='{"count": {{ m.open_reports }}}'>Жалоб: {{ m.open_reports }}</span>{% endif %}
                                 {% if m.reviewed %}<span class="tag success" data-i18n="chat.reviewed_tag">Проверено</span>{% endif %}
                             </p>
                             {% endif %}{% endif %}
                             {% if m.kind == 'image' and not m.image_url %}<p class="chat-msg__body chat-msg__stub" data-i18n="chat.photo_expired">Фото удалено по истечении срока хранения.</p>{% endif %}
-                            {% if m.image_url %}<a class="chat-msg__photo" href="{{ m.image_url }}" target="_blank" rel="noopener" aria-label="Открыть фото целиком" data-photo-link><img class="chat-msg__img" src="{{ m.thumb_url|default:m.image_url }}" alt="Фото из чата" width="320" height="240" loading="lazy" decoding="async"></a>{% endif %}
+                            {% if m.image_url %}<a class="chat-msg__photo" href="{{ m.image_url }}" target="_blank" rel="noopener" aria-label="Открыть фото целиком" data-i18n-aria="chatpage.open_photo" data-photo-link><img class="chat-msg__img" src="{{ m.thumb_url|default:m.image_url }}" alt="Фото из чата" data-i18n-alt="chatpage.photo_alt" width="320" height="240" loading="lazy" decoding="async"></a>{% endif %}
                             {% if m.body %}<p class="chat-msg__body">{{ m.body }}</p>{% endif %}
                         {% endif %}
                         <p class="chat-msg__meta"><time datetime="{{ m.created_at }}">{{ row.time|date:"d.m H:i" }}</time>{% if m.mine %}<span class="chat-msg__seen" data-seen></span>{% endif %}</p>

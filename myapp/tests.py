@@ -822,9 +822,10 @@ def _nominatim_response(payload):
     return r
 
 
+@override_settings(NOMINATIM_BASE_URL="https://nominatim.openstreetmap.org")
 class MapsServiceTests(TestCase):
     """myapp.services.maps — the provider-agnostic layer. Network mocked at
-    myapp.services.maps.requests.get."""
+    myapp.services.maps.requests.get (geocoding opted in: tests blank it)."""
 
     def test_tile_layer_osm_shape(self):
         cfg = maps.tile_layer()
@@ -1012,7 +1013,8 @@ class TaskRouteViewTests(TestCase):
         data = response.json()
         self.assertEqual(data["origin"]["source"], "live")
         self.assertEqual(data["origin"]["lat"], 38.5)
-        mocked.assert_called_once_with((38.5, 68.7), (38.56, 68.79), profile="driving", steps=True)
+        mocked.assert_called_once_with(
+            (38.5, 68.7), (38.56, 68.79), profile="driving", steps=True, preference=None, alternatives=True)
 
     def test_client_cannot_override_origin_with_live_coordinates(self):
         # Only the assigned volunteer's browser location is trusted as origin;
@@ -1023,7 +1025,8 @@ class TaskRouteViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data["origin"]["source"], "saved")
-        mocked.assert_called_once_with((38.55, 68.78), (38.56, 68.79), profile="driving", steps=True)
+        mocked.assert_called_once_with(
+            (38.55, 68.78), (38.56, 68.79), profile="driving", steps=True, preference=None, alternatives=True)
 
     # 7: missing task/location handled gracefully
     def test_task_without_location_is_graceful(self):
@@ -1800,8 +1803,8 @@ class TaskDetailCrmIntegrationTests(TestCase):
         self.assertFalse(response.context["show_location_map"])
         self.assertContains(response, 'id="routeCard"')
         self.assertNotContains(response, 'id="locationMapCard"')
-        # Leaflet must load exactly once even though both features can use it.
-        self.assertEqual(response.content.decode().count("leaflet@1.9.4/dist/leaflet.js"), 1)
+        # MapLibre must load exactly once even though both features can use it.
+        self.assertEqual(response.content.decode().count("maplibre-gl@5.24.0/dist/maplibre-gl.js"), 1)
 
     def test_history_visible_to_admin_and_curator(self):
         task = HelpRequest.objects.create(

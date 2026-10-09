@@ -87,12 +87,14 @@ class MapAccessPerRoleTests(TestCase):
         self.assertIn("basemaps.cartocdn.com", cfg["url"])
         self.assertNotIn("fallback", cfg)
 
-    def test_leaflet_has_local_fallback_and_error_message_is_translated(self):
+    def test_maplibre_has_local_fallback_and_error_message_is_translated(self):
         self.client.force_login(self.users["client"])
         html = self.client.get(reverse("map")).content.decode()
-        self.assertIn("https://unpkg.com/leaflet@1.9.4/dist/leaflet.js", html)
-        self.assertIn("vendor/leaflet-1.9.4/leaflet.js", html)  # document.write fallback
-        self.assertIsNotNone(finders.find("vendor/leaflet-1.9.4/leaflet.js"))
+        self.assertIn("https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js", html)
+        self.assertIn("vendor/maplibre-gl-5.24.0/maplibre-gl.js", html)  # document.write fallback
+        self.assertIn("vendor/maplibre-gl-5.24.0/maplibre-gl.css", html)  # onerror fallback
+        for name in ("maplibre-gl.js", "maplibre-gl.css", "LICENSE.txt"):
+            self.assertIsNotNone(finders.find(f"vendor/maplibre-gl-5.24.0/{name}"), name)
         for lang, block in _i18n_blocks().items():
             with self.subTest(lang=lang):
                 self.assertIn('"map.error_load":', block)

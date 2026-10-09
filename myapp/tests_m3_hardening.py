@@ -17,6 +17,7 @@ from django.core.management import CommandError, call_command
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from PIL import Image
+import requests
 
 from accounts.models import Profile, Users
 from myapp.testing import TempMediaRoot
@@ -106,6 +107,14 @@ class ChatFlagDetectorTests(SimpleTestCase):
 class ChatFlagFlowTests(TestCase):
     def setUp(self):
         cache.clear()
+        # The fake token used to reach the live Bot API (which answered 401):
+        # the same answer now comes from a mock, so the tests never touch the
+        # network and don't depend on it.
+        rejected = mock.Mock(status_code=401)
+        rejected.raise_for_status.side_effect = requests.HTTPError(response=rejected)
+        patcher = mock.patch("myapp.notifications.requests.post", return_value=rejected)
+        self.telegram_post = patcher.start()
+        self.addCleanup(patcher.stop)
         self.client_user = _make("fl_client", is_client=True, telegram_id="111")
         self.vol = _make("fl_vol", is_volunteer=True, telegram_id="222")
         self.curator = _make("fl_curator", is_curator=True, telegram_id="333")

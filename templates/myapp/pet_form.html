@@ -2,13 +2,13 @@
 {% load static assets %}
 {% block title %}{{ title }}{% endblock %}
 {% block extra_css %}
-{% include "partials/_leaflet_css.html" %}
+{% include "partials/_maplibre_css.html" %}
 <link rel="stylesheet" href="{% asset 'css/map.css' %}">
 {% endblock %}
 {% block content %}
 <section class="form-shell">
     <div class="card">
-        <h1>{{ title }}</h1>
+        <h1{% if title_i18n %} data-i18n="{{ title_i18n }}"{% endif %}>{{ title }}</h1>
         <p class="field-hint" data-i18n="pet.form_privacy">Your name and phone are shared only with the coordinators, never on the public board or the map.</p>
         <form method="post" enctype="multipart/form-data">
             {% csrf_token %}
@@ -16,7 +16,7 @@
             <div class="field-group">
                 <div class="field-label-row">
                     <label data-i18n="map.pick_location">Location on the map (optional)</label>
-                    <button type="button" class="button ghost" id="locateMeBtn" data-i18n="map.use_my_location" data-error-text="Не удалось определить местоположение">Use my location</button>
+                    <button type="button" class="button ghost" id="locateMeBtn" data-i18n="map.use_my_location" data-error-text="Не удалось определить местоположение" data-error-key="map.locate_unavailable">Use my location</button>
                 </div>
                 <div id="locationPicker" class="map-picker"></div>
                 <p class="field-hint" data-i18n="map.pick_hint">Click the map or drag the marker to set the exact location.</p>
@@ -30,7 +30,7 @@
 </section>
 {% endblock %}
 {% block extra_js %}
-{% include "partials/_leaflet_js.html" %}
+{% include "partials/_maplibre_js.html" %}
 <script src="{% asset 'js/map.js' %}"></script>
 <script>
 GCMap.initPicker('locationPicker', 'id_latitude', 'id_longitude', { locateButtonId: 'locateMeBtn' });

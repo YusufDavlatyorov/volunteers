@@ -193,7 +193,7 @@ class PublicPageHeadTests(TestCase):
                 self.assertIn('<meta name="twitter:card" content="summary_large_image">', html)
                 self.assertIn('<html lang="ru"', html)
                 self.assertIn('rel="apple-touch-icon"', html)
-                self.assertIn('images/brand/favicon.svg', html)
+                self.assertIn('img/favicon.svg', html)
         self.assertEqual(len(titles), len(self.PAGES), "every public page needs a unique <title>")
 
     def test_home_and_about_titles_start_with_brand(self):
@@ -308,6 +308,26 @@ class ServerSideI18nTests(TestCase):
     def test_unknown_language_is_a_no_op(self):
         source = '<p data-i18n="hero.request">Request Help</p>'
         self.assertEqual(render_html(source, "xx"), source)
+
+    def test_fills_title_alt_and_aria_attributes(self):
+        out = render_html(
+            '<button title="Toggle theme" aria-label="Toggle theme" data-i18n-title="common.toggle_theme"'
+            ' data-i18n-aria="common.toggle_theme"></button>'
+            '<img alt="x" data-i18n-alt="about.report_alt" data-i18n-args="{&quot;title&quot;: &quot;Акция&quot;}">',
+            "ru",
+        )
+        self.assertIn('title="Сменить тему" aria-label="Сменить тему"', out)
+        self.assertIn('alt="Фотоотчёт: Акция"', out)
+
+    def test_leaves_inline_scripts_and_styles_alone(self):
+        # A data-i18n element inside a JS template string is code: replacing its
+        # expression with Russian text hardcoded one language into the script.
+        script = '<script>row.innerHTML = `<button data-i18n="rec.assign">${tr("rec.assign")}</button>`;</script>'
+        style = '<style>.x::after { content: "<b data-i18n=\'rec.notify\'>n</b>"; }</style>'
+        out = render_html(script + '<p data-i18n="hero.request">Request Help</p>' + style, "ru")
+        self.assertIn(script, out)
+        self.assertIn(style, out)
+        self.assertIn('<p data-i18n="hero.request">Запросить помощь</p>', out)
 
 
 class AssetCacheBustingTests(TestCase):

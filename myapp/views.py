@@ -44,7 +44,7 @@ from .models import (
 from .models.emergency import STATUS_CHOICES as EMERGENCY_STATUS_CHOICES
 from .notifications import staff_recipients, volunteer_queryset_for_region
 from .realtime import publish
-from .services import achievements, cancellation, chat, community, feedback, presence, task_actions, tracking
+from .services import achievements, activity, cancellation, chat, community, feedback, presence, task_actions, tracking
 from .services.notify import notify
 from .services import access, analytics, dispatch, donations, emergency, images, maps, overdue, pets, stale
 from .services.ai import build_user_context, confirm_action, run_conversation
@@ -329,6 +329,9 @@ def crm_volunteer_detail_view(request, pk):
         "location_freshness": location_freshness_label(profile.location_updated_at) if profile.has_location else None,
         "last_activity": last_activity,
         "achievement_items": achievements.progress_for(volunteer),
+        # The volunteer's activity calendar (myapp/services/activity.py), staff-only here.
+        "activity": activity.calendar(volunteer),
+        "activity_empty_key": "act.empty_other",
     }
     context["mentor_awarded"] = any(i["code"] == "mentor" and i["earned"] for i in context["achievement_items"])
     return render(request, "myapp/crm_volunteer_detail.html", context)
@@ -554,7 +557,7 @@ def create_request_view(request):
             return redirect("profile")
     else:
         form = HelpRequestForm()
-    return render(request, "myapp/task_form.html", {"form": form, "title": "Создать запрос"})
+    return render(request, "myapp/task_form.html", {"form": form, "title": "Создать запрос", "title_i18n": "form.title_create_request"})
 
 
 @role_required("admin", "curator")
@@ -569,23 +572,31 @@ def completed_tasks_view(request):
 RATING_TTL = 300  # seconds; Profile.add_points() / review stats clear it at once
 RATING_PAGE_SIZE = 30
 RATING_MAX_ROWS = 2000  # response-size bound, like the map caps
-_REGION_ORDER = {code: index for index, (code, _) in enumerate(REGION_CHOICES)}
+# Russian + Tajik Cyrillic in alphabet order (ё after е, ғ after г, ӣ after и,
+# қ after к, ӯ after у, ҳ after х, ҷ after ч). Code-point order would put ё and
+# every Tajik letter after я.
+_CYRILLIC_ALPHABET = {ch: i for i, ch in enumerate("абвгғдеёжзиӣйкқлмнопрстуӯфхҳчҷшщъыьэюя")}
+
+
+def _name_sort_key(name):
+    # Latin (and digits) first in code-point order, then Cyrillic by alphabet.
+    return tuple(
+        (1, _CYRILLIC_ALPHABET[ch]) if ch in _CYRILLIC_ALPHABET else (0, ord(ch))
+        for ch in name.casefold()
+    )
 
 
 def _rating_volunteers():
-    """Every active volunteer, by region (REGION_CHOICES order, none last), then
-    by name — no places, no points (owner decision 2026-10-03: helping is not a
-    contest). Names are sorted in Python: SQLite's lower() is ASCII-only, so a
-    DB-side sort would misplace Cyrillic / Tajik names."""
+    """Every active volunteer in one shared list (no grouping by region — the
+    region is shown as small text on each row), by name — no places, no points
+    (owner decision 2026-10-03: helping is not a contest; reconfirmed
+    2026-10-09). Names are sorted in Python: SQLite's lower() is ASCII-only, so
+    a DB-side sort would misplace Cyrillic / Tajik names."""
     profiles = list(
         Profile.objects.filter(user__is_volunteer=True, user__is_active=True)
         .select_related("user")[:RATING_MAX_ROWS]
     )
-    profiles.sort(key=lambda p: (
-        _REGION_ORDER.get(p.user.region, len(_REGION_ORDER)),
-        (p.full_name or p.user.username).casefold(),
-        p.user_id,
-    ))
+    profiles.sort(key=lambda p: (_name_sort_key(p.full_name or p.user.username), p.user_id))
     return profiles
 
 
@@ -703,7 +714,7 @@ def create_event_view(request):
             return redirect("admin_panel")
     else:
         form = EventForm()
-    return render(request, "myapp/task_form.html", {"form": form, "title": "Новая акция"})
+    return render(request, "myapp/task_form.html", {"form": form, "title": "Новая акция", "title_i18n": "form.title_new_event"})
 
 
 @role_required("admin", "curator")
@@ -719,7 +730,7 @@ def broadcast_view(request):
             return redirect("admin_panel")
     else:
         form = BroadcastForm()
-    return render(request, "myapp/task_form.html", {"form": form, "title": "Рассылка волонтерам"})
+    return render(request, "myapp/task_form.html", {"form": form, "title": "Рассылка волонтерам", "title_i18n": "form.title_broadcast"})
 
 
 @login_required
@@ -1041,7 +1052,9 @@ def task_route_view(request, pk):
     """Volunteer -> client navigation data for one task: an OSRM route (or a
     graceful fallback) between the volunteer's current position and the
     task's location, with turn-by-turn steps, ETA and navigator deep links
-    (``myapp/services/routing.py``). ``?profile=driving|walking``.
+    (``myapp/services/routing.py``). ``?profile=driving|walking`` and
+    ``?preference=fastest|shortest`` (default: fastest by car, shortest on
+    foot); up to 3 alternative routes in ``routes``.
     Read-only; never assigns or changes anything.
 
     Origin, first available: ``live`` — the assigned volunteer's own browser
@@ -1100,7 +1113,10 @@ def task_route_view(request, pk):
         origin_lat, origin_lng = float(profile.latitude), float(profile.longitude)
 
     destination = (float(task.latitude), float(task.longitude))
-    result = dict(routing.route((origin_lat, origin_lng), destination, profile=profile_name, steps=True))
+    result = dict(routing.route(
+        (origin_lat, origin_lng), destination, profile=profile_name, steps=True,
+        preference=request.GET.get("preference"), alternatives=True,
+    ))
     result.setdefault("profile", profile_name)
     result["origin"] = {"lat": origin_lat, "lng": origin_lng, "source": origin_source}
     result["destination"] = {"lat": destination[0], "lng": destination[1]}
@@ -1669,7 +1685,7 @@ def pet_report_create_view(request):
             return redirect("pet_report_detail", pk=report.pk)
     else:
         form = PetReportForm()
-    return render(request, "myapp/pet_form.html", {"form": form, "title": "Новое объявление о животном"})
+    return render(request, "myapp/pet_form.html", {"form": form, "title": "Новое объявление о животном", "title_i18n": "form.title_new_pet"})
 
 
 @login_required
@@ -1729,7 +1745,7 @@ def pet_report_edit_view(request, pk):
     else:
         form = PetReportForm(instance=report)
     return render(request, "myapp/pet_form.html", {
-        "form": form, "title": "Изменить объявление", "editing": True, "report": report,
+        "form": form, "title": "Изменить объявление", "title_i18n": "form.title_edit_pet", "editing": True, "report": report,
     })
 
 

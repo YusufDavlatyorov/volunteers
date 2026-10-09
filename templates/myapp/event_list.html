@@ -3,7 +3,7 @@
 {% block content %}
 <section class="section section-xl">
     {% url 'create_event' as create_event_url %}
-    {% include "partials/_page_header.html" with title="Events" title_i18n="events.title" lede="Volunteer actions and community events across the regions." action_url=create_event_url action_label="Create Event" action_i18n="admin.create_event" %}
+    {% include "partials/_page_header.html" with title="Events" title_i18n="events.title" lede="Volunteer actions and community events across the regions." lede_i18n="events.lede" action_url=create_event_url action_label="Create Event" action_i18n="admin.create_event" %}
 
     <div class="section-head"><h2 data-i18n="events.upcoming">Upcoming Events</h2></div>
     {% if upcoming_events %}

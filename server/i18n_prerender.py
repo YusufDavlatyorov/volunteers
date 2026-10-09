@@ -6,7 +6,9 @@ crawler or no-JS visitor receives used to be English. This middleware fills
 every plain-text `data-i18n` element (and `data-i18n-ph` placeholder) with the
 settings.SERVER_RENDER_LANGUAGE string from that same i18n.js table — one
 source of truth, no second copy of the translations. i18n.js still runs after
-load and switches to the visitor's chosen language as before.
+load and switches to the visitor's chosen language as before. Attribute keys
+are filled the same way: data-i18n-ph → placeholder, data-i18n-title → title,
+data-i18n-alt → alt, data-i18n-aria → aria-label (on any tag).
 
 Only elements whose content is plain text are rewritten; i18n.js replaces
 `textContent` anyway, so an element with nested markup is never a translation
@@ -34,10 +36,15 @@ _ELEMENT = re.compile(
 )
 # Double- or single-quoted (templates use both: data-i18n-args='{"date": …}').
 _ARGS = re.compile(r"""\sdata-i18n-args=(?:"([^"]*)"|'([^']*)')""")
-# <input|textarea … data-i18n-ph="key" …>
-_PH_TAG = re.compile(r'<(?:input|textarea)\b[^>]*\sdata-i18n-ph="([^"]+)"[^>]*>')
-_PH_ATTR = re.compile(r'(\splaceholder=")[^"]*(")')
+# <tag … data-i18n-ph|title|alt|aria="key" …> → the matching attribute.
+_ATTR_KEYS = {"ph": "placeholder", "title": "title", "alt": "alt", "aria": "aria-label"}
+_ATTR_TAG = re.compile(r'<[a-zA-Z][a-zA-Z0-9]*\b[^>]*\sdata-i18n-(?:ph|title|alt|aria)="[^"]+"[^>]*>')
+_ATTR_KEY = re.compile(r'\sdata-i18n-(ph|title|alt|aria)="([^"]+)"')
 _PLACEHOLDER = re.compile(r"\{(\w+)\}")
+# Inline <script>/<style> bodies are code, not markup: a data-i18n element inside
+# a JS template string must keep its expression (it was being replaced with the
+# Russian text, hardcoding one language into the script).
+_RAW_BLOCK = re.compile(r"(<(script|style)\b[^>]*>.*?</\2\s*>)", re.S | re.I)
 
 
 def _parse(source):
@@ -96,14 +103,27 @@ def render_html(document, lang):
         text = _interpolate(table[key], (args.group(1) if args.group(1) is not None else args.group(2)) if args else None)
         return f"{open_tag}{escape(text)}{close_tag}"
 
-    def placeholder(match):
-        tag, key = match.group(0), match.group(1)
-        if key not in table or not _PH_ATTR.search(tag):
-            return tag
-        return _PH_ATTR.sub(lambda m: f"{m.group(1)}{escape(table[key])}{m.group(2)}", tag, count=1)
+    def attributes(match):
+        tag = match.group(0)
+        args = _ARGS.search(tag)
+        args = (args.group(1) if args.group(1) is not None else args.group(2)) if args else None
+        for kind, key in _ATTR_KEY.findall(tag):
+            if key not in table:
+                continue
+            target = re.compile(rf'(\s{_ATTR_KEYS[kind]}=")[^"]*(")')
+            text = escape(_interpolate(table[key], args))
+            tag = target.sub(lambda m: f"{m.group(1)}{text}{m.group(2)}", tag, count=1)
+        return tag
 
-    document = _ELEMENT.sub(element, document)
-    return _PH_TAG.sub(placeholder, document)
+    def markup(chunk):
+        return _ATTR_TAG.sub(attributes, _ELEMENT.sub(element, chunk))
+
+    # Even indexes are markup, odd ones the raw <script>/<style> blocks (kept as is).
+    parts = _RAW_BLOCK.split(document)
+    return "".join(
+        markup(part) if i % 3 == 0 else (part if i % 3 == 1 else "")
+        for i, part in enumerate(parts)
+    )
 
 
 class ServerSideI18nMiddleware:

@@ -3,9 +3,9 @@
 {% block content %}
 <section class="section section-xl">
     {% if role == "volunteer" %}
-        {% include "partials/_page_header.html" with title="Volunteers" title_i18n="people.volunteers_title" lede="Everyone helping across the five regions." %}
+        {% include "partials/_page_header.html" with title="Volunteers" title_i18n="people.volunteers_title" lede="Everyone helping across the five regions." lede_i18n="people.volunteers_lede" %}
     {% elif role == "client" %}
-        {% include "partials/_page_header.html" with title="Clients" title_i18n="people.clients_title" lede="People who have asked for help." %}
+        {% include "partials/_page_header.html" with title="Clients" title_i18n="people.clients_title" lede="People who have asked for help." lede_i18n="people.clients_lede" %}
     {% else %}
         {% include "partials/_page_header.html" with title="Curators" title_i18n="people.curators_title" %}
     {% endif %}
@@ -34,7 +34,7 @@
             <select id="peopleRegion" name="region" class="control">
                 <option value="" data-i18n="va.all_regions">All regions</option>
                 {% for value, label in region_choices %}
-                    <option value="{{ value }}" {% if region_filter == value %}selected{% endif %}>{{ label }}</option>
+                    <option value="{{ value }}" data-i18n="region.{{ value }}" {% if region_filter == value %}selected{% endif %}>{{ label }}</option>
                 {% endfor %}
                 <option value="away" data-i18n="availability.away" {% if availability_filter == "away" %}selected{% endif %}>Не беспокоить</option>
             </select>
