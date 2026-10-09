@@ -274,18 +274,41 @@ Business logic that needs to be unit-testable without the ORM or network lives h
   haversine-distance fallback, so a broken routing provider degrades gracefully instead of 500ing
   a view. Its import surface is test-locked — don't change it; call `maps.py` from new code.
 - **`maps.py`** — provider-agnostic facade over everything the product needs from a "maps API":
-  `tile_layer()` (Leaflet config), `route()` (delegates to `geo.get_route`), `geocode(query,
+  `vector_style()` (the MapLibre vector style: `MAPS_VECTOR_STYLE` = `openfreemap` default/keyless,
+  `maptiler` + `MAPTILER_API_KEY` (browser-side key by design), `off`), `tile_layer()` (raster
+  config — the maps' fallback style), `route()` (OSRM via `geo.get_route`, or **OpenRouteService**
+  when `ORS_API_KEY` is set / `ROUTING_PROVIDER=ors` — `routing_provider()`; ORS is called only
+  server-side with the key in a header, its steps are mapped onto OSRM maneuver codes, and
+  `manage.py test` blanks the key — and `NOMINATIM_BASE_URL` (geocoding off; geocoding tests
+  opt in with `override_settings`), so **no test reaches the network**; **walking always goes to ORS `foot-walking` when a key exists**,
+  else to `OSRM_FOOT_BASE_URL` — default FOSSGIS' foot server, because
+  `router.project-osrm.org` is car-only and silently answers "foot" with the car route).
+  `route(..., preference="fastest"|"shortest", alternatives=True)`: ORS `preference` +
+  `alternative_routes` (retried without alternatives on ORS error 2004); on OSRM, `alternatives=3`
+  and the pick by distance/time. Results carry `routes` (≤3, preferred first) and, on failure,
+  `reason` (`no_route`/`too_far`/`unavailable`/`not_configured`); walking > `WALKING_MAX_KM`
+  (40 km straight line) is never requested. `routing.cache_key` includes profile + preference +
+  alternatives. The task page draws the chosen variant blue (dashed on foot), the others grey and
+  clickable (`gc-route-alt`); `geocode(query,
   region=)` → `(lat, lng)|None`, `reverse_geocode()`, `provider_name()`. Switching providers is
   one `.env` change (`MAPS_PROVIDER`: `osm` default/keyless, `carto` keyless, `mapbox` raster +
   `MAPS_API_KEY`, `google` raises — needs the JS SDK). Same discipline as `geo.py`: pure I/O, never
   raises for an expected failure. **New map/route/geocode code calls `maps.*`, not `geo.*` directly.**
-  `tile_layer()` also returns a keyless CARTO `fallback`: `static/js/map.js` `tileLayer()` switches
-  to it after repeated tile errors (e.g. OSM's 403 "Access blocked"), then shows a localized
-  `.map-error` (`map.error_load`) if that fails too. OSM is the single host
+  `tile_layer()` also returns a keyless CARTO `fallback`: `static/js/map.js` `createMap()` walks
+  vector style → raster `tile_layer()` → CARTO after repeated errors (e.g. OSM's 403 "Access
+  blocked"), then shows a localized `.map-error` (`map.error_load`) if that fails too. OSM is the single host
   `tile.openstreetmap.org` and **needs a Referer** — hence `SECURE_REFERRER_POLICY =
-  "strict-origin-when-cross-origin"` (Django's default `same-origin` sent none). Leaflet loads via
-  `partials/_leaflet_css.html` / `_leaflet_js.html`: unpkg (SRI) first, then the identical
-  `static/vendor/leaflet-1.9.4/` copy only if unpkg fails for that visitor.
+  "strict-origin-when-cross-origin"` (Django's default `same-origin` sent none). The maps are
+  **MapLibre GL 5** (v6 is ESM-only — stay on the UMD 5.x line), loaded via
+  `partials/_maplibre_css.html` / `_maplibre_js.html`: unpkg (SRI) first, then the identical
+  `static/vendor/maplibre-gl-5.24.0/` copy (sourceMappingURL stripped) only if unpkg fails.
+  3D buildings = the style's `building` fill-extrusion (OpenMapTiles `render_height`), 2D/3D
+  toggle remembered in `localStorage['gc-map-3d']`. The route line is two GeoJSON line layers
+  added with `beforeId` = the first building layer (never over a house), blue `#2A3BA5` + white
+  casing; a failed road route draws **no** line — task-route.js shows `route.road_unavailable`.
+  Every map container is `.gc-map` (`position: relative; z-index: 0; isolation: isolate`) under
+  the `.topbar` (`z-index: 1000`) — test-locked in `myapp/tests_map3d.py`. Marker roots must not
+  get a CSS `position` (MapLibre positions them absolutely).
 - **`matching.py`** — two directions, one algorithm. `recommend_volunteers(task)`: deterministic,
   explainable 0–100 scoring (distance/availability/workload/region/**skills**/freshness, urgent
   tasks weight distance higher) for admin/curator dispatch. `recommend_tasks(volunteer)`: the
@@ -374,6 +397,37 @@ Business logic that needs to be unit-testable without the ORM or network lives h
   `/status`), all `@login_required`; state-changing routes are `@require_POST`. Pet markers ride
   the shared `map_data_view` (`kind: "pet"`); `PetReportAdmin` keeps `status` read-only so the
   transition rules aren't bypassed.
+- **`activity.py`** — the GitHub-style activity calendar (own profile + CRM volunteer card;
+  **volunteers and clients only**, `shows_calendar`). Counted from existing rows, no model:
+  volunteer accepted / completed (status completed) / photo report / donation `received_at` and
+  `distributed_at` (two actions); client created request (cancelled too) / review (hidden too);
+  both: donation offer, pet report. One `TruncDate(tzinfo=Asia/Dushanbe)` + `Count` query per kind
+  (query count fixed per role — test-locked in `myapp/tests_activity.py`), 365 days incl. today,
+  Monday-first 53×7 grid, levels = quartiles of the user's own max, cached 10 min per user+day.
+  Russian is rendered server-side from the i18n.js table (`translation_table`); `static/js/activity.js`
+  re-labels with `Intl.PluralRules` (`act.count.*` / `act.total.*` exist in every form in all three
+  languages — Tajik uses the same text for each).
+- **`analytics_v2.py`** — the CRM analytics page (`/myapp/crm/analytics/`, admin + curator;
+  views in `myapp/views_analytics.py`). **`parse_filters(request.GET)` is the one place the
+  filters are read** — every KPI, chart, CSV link and the heatmap gets the same `Filters`:
+  `?period=7d|30d|3m|1y|custom` (default 30d; `from`/`to` only for custom) `&region=`; days
+  are Asia/Dushanbe days, `to` includes its whole day; invalid input (bad token, from > to, a
+  future date) → the last 30 days + `Filters.error` (the page shows `an.err.url`), never a 500;
+  old `?days=` links still work. `Filters.previous()` = the same-length period right before.
+  The panel's JS (`static/js/analytics-filters.js`) only enables/validates the fields and builds
+  the URL. `UI_STRINGS` there mirrors the `an.*` keys of i18n.js (test-locked).
+  Card headers: `headlines(f)` = each chart's period number (read from the same cached chart
+  dicts) + % change vs `f.previous()` (`None` → "—" when the previous period is empty, never
+  "+∞%"; `availability` is live → "current state"; `UP_IS_BAD` charts turn red when they grow).
+  How a card draws is `DISPLAY` in `views_analytics.py` (line / bars / rank = horizontal sorted /
+  stack / "share" = doughnut ≤ 5 slices else rank); box heights + the empty state are server-rendered.
+- **Chart look = `static/js/charts-theme.js` (`GCChartTheme`)** — the one place for the palette
+  (primary `#2A3BA5`, accent `#F2A23A`, teal/rose/slate, stepped in lightness; lighter in dark),
+  `ENTITY` (one meaning = one colour on every chart: completed teal, emergency rose, …), fonts,
+  horizontal-only grid, HTML tooltip, legend, number/date formatting (month names from i18n.js
+  `act.m*`/`act.mg*`) and the doughnut-total / bar-value plugins. Page scripts never set colours
+  (test-locked in `myapp/tests_charts.py`); the dashboard sparkline CSS and the heatmap ramp
+  (= activity calendar scale) mirror it, also test-locked.
 - **`telegram_link.py`** — `redeem_link_code`, the verified-round-trip consumer for Telegram
   account binding (see **Telegram account linking**).
 
@@ -628,7 +682,7 @@ if they need to support all three languages. Server-rendered form errors follow 
 password-validator codes + `password_mismatch`) to an `err.*` i18n key plus `data-i18n-args`
 (`{placeholder}` interpolation in `setLanguage`), used by `partials/_field.html` / `_form.html`
 and `accounts/register.html` — so forms must re-raise `exc.error_list`, **not** `exc.messages`,
-or the codes are lost. `static/js/map.js` drives the Leaflet map view
+or the codes are lost. `static/js/map.js` drives the MapLibre GL map views
 (`GCMap`; `createOpsMap()` is the interactive split-view operations controller).
 
 A UI harmonization pass added reusable includes —
@@ -662,7 +716,7 @@ Stage 9 polish conventions (in `style.css`):
   Consequence: **collectstatic must run before the app (re)starts** — `deploy/deploy.sh` runs it
   (before migrate) and only then restarts the units; a missing static file referenced by
   a template raises under the manifest, so add new static files to the repo, not just to prod.
-- **Fonts (Google Fonts, `preconnect` + `display=swap`) and Leaflet (unpkg, SRI) stay on their
+- **Fonts (Google Fonts, `preconnect` + `display=swap`) and MapLibre GL (unpkg, SRI) stay on their
   CDNs on purpose** — measured 2026-09-30 they reach visitors 5–12× faster than this origin's
   uplink (~8–13 KB/s vs 46–156 KB/s); self-hosting them was tried and made first paint slower.
   Don't move them onto the origin (or add font preloads) unless the origin's bandwidth changes

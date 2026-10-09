@@ -110,6 +110,8 @@ fresh checkout boots; replace it with a real key.
 | `GROQ_MODEL` / `GROQ_ASSISTANT_MODEL` | Groq model IDs (fallback / primary tool-calling model) — verify against `GET /openai/v1/models` before changing, don't guess | `openai/gpt-oss-20b` / `qwen/qwen3.8-27b` |
 | `TELEGRAM_BOT_TOKEN` | Telegram bot token | Telegram features disabled |
 | `OSRM_BASE_URL`, `NOMINATIM_USER_AGENT` | Routing / geocoding for the `osm` maps provider | public demo endpoints (rate-limited, not for production) |
+| `ORS_API_KEY`, `ROUTING_PROVIDER` | Road routing (car + on foot) via OpenRouteService, called only from the server; with a key set it replaces OSRM | blank → OSRM |
+| `MAPS_VECTOR_STYLE`, `MAPTILER_API_KEY` | Vector basemap for the MapLibre maps (3D buildings): `openfreemap` (keyless) / `maptiler` / `off` | `openfreemap` |
 | `INITIAL_ADMIN_EMAIL` / `_PASSWORD` / `_USERNAME` (and `_CURATOR_`, `_VOLUNTEER_`, `_CLIENT_`) | The 4 initial production accounts, see "Initial production accounts" below | none — required only when running `create_initial_production_accounts` |
 
 > **Never commit your real `.env`.** It is already listed in `.gitignore`.
