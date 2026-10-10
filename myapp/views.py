@@ -1,6 +1,7 @@
 import json
 import logging
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
@@ -13,7 +14,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
-from accounts.models import RATING_CACHE_KEY, Profile, REGION_CHOICES, Users
+from accounts.models import Profile, REGION_CHOICES, Users
 from .forms import (
     BroadcastForm,
     DonationForm,
@@ -46,7 +47,7 @@ from .notifications import staff_recipients, volunteer_queryset_for_region
 from .realtime import publish
 from .services import achievements, activity, cancellation, chat, community, feedback, presence, task_actions, tracking
 from .services.notify import notify
-from .services import access, analytics, dispatch, donations, emergency, images, maps, overdue, pets, stale
+from .services import access, analytics, dispatch, donations, emergency, images, landing, maps, overdue, pets, rating, stale
 from .services.ai import build_user_context, confirm_action, run_conversation
 from .services.ai import actions as ai_actions
 from .services.ai.prompts import detect_lang
@@ -90,32 +91,26 @@ def home_view(request):
     return about_view(request)
 
 
-ABOUT_STATS_CACHE_KEY = "about_stats:v1"
-ABOUT_STATS_TTL = 300  # seconds — public landing-page numbers, fine to be a few minutes old
-
-
-def _about_stats():
-    counts = Users.objects.filter(is_active=True).aggregate(
-        volunteers=Count("id", filter=Q(is_volunteer=True)),
-        clients=Count("id", filter=Q(is_client=True)),
-    )
-    return {
-        **counts,
-        "completed": HelpRequest.objects.filter(status="completed").count(),
-        "regions": Users.objects.exclude(region="").values("region").distinct().count(),
-    }
+# The six "how we can help" cards of the About page → HelpRequest.help_type
+# (the card link pre-selects it on the request form).
+ABOUT_HELP_TYPES = ["grocery", "medical", "transport", "household", "emotional", "other"]
 
 
 def about_view(request):
-    # The most-visited page (also "/"): its aggregates come from the shared
-    # cache (DB cache in production) instead of four COUNTs per hit.
-    stats = cache.get_or_set(ABOUT_STATS_CACHE_KEY, _about_stats, ABOUT_STATS_TTL)
-    reports = PhotoReport.objects.select_related("author").all()[:6]
-    return render(
-        request,
-        "myapp/about.html",
-        {"stats": stats, "reports": reports},
-    )
+    # The most-visited page (also "/"): every number, volunteer and quote comes
+    # from the database through one shared cache entry (services/landing.py),
+    # so a hit runs no queries.
+    data = landing.page_data()
+    stats = data["stats"]
+    last = stats["last_completed"]
+    bot_username = (getattr(settings, "TELEGRAM_BOT_USERNAME", "") or "").strip().lstrip("@")
+    return render(request, "myapp/about.html", {
+        **data,
+        "hero_quote": landing.hero_quote(data["testimonials"]),
+        "last_completed_ago": landing.ago(last["completed_at"]) if last else None,
+        "help_types": ABOUT_HELP_TYPES,
+        "telegram_bot_username": bot_username,
+    })
 
 
 @login_required
@@ -556,7 +551,10 @@ def create_request_view(request):
             messages.success(request, "Запрос создан. Волонтеры вашего региона получили уведомление.")
             return redirect("profile")
     else:
-        form = HelpRequestForm()
+        # ?help_type=<key> (the About page's help cards) pre-selects the type.
+        help_type = request.GET.get("help_type", "")
+        valid = {key for key, _label in HelpRequest._meta.get_field("help_type").choices}
+        form = HelpRequestForm(initial={"help_type": help_type} if help_type in valid else None)
     return render(request, "myapp/task_form.html", {"form": form, "title": "Создать запрос", "title_i18n": "form.title_create_request"})
 
 
@@ -569,40 +567,13 @@ def completed_tasks_view(request):
     return render(request, "myapp/completed_tasks.html", {"page_obj": page_obj})
 
 
-RATING_TTL = 300  # seconds; Profile.add_points() / review stats clear it at once
 RATING_PAGE_SIZE = 30
-RATING_MAX_ROWS = 2000  # response-size bound, like the map caps
-# Russian + Tajik Cyrillic in alphabet order (ё after е, ғ after г, ӣ after и,
-# қ after к, ӯ after у, ҳ after х, ҷ after ч). Code-point order would put ё and
-# every Tajik letter after я.
-_CYRILLIC_ALPHABET = {ch: i for i, ch in enumerate("абвгғдеёжзиӣйкқлмнопрстуӯфхҳчҷшщъыьэюя")}
-
-
-def _name_sort_key(name):
-    # Latin (and digits) first in code-point order, then Cyrillic by alphabet.
-    return tuple(
-        (1, _CYRILLIC_ALPHABET[ch]) if ch in _CYRILLIC_ALPHABET else (0, ord(ch))
-        for ch in name.casefold()
-    )
-
-
-def _rating_volunteers():
-    """Every active volunteer in one shared list (no grouping by region — the
-    region is shown as small text on each row), by name — no places, no points
-    (owner decision 2026-10-03: helping is not a contest; reconfirmed
-    2026-10-09). Names are sorted in Python: SQLite's lower() is ASCII-only, so
-    a DB-side sort would misplace Cyrillic / Tajik names."""
-    profiles = list(
-        Profile.objects.filter(user__is_volunteer=True, user__is_active=True)
-        .select_related("user")[:RATING_MAX_ROWS]
-    )
-    profiles.sort(key=lambda p: (_name_sort_key(p.full_name or p.user.username), p.user_id))
-    return profiles
 
 
 def rating_view(request):
-    # Public page: the list comes from the shared cache (Redis in prod).
-    volunteers = cache.get_or_set(RATING_CACHE_KEY, _rating_volunteers, RATING_TTL)
+    # Public page: the list comes from the shared cache (Redis in prod) —
+    # services/rating.py, the same list as the About page's volunteers block.
+    volunteers = rating.cached_rating_profiles()
     page_obj = Paginator(volunteers, RATING_PAGE_SIZE).get_page(request.GET.get("page"))
     # Up to 3 earned badges per card (one query) — the badge only, no counts.
     badges = achievements.top_badges([p.user_id for p in page_obj])

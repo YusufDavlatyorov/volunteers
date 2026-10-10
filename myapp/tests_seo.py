@@ -204,10 +204,10 @@ class PublicPageHeadTests(TestCase):
         html = self.client.get("/").content.decode()
         h1s = re.findall(r"<h1\b.*?</h1>", html, re.S)
         self.assertEqual(len(h1s), 1)
-        self.assertIn("KhayrKhoh", h1s[0])
+        self.assertIn("Хайрхоҳ", h1s[0])  # the brand (KhayrKhoh in the EN table)
         # i18n.js text is pre-rendered in Russian, not the English fallback
-        self.assertIn("Помоги.", h1s[0])
-        self.assertNotIn("Change lives", html)
+        self.assertIn("добро рядом", h1s[0])
+        self.assertNotIn("kindness close by", html)
 
     def test_signed_in_home_redirects_to_dashboard(self):
         Users.objects.create_user(username="seo_user", email="seo@example.com", password="Volunteer2026!", is_client=True)

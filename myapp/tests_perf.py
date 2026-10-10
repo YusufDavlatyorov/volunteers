@@ -28,9 +28,10 @@ class ThirdPartyAssetsTests(TestCase):
         for url in ("/", "/myapp/about/", "/login/", "/register/", "/myapp/rating/"):
             hosts = set(EXTERNAL_URL.findall(self.client.get(url).content.decode()))
             hosts.discard("khayrkhoh.tj")
+            hosts.discard("t.me")  # a link to the Telegram bot (About page), not a loaded asset
             with self.subTest(url=url):
                 self.assertLessEqual(hosts, ALLOWED_THIRD_PARTY)
-                self.assertNotIn("unpkg.com", hosts)  # MapLibre only on map pages
+                self.assertNotIn("unpkg.com", hosts)  # map pages only; About loads it lazily from about.js
 
     def test_fonts_preconnect_and_swap(self):
         html = self.client.get("/").content.decode()
@@ -48,18 +49,15 @@ class ThirdPartyAssetsTests(TestCase):
 
 
 class ResponsiveImagesTests(TestCase):
-    def test_landing_photos_are_webp_srcset_with_jpeg_fallback(self):
+    def test_landing_photo_is_webp_srcset_with_jpeg_fallback(self):
         html = self.client.get("/").content.decode()
-        for cls, base in (("volunteers-photo", "images/volunteers/volunteers-team-"), ("regions-photo", "images/tajikistan/mountains-")):
-            with self.subTest(cls=cls):
-                block =re.search(r"<picture>((?:(?!</picture>).)*class=\"" + cls + r"\".*?)</picture>", html, re.S).group(1)
-                self.assertIn('type="image/webp"', block)
-                self.assertIn(base, block)
-                self.assertRegex(block, r'srcset="[^"]*\.webp 480w|srcset="[^"]*\.webp 640w')
-                img = re.search(r"<img[^>]*class=\"" + cls + r"\"[^>]*>", block).group(0)
-                for attr in ('width="', 'height="', 'loading="lazy"', "sizes=", 'src="/static/' + base):
-                    self.assertIn(attr, img)
-        for f in ["images/volunteers/volunteers-team-640.webp", "images/tajikistan/mountains-480.webp"]:
+        block = re.search(r"<picture>((?:(?!</picture>).)*class=\"ab-photo__img\".*?)</picture>", html, re.S).group(1)
+        self.assertIn('type="image/webp"', block)
+        self.assertRegex(block, r'srcset="[^"]*hero-volunteer-480\.webp 480w')
+        img = re.search(r'<img[^>]*class="ab-photo__img"[^>]*>', block).group(0)
+        for attr in ('width="', 'height="', "sizes=", 'src="/static/images/about/hero-volunteer-960.jpg"'):
+            self.assertIn(attr, img)
+        for f in ["images/about/hero-volunteer-480.webp", "images/about/hero-volunteer-960.jpg"]:
             self.assertIsNotNone(finders.find(f), f)
 
 
@@ -75,7 +73,7 @@ class LandingStatsCacheTests(TestCase):
         with CaptureQueriesContext(connection) as ctx:
             response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
-        self.assertLessEqual(len(ctx.captured_queries), 1)  # only the photo-report list
+        self.assertEqual(len(ctx.captured_queries), 0)  # the whole page payload is one cache entry
 
 
 class QueryCountDoesNotGrowTests(TestCase):

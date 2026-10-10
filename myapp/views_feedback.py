@@ -6,8 +6,10 @@ All rules live in ``myapp/services/feedback.py``; these are thin transports.
                                          within REVIEW_EDIT_HOURS, then read-only);
                                          staff and the reviewed volunteer: read-only
     POST     /myapp/reviews/<id>/hide/   staff hide (action=hide) / unhide (action=unhide)
+    POST     /myapp/reviews/<id>/publish/ staff mark "can be published on the site"
+                                         (action=publish) / withdraw it (action=unpublish)
     GET      /myapp/reviews/mine/        the volunteer's own reviews (with comments)
-    GET      /myapp/crm/reviews/         staff list (?low=1, ?hidden=1|0), paginated
+    GET      /myapp/crm/reviews/         staff list (?low=1, ?hidden=1|0, ?published=1), paginated
 """
 
 import logging
@@ -119,12 +121,36 @@ def review_hide_view(request, pk):
         outcome = feedback.hide(request.user, review)
         if outcome.code == feedback.OK:
             messages.success(request, "Отзыв скрыт.")
+    return _back(request)
+
+
+def _back(request):
     next_url = request.POST.get("next", "")
     if next_url.startswith("/") and url_has_allowed_host_and_scheme(
         next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure()
     ):
         return redirect(next_url)
     return redirect("crm_reviews")
+
+
+@login_required
+@role_required("admin", "curator")
+@require_POST
+def review_publish_view(request, pk):
+    """Curator/admin: the review may (action=publish) / may no longer
+    (action=unpublish) appear on the public About page."""
+    review = get_object_or_404(TaskReview, pk=pk)
+    if request.POST.get("action") == "unpublish":
+        outcome = feedback.unpublish(request.user, review)
+        if outcome.code == feedback.OK:
+            messages.success(request, "Отзыв убран с сайта.")
+    else:
+        outcome = feedback.publish(request.user, review)
+        if outcome.code == feedback.OK:
+            messages.success(request, "Отзыв будет показан на странице «О нас».")
+        elif outcome.code == feedback.FORBIDDEN:
+            messages.error(request, "Опубликовать можно только видимый отзыв с текстом.")
+    return _back(request)
 
 
 @login_required
@@ -143,21 +169,25 @@ def my_reviews_view(request):
 @role_required("admin", "curator")
 def crm_reviews_view(request):
     low = request.GET.get("low") == "1"
+    published = request.GET.get("published") == "1"
     hidden_param = request.GET.get("hidden")
     hidden = {"1": True, "0": False}.get(hidden_param)
     volunteer_param = request.GET.get("volunteer", "")
     volunteer_id = int(volunteer_param) if volunteer_param.isdigit() else None
-    qs = feedback.staff_reviews(low=low, hidden=hidden, volunteer_id=volunteer_id)
+    qs = feedback.staff_reviews(low=low, hidden=hidden, volunteer_id=volunteer_id, published=published)
     page_obj = Paginator(qs, CRM_REVIEWS_PAGE_SIZE).get_page(request.GET.get("page"))
 
     params = [f"volunteer={volunteer_id}"] if volunteer_id else []
     if low:
         params.append("low=1")
+    if published:
+        params.append("published=1")
     if hidden is not None:
         params.append(f"hidden={hidden_param}")
     return render(request, "myapp/reviews/crm_reviews.html", {
         "page_obj": page_obj,
         "low_filter": low,
+        "published_filter": published,
         "hidden_filter": hidden_param if hidden is not None else "",
         "querystring": "&".join(params),
         "low_stars": feedback.LOW_STARS,

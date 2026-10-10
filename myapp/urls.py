@@ -161,12 +161,13 @@ urlpatterns = [
 ]
 
 # Client reviews (Feature Pack v2, feature 9) — myapp/views_feedback.py
-from .views_feedback import crm_reviews_view, my_reviews_view, review_hide_view, task_review_view  # noqa: E402
+from .views_feedback import crm_reviews_view, my_reviews_view, review_hide_view, review_publish_view, task_review_view  # noqa: E402
 
 urlpatterns += [
     path('tasks/<int:pk>/review/', task_review_view, name='task_review'),
     path('reviews/mine/', my_reviews_view, name='my_reviews'),
     path('reviews/<int:pk>/hide/', review_hide_view, name='review_hide'),
+    path('reviews/<int:pk>/publish/', review_publish_view, name='review_publish'),
     path('crm/reviews/', crm_reviews_view, name='crm_reviews'),
 ]
 

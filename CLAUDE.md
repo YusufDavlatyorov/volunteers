@@ -209,8 +209,8 @@ A hardening pass added a cross-cutting layer that is easy to regress — keep it
   goes through `services/images.py::clean_original()` before it is stored — decoded (a non-image is
   rejected), re-encoded without EXIF/GPS/XMP, downscaled to `MAX_ORIGINAL_SIDE` = 2560 px on the long
   side (owner 2026-10-04; the backfill's in-place strip keeps old sizes), saved as `<uuid>.<ext>` (the user's file name can be
-  their real name; media URLs are public). Photo reports appear on the anonymous landing page, so a
-  phone original would publish where it was taken. Views: `update_profile`, `edit_profile_view`,
+  their real name; media URLs are public). Photo reports were public on the landing page until
+  2026-10-10 and stay viewable by every signed-in user, so a phone original would publish where it was taken. Views: `update_profile`, `edit_profile_view`,
   `photo_reports_view`, `pet_report_create/edit_view`; Django admin via
   `images.CleanImageAdminMixin`. Chat photos had this since milestone 3 (`chat.send_message`).
   After saving, `images.queue_variants(obj)` builds WebP `thumb` 320 / `medium` 960 in Celery
@@ -403,6 +403,8 @@ Business logic that needs to be unit-testable without the ORM or network lives h
   `/status`), all `@login_required`; state-changing routes are `@require_POST`. Pet markers ride
   the shared `map_data_view` (`kind: "pet"`); `PetReportAdmin` keeps `status` read-only so the
   transition rules aren't bypassed.
+- **`landing.py`** / **`rating.py`** — the About page payload (see **About page** under
+  Templates/static) and the one public volunteer list shared by the Rating page and About.
 - **`activity.py`** — the GitHub-style activity calendar (own profile + CRM volunteer card;
   **volunteers and clients only**, `shows_calendar`). Counted from existing rows, no model:
   volunteer accepted / completed (status completed) / photo report / donation `received_at` and
@@ -630,18 +632,11 @@ Production prep (2026-09) also added `STATIC_ROOT` (`server/settings.py`, requir
 sanctioned way to get accounts onto a production DB — `seed_demo` must never run there. This
 project has **no single `DATABASE_URL` variable** — PostgreSQL connection info stays as the
 discrete `DJANGO_DB_NAME` / `_USER` / `_PASSWORD` / `_HOST` / `_PORT` vars; don't introduce one
-without a concrete reason, it would duplicate the existing mechanism. The About Us hero video lives in
-`static/videos/` as four git-tracked, audio-less, seamless 4.3 s loops —
-`hero-loop-{mobile,desktop}.{webm,mp4}` (VP9 before H.264; mobile 480×264 via
-`<source media="(max-width: 768px)">`, desktop 640×352 = the native source resolution, **don't
-upscale**; MP4s faststart, keyframe every 2 s) — served via `{% asset %}` so nginx can cache
-`/static/videos/` as immutable. The `<video>` is `preload="metadata"` (only the few-KB header) with **no `autoplay` attribute**:
-the inline script after it enables preload + muted autoplay on `window` `load`, so the video never
-competes with the page's own resources on the slow uplink. The same script pauses it
-off-screen / in hidden tabs, honours `prefers-reduced-motion` (aborts the download, hides it) and
-toggles `.topbar--over-video` (no backdrop blur over a playing video). It used to be read from
-`media/videos/` via `default_storage.url()`, which is gitignored and would have been silently
-missing on a fresh production clone; don't move it back. See `DEPLOY.md` for the full command
+without a concrete reason, it would duplicate the existing mechanism. The About Us hero is a **photo**
+since the 2026-10-10 Stitch redesign (see **About page** under Templates/static); the old hero
+loops `static/videos/hero-loop-{mobile,desktop}.{webm,mp4}` are still in git (their file checks are
+`myapp/tests.py::HeroVideoFilesTests`) but no template plays them — owner to decide whether they
+go. See `DEPLOY.md` for the full command
 sequence and README → **Initial production accounts** /
 **Demo data — NEVER in production** for the account-bootstrap rules.
 
@@ -682,7 +677,8 @@ sequence and README → **Initial production accounts** /
 All templates extend `templates/base.html` (navbar, theme toggle, toast messages, language
 switcher). **One font**: Inter via `--font-sans` (body, headings, numbers, form controls, maps, Chart.js,
 Django admin via `templates/admin/base_site.html`); the only exception is the logo wordmark
-(`--font-brand`, Cormorant Garamond). Playfair is gone — never add a `font-family` other than these vars.
+(`--font-brand`, Cormorant Garamond) — and, on the About page only, the serif-italic accent words
+of headings (`.ab-serif`, same `--font-brand`). Playfair is gone — never add a `font-family` other than these vars.
 **Palette (2026-10-09)**: soft tints; brand blue `#2A3BA5` / orange `#F2A23A` (`--brand-blue`,
 `--brand-orange`) for accents and primary buttons only; dark theme = neutral dark greys (`#18191d`
 ground), no navy/black; `--danger-line` for soft alert borders; all text pairs ≥ 4.5:1. **Long text**:
@@ -725,8 +721,7 @@ Stage 9 polish conventions (in `style.css`):
 - **`<img width height>` needs `height: auto`** in its CSS class when the class sizes the image
   with `width: 100%` + `aspect-ratio` (`.volunteers-photo`, `.regions-photo`, `.report-img`):
   the attributes otherwise act as a fixed pixel height and stretch the image (the 2026-09-30
-  SEO regression). The landing `<h1>` starts with a `.visually-hidden` "KhayrKhoh — " (SEO) so the
-  hero looks unchanged.
+  SEO regression).
 - **CSS/JS go through `{% asset 'css/x.css' %}`** (`myapp/templatetags/assets.py`), not
   `{% static %}`: without the manifest it appends `?v=<content hash>`; with
   `DJANGO_STATIC_MANIFEST=True` (production `.env`) it returns the
@@ -742,8 +737,25 @@ Stage 9 polish conventions (in `style.css`):
   like the old expiring fbcdn photo hot-link — is self-hosted. Large photos are `<picture>` with
   WebP `srcset` + JPEG fallback resized to their display size (`picture { display: contents }`
   keeps the `<img>` laid out exactly as before).
-- **Landing-page aggregates are cached** (`about_view`: `ABOUT_STATS_CACHE_KEY`, 5 min, DB cache
-  in prod) — `/` and `/myapp/about/` run 1 query per hit.
+- **About page (Stitch redesign, 2026-10-10)** — `templates/myapp/about.html` after
+  `docs/design/stitch/about.html` (navbar/footer stay base.html's; no Tailwind: the mock's
+  tailwind-config is the `--ab-*` tokens at the top of `static/css/home.css`, scoped to
+  `.about-page`, light + `[data-theme="dark"]`; icons are inline SVG `myapp/about/_icon.html`, not the
+  Material Symbols font). Nine `data-section`s (hero, stats, how, help, regions, volunteers,
+  reviews, services, cta) + the location-privacy note (`#privacy`, test-locked). **Everything shown is
+  real data** from `services/landing.py` — one cache entry `ABOUT_CACHE_KEY` (5 min), so a hit runs
+  **0 queries**; empty data → empty states, never zeros or made-up figures (`myapp/tests_about.py`
+  forbids the mock's numbers / claims / phone / lh3 image URLs). The volunteers block is the first 4
+  of the Rating list (`services/rating.py`, same order, **no places** — owner 2026-10-10).
+  Testimonials = only reviews a curator/admin marked "can be published on the site"
+  (`TaskReview.published_at`, `feedback.publish/unpublish`, CRM `crm/reviews/` button + `?published=1`;
+  hiding the review or the client editing it withdraws the mark); none → the section is not rendered.
+  The regions map is the shared MapLibre map, loaded **lazily** by `static/js/about.js` when it nears
+  the viewport (unpkg+SRI, vendor fallback) — the landing HTML has no unpkg/map script. Strings are
+  `ab.*` in i18n.js (Tajik pending a native-speaker check); plural words use `data-plural` +
+  `about.js` (Intl.PluralRules), server side `about_ui.plural_ru`. Hero photo = placeholder
+  `static/images/about/hero-volunteer-{480,960}.{webp,jpg}` (replace in place, same names).
+  Help cards link to `create_request?help_type=<key>` (pre-selects the type) for clients.
 - **`.clamp-text`** (line-clamp, `--clamp` default 3) + `.card__more` (a "View full →" link,
   i18n key `common.view_full`) replace `|truncatechars` so a long description can't stretch a
   card.

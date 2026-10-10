@@ -12,8 +12,13 @@ The one path for leaving, editing, hiding and reading reviews
   ``review_received`` (volunteer, on create) and ``review_low`` (staff, once per
   review via a dedupe key, when stars <= ``LOW_STARS``).
 - ``hide`` / ``unhide`` — staff moderation; recompute the stats.
+- ``publish`` / ``unpublish`` — staff mark a review "can be published on the
+  site": the About page shows only such reviews (visible, with a comment) as
+  testimonials. Editing the comment, or hiding the review, withdraws the mark —
+  the coordinator approved *that* text, not whatever it says later.
 - ``public_summary`` — ``{"avg", "count"}`` only: the single shape any public
-  surface (rating page, client dashboard, cards) may show. Never comments.
+  surface (rating page, client dashboard, cards) may show. Never comments —
+  the one exception is a review staff explicitly published (``publish``).
 - ``reviews_for`` — comments, only to the reviewed volunteer and staff (hidden
   ones to staff only); per review, ``can_see_comment`` also keeps the comment
   of a 1–2 star review from the volunteer (coordinators only).
@@ -356,12 +361,21 @@ def _edit(client, review, stars, comment, tags) -> Outcome:
     old_stars = review.stars
     if (old_stars, review.comment, list(review.tags or [])) == (stars, comment, tags):
         return Outcome(True, NOT_CHANGED, review)
+    fields = ["stars", "comment", "tags", "updated_at"]
+    withdrawn = review.published_at is not None and (comment != review.comment or stars != old_stars)
+    if withdrawn:
+        # Staff approved the old text for the site, not the new one.
+        review.published_at, review.published_by = None, None
+        fields += ["published_at", "published_by"]
     review.stars, review.comment, review.tags = stars, comment, tags
-    review.save(update_fields=["stars", "comment", "tags", "updated_at"])
+    review.save(update_fields=fields)
     logger.info(
         "review edited review=%s task=%s client=%s stars=%s->%s",
         review.pk, review.task_id, client.pk, old_stars, stars,
     )
+    if withdrawn:
+        logger.info("review unpublished by edit review=%s task=%s", review.pk, review.task_id)
+        _landing_changed()
     if old_stars != stars:
         recompute_volunteer_stats(review.volunteer_id)
     # Newly dropped to a low rating: alert staff — the dedupe key makes sure a
@@ -390,14 +404,17 @@ def hide(staff, review) -> Outcome:
     if not is_staff_user(staff):
         return Outcome(False, FORBIDDEN, review)
     now = timezone.now()
+    # A hidden review is never on the site: the publish mark goes with it.
     changed = TaskReview.objects.filter(pk=review.pk, hidden_at__isnull=True).update(
-        hidden_at=now, hidden_by=staff
+        hidden_at=now, hidden_by=staff, published_at=None, published_by=None
     )
     if not changed:
         review.refresh_from_db()
         return Outcome(True, NOT_CHANGED, review)
     review.hidden_at, review.hidden_by = now, staff
+    review.published_at, review.published_by = None, None
     recompute_volunteer_stats(review.volunteer_id)
+    _landing_changed()
     logger.info("review hidden review=%s task=%s by=%s", review.pk, review.task_id, staff.pk)
     return Outcome(True, OK, review)
 
@@ -416,6 +433,53 @@ def unhide(staff, review) -> Outcome:
     logger.info("review unhidden review=%s task=%s by=%s", review.pk, review.task_id, staff.pk)
     _evaluate_badges(review)
     return Outcome(True, OK, review)
+
+
+def can_publish(review) -> bool:
+    """A review may go on the site only while it is visible and has a comment."""
+    return review.hidden_at is None and bool((review.comment or "").strip())
+
+
+def publish(staff, review) -> Outcome:
+    """Mark a review "can be published on the site" (staff only). Conditional
+    UPDATE — idempotent; refused (FORBIDDEN) for a hidden or comment-less review."""
+    if not is_staff_user(staff):
+        return Outcome(False, FORBIDDEN, review)
+    if not can_publish(review):
+        return Outcome(False, FORBIDDEN, review)
+    now = timezone.now()
+    changed = TaskReview.objects.filter(
+        pk=review.pk, published_at__isnull=True, hidden_at__isnull=True
+    ).exclude(comment="").update(published_at=now, published_by=staff)
+    if not changed:
+        review.refresh_from_db()
+        return Outcome(True, NOT_CHANGED, review)
+    review.published_at, review.published_by = now, staff
+    logger.info("review published review=%s task=%s by=%s", review.pk, review.task_id, staff.pk)
+    _landing_changed()
+    return Outcome(True, OK, review)
+
+
+def unpublish(staff, review) -> Outcome:
+    if not is_staff_user(staff):
+        return Outcome(False, FORBIDDEN, review)
+    changed = TaskReview.objects.filter(pk=review.pk, published_at__isnull=False).update(
+        published_at=None, published_by=None
+    )
+    if not changed:
+        review.refresh_from_db()
+        return Outcome(True, NOT_CHANGED, review)
+    review.published_at, review.published_by = None, None
+    logger.info("review unpublished review=%s task=%s by=%s", review.pk, review.task_id, staff.pk)
+    _landing_changed()
+    return Outcome(True, OK, review)
+
+
+def _landing_changed():
+    """The About page caches its testimonials; show a moderation change at once."""
+    from . import landing
+
+    landing.invalidate()
 
 
 # --------------------------------------------------------------------------- #
@@ -439,10 +503,11 @@ def reviews_for(viewer, volunteer, page=1, *, per_page=REVIEWS_PAGE_SIZE):
     return Paginator(qs, per_page).get_page(page)
 
 
-def staff_reviews(*, low=False, hidden=None, volunteer_id=None):
+def staff_reviews(*, low=False, hidden=None, volunteer_id=None, published=False):
     """The CRM list queryset. ``low`` → stars <= LOW_STARS; ``hidden`` True/False
     filters on moderation state, None = both; ``volunteer_id`` narrows to one
-    volunteer (the CRM volunteer page links here)."""
+    volunteer (the CRM volunteer page links here); ``published`` → only the
+    reviews marked for the site."""
     qs = TaskReview.objects.select_related("task", "client", "volunteer", "hidden_by").order_by(
         "-created_at", "-id"
     )
@@ -450,6 +515,8 @@ def staff_reviews(*, low=False, hidden=None, volunteer_id=None):
         qs = qs.filter(volunteer_id=volunteer_id)
     if low:
         qs = qs.filter(stars__lte=LOW_STARS)
+    if published:
+        qs = qs.filter(published_at__isnull=False)
     if hidden is True:
         qs = qs.filter(hidden_at__isnull=False)
     elif hidden is False:
