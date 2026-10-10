@@ -7,13 +7,11 @@
     {% include "partials/_page_header.html" with title="Reviews" title_i18n="review.crm_title" lede="Client ratings of completed requests. Hide abusive reviews — they stop counting in the average." lede_i18n="review.crm_lede" action_url=admin_panel_url action_label="Back to dashboard" action_i18n="crm.back_dashboard" action_class="ghost" %}
 
     <div class="tab-bar">
-        <a href="{% url 'crm_reviews' %}" {% if not low_filter and not hidden_filter and not published_filter %}aria-current="page"{% endif %} data-i18n="va.filter_all">All</a>
+        <a href="{% url 'crm_reviews' %}" {% if not low_filter and not hidden_filter %}aria-current="page"{% endif %} data-i18n="va.filter_all">All</a>
         <a href="{% url 'crm_reviews' %}?low=1" {% if low_filter and not hidden_filter %}aria-current="page"{% endif %} data-i18n="review.filter_low">Low ratings (≤ 2)</a>
         <a href="{% url 'crm_reviews' %}?hidden=1" {% if hidden_filter == "1" and not low_filter %}aria-current="page"{% endif %} data-i18n="review.filter_hidden">Hidden</a>
         <a href="{% url 'crm_reviews' %}?hidden=0" {% if hidden_filter == "0" and not low_filter %}aria-current="page"{% endif %} data-i18n="review.filter_visible">Visible</a>
-        <a href="{% url 'crm_reviews' %}?published=1" {% if published_filter and not low_filter and not hidden_filter %}aria-current="page"{% endif %} data-i18n="review.filter_published">On the site</a>
     </div>
-    <p class="lede" data-i18n="review.publish_hint">Only reviews marked for the site appear on the About page — first name and initial, region, stars and text.</p>
 
     {% if page_obj.object_list %}
         <div class="table-scroll">
@@ -35,7 +33,6 @@
                         <td data-label="Rating">
                             {% review_stars review.stars %}
                             {% if review.hidden_at %}<span class="tag muted" data-i18n="review.hidden_tag">Hidden</span>{% endif %}
-                            {% if review.published_at %}<span class="tag" data-i18n="review.published_tag">On the site</span>{% endif %}
                         </td>
                         <td data-label="Task"><a href="{% url 'task_detail' review.task_id %}">#{{ review.task_id }} · {{ review.task.get_help_type_display }}</a></td>
                         <td data-label="Volunteer"><a href="{% url 'crm_volunteer_detail' review.volunteer_id %}">{{ review.volunteer.username }}</a></td>
@@ -56,19 +53,6 @@
                                     <button class="button danger" type="submit" name="action" value="hide" data-i18n="review.hide">Hide review</button>
                                 {% endif %}
                             </form>
-                            {% if review.published_at %}
-                            <form method="post" action="{% url 'review_publish' review.pk %}">
-                                {% csrf_token %}
-                                <input type="hidden" name="next" value="{{ current_url }}">
-                                <button class="button ghost" type="submit" name="action" value="unpublish" data-i18n="review.unpublish">Remove from the site</button>
-                            </form>
-                            {% elif not review.hidden_at and review.comment %}
-                            <form method="post" action="{% url 'review_publish' review.pk %}">
-                                {% csrf_token %}
-                                <input type="hidden" name="next" value="{{ current_url }}">
-                                <button class="button ghost" type="submit" name="action" value="publish" data-i18n="review.publish">Publish on the site</button>
-                            </form>
-                            {% endif %}
                         </td>
                     </tr>
                     {% endfor %}

@@ -387,33 +387,7 @@ class Command(BaseCommand):
                 TaskReview.objects.filter(pk=review.pk).update(created_at=completed + timedelta(hours=2))
         for volunteer in volunteers:
             feedback.recompute_volunteer_stats(volunteer)
-        self._publish_demo_reviews()
         self._create_flagged_chat()
-
-    # Longer thank-you texts for three 5★ demo reviews, marked "can be published
-    # on the site" so the About page testimonials have something to show locally.
-    DEMO_TESTIMONIALS = [
-        "Ноги уже плохо слушаются, а волонтёр не только принёс лекарства из аптеки, "
-        "но и спросил, не нужно ли ещё чем-то помочь. Спасибо за заботу!",
-        "Мама живёт одна, а я далеко. Волонтёр привёз ей продукты и проводил к терапевту. "
-        "Сердце спокойно за родного человека.",
-        "После операции не могла даже донести хлеб. Девушка-волонтёр пришла в тот же день — "
-        "очень вежливая и внимательная, как родная внучка.",
-    ]
-
-    def _publish_demo_reviews(self):
-        from myapp.models import TaskReview
-        from myapp.services import landing
-
-        reviews = TaskReview.objects.filter(
-            task__description__startswith=DEMO_HISTORY_PREFIX, stars=5, hidden_at__isnull=True
-        ).order_by("-created_at")[: len(self.DEMO_TESTIMONIALS)]
-        admin = User.objects.filter(is_superuser=True).order_by("id").first()
-        for review, text in zip(reviews, self.DEMO_TESTIMONIALS):
-            TaskReview.objects.filter(pk=review.pk).update(
-                comment=text, published_at=review.created_at, published_by=admin
-            )
-        landing.invalidate()
 
     def _create_flagged_chat(self):
         """A few chat lines on recent history tasks, some of them flagged, so the

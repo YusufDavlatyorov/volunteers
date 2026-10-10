@@ -5,11 +5,6 @@ are visible to the volunteer and staff only; public shapes show only the
 volunteer's average (``Profile.review_avg`` / ``review_count``, denormalised by
 myapp/services/feedback.py). Display-only — not a matching weight (owner
 decision §9.7). Staff can hide an abusive review (ID-only log).
-
-A curator/admin may also mark a review "can be published on the site"
-(``published_at``): only such reviews — visible, with a comment — appear as
-testimonials on the public About page (myapp/services/landing.py). An edit of
-the comment by its author, or hiding it, withdraws the mark.
 """
 
 from django.core.validators import MaxLengthValidator, MaxValueValidator, MinValueValidator
@@ -35,8 +30,6 @@ class TaskReview(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     hidden_at = models.DateTimeField(null=True, blank=True)
     hidden_by = models.ForeignKey(Users, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
-    published_at = models.DateTimeField(null=True, blank=True)
-    published_by = models.ForeignKey(Users, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
     class Meta:
         verbose_name = "Отзыв"

@@ -188,10 +188,9 @@ class ImageUploadTests(TestCase):
         self.assertEqual(response.status_code, 302)
         report = PhotoReport.objects.get()
         self.assert_clean_with_variants(report)
+        self.client.logout()
         cache.clear()
-        # Photo reports left the landing page in the 2026-10-10 redesign; their
-        # public markup is the same responsive tag on the reports page.
-        html = self.client.get(reverse("photo_reports")).content.decode()
+        html = self.client.get(reverse("about")).content.decode()
         self.assertIn('<picture><source type="image/webp" srcset="', html)
         self.assertIn(report.image_variants["thumb"].split("/")[-1] + " 320w", html)
         self.assertIn(f'src="{report.image.url}"', html)  # original stays the fallback

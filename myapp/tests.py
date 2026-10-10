@@ -5253,15 +5253,24 @@ class ListViewPaginationBoundsTests(TestCase):
         self.assertEqual(len(resp.context["page_obj"]), 2)
 
 
-class HeroVideoFilesTests(TestCase):
-    """The hero loops in static/videos/ (small, seamless, VP9 WebM before H.264
-    MP4, no audio, faststart). Since the 2026-10-10 Stitch redesign the About
-    hero is a photo and no template plays them; the files stay until the owner
-    decides whether the video comes back."""
+class AboutHeroVideoTests(TestCase):
+    """The About hero shows ONLY the background video (no poster photo, no
+    background image) and serves small, seamless, web-optimized loops:
+    VP9 WebM before H.264 MP4, a smaller variant for phones, no audio,
+    faststart MP4s, reduced-motion / off-screen / hidden-tab handling."""
 
     VIDEOS = settings.BASE_DIR / "static" / "videos"
     VARIANTS = ("hero-loop-mobile.webm", "hero-loop-mobile.mp4", "hero-loop-desktop.webm", "hero-loop-desktop.mp4")
+    HOME_CSS = settings.BASE_DIR / "static" / "css" / "home.css"
     MAX_BYTES = 3 * 1024 * 1024
+
+    def _hero(self):
+        import re
+
+        html = self.client.get(reverse("about")).content.decode()
+        match = re.search(r"(<video[^>]*>)(.*?)</video>", html, re.S)
+        self.assertIsNotNone(match, "hero <video> missing from the About page")
+        return html, match.group(1), match.group(2)
 
     @staticmethod
     def _atoms(data):
@@ -5273,6 +5282,36 @@ class HeroVideoFilesTests(TestCase):
                 break
             i += size
         return atoms
+
+    def test_hero_video_has_no_poster_and_starts_inline_after_page_load(self):
+        html, tag, _ = self._hero()
+        self.assertNotIn("poster", tag)
+        self.assertNotIn("tajikistan/hero.jpg", html)
+        # iOS Safari only autoplays inline when muted + playsinline.
+        for attr in ("muted", "loop", "playsinline", "disablepictureinpicture", 'preload="metadata"'):
+            with self.subTest(attr=attr):
+                self.assertIn(attr, tag)
+        # Not fetched with the page: no autoplay attribute; the script turns on
+        # preload + autoplay after window "load" so the video never competes
+        # with HTML/CSS/fonts on a slow link.
+        self.assertNotRegex(tag, r"\sautoplay[\s>]")
+        self.assertIn("window.addEventListener('load', start", html)
+        self.assertIn("video.autoplay = true", html)
+        self.assertIn("video.preload = 'auto'", html)
+
+    def test_sources_mobile_first_webm_before_mp4_with_content_hash(self):
+        import re
+
+        _, _, body = self._hero()
+        sources = re.findall(r'<source src="([^"]+)" type=(?:\'[^\']*\'|"[^"]*")()(?: media="([^"]+)")?>', body)
+        self.assertEqual(
+            [(src.split("?")[0].rsplit("/", 1)[-1], media) for src, _type, media in sources],
+            [("hero-loop-mobile.webm", "(max-width: 768px)"), ("hero-loop-mobile.mp4", "(max-width: 768px)"),
+             ("hero-loop-desktop.webm", ""), ("hero-loop-desktop.mp4", "")],
+        )
+        for src, _type, _media in sources:
+            with self.subTest(src=src):
+                self.assertRegex(src, r"\?v=[0-9a-f]{10}$")  # immutable-cacheable URL
 
     def test_files_exist_are_small_and_old_file_is_gone(self):
         self.assertFalse((self.VIDEOS / "hero-loop.mp4").exists())
@@ -5294,3 +5333,22 @@ class HeroVideoFilesTests(TestCase):
                 atoms = self._atoms(data)
                 self.assertLess(atoms.index(b"moov"), atoms.index(b"mdat"))
                 self.assertNotIn(b"soun", data[:data.index(b"mdat")])  # no audio track handler
+
+    def test_playback_script_handles_reduced_motion_visibility_and_viewport(self):
+        html, _, _ = self._hero()
+        for needle in ("prefers-reduced-motion: reduce", "visibilitychange", "IntersectionObserver", "video.pause()"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, html)
+        css = self.HOME_CSS.read_text(encoding="utf-8")
+        self.assertRegex(css, r"prefers-reduced-motion: reduce\)\s*\{\s*\.hero-photo \{ display: none; \}")
+
+    def test_hero_css_has_no_background_photo_or_filter(self):
+        import re
+
+        css = self.HOME_CSS.read_text(encoding="utf-8")
+        for selector in (".hero", ".hero-photo", ".hero::before"):
+            with self.subTest(selector=selector):
+                block = re.search(re.escape(selector) + r"\s*\{([^}]*)\}", css)
+                self.assertIsNotNone(block)
+                self.assertNotIn("url(", block.group(1))
+                self.assertNotIn("filter", block.group(1))

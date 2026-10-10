@@ -168,8 +168,8 @@ from .services import feedback as feedback_service  # noqa: E402
 
 @admin.register(TaskReview)
 class TaskReviewAdmin(admin.ModelAdmin):
-    list_display = ("id", "task", "volunteer", "client", "stars", "hidden_at", "published_at", "created_at")
-    list_filter = ("stars", ("hidden_at", admin.EmptyFieldListFilter), ("published_at", admin.EmptyFieldListFilter), "created_at")
+    list_display = ("id", "task", "volunteer", "client", "stars", "hidden_at", "created_at")
+    list_filter = ("stars", ("hidden_at", admin.EmptyFieldListFilter), "created_at")
     search_fields = ("volunteer__username", "client__username")
     list_select_related = ("task", "volunteer", "client")
     # Read-only: stars/comment are the client's words, and a raw edit/delete

@@ -262,18 +262,6 @@ Baseline: 657 tests green at `2467bc5` (main).
   network down at start → polls once back; rejected token → exits at once, 1 getMe, no token;
   502 / dropped connections → keeps polling, no token / no URL / no httpx line at INFO and DEBUG,
   both bots. Mutation-checked (each guard removed → its test fails).
-- 2026-10-10 — **About page redesign after Stitch** (`docs/design/stitch/about.html`). Local
-  branch `feature-pack-v2` first merged `remove-docker` (it was 10 commits behind; its 2 own
-  Telegram commits were already cherry-picked there). New `about.html` (9 sections + privacy note),
-  `home.css` rewritten with the mock's tokens as `--ab-*` CSS variables (light/dark), `about.js`
-  (plurals per language, lazy MapLibre regions map). All data real: `services/landing.py` (one
-  5-min cache entry, 0 queries per hit), `services/rating.py` (Rating list shared with About; owner:
-  first 4, no places). Reviews: `TaskReview.published_at/_by` (myapp 0025), curator/admin
-  publish/unpublish in CRM, hide/edit withdraw it. Removed from the mock (unverifiable): "100%
-  проверенные", "24/7 во всех 68 джамоатах", "Круглосуточный диспетчерский центр", "От 15 минут",
-  "~2 минуты", the made-up quote/badges/figures/people, the mock phone. Hero video and landing
-  photo reports dropped (video files kept). `ab.*` strings EN/RU/TJ (TJ to be checked by a native
-  speaker). `myapp/tests_about.py` (28 tests); 1523 tests green.
 
 ## Deploy checklist (milestone 7; only after the owner writes "deploy")
 

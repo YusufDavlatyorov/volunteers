@@ -1,307 +1,251 @@
 {% extends "base.html" %}
-{% load static assets responsive form_i18n reviews about_ui %}
-{% comment %}
-About / landing page ("/" for guests, /myapp/about/), after the Stitch design in
-docs/design/stitch/about.html. Navbar and footer are the site's own (base.html);
-styles are static/css/home.css (no Tailwind), behaviour static/js/about.js.
-
-Every number, volunteer and quote comes from the database (services/landing.py)
-— nothing here is a made-up figure; empty data shows an empty state instead.
-Texts are i18n.js keys (ab.*): pre-rendered in Russian on the server, switched
-to EN/TJ in the browser. Each section carries data-section (test-locked).
-{% endcomment %}
+{% load static assets responsive form_i18n %}
 {% block extra_css %}<link rel="stylesheet" href="{% asset 'css/home.css' %}">{% endblock %}
 {% block content %}
-{% url 'register' as register_url %}
-{% if user.is_authenticated and user.is_client %}{% url 'create_request' as help_url %}{% else %}{% url 'register' as help_url %}{% endif %}
-<div class="about-page">
+<section class="hero">
+    {% comment %}
+    Video-only hero (no poster — by design). Sources: smallest-first for phones
+    (media query), VP9 WebM before H.264 MP4 (smaller at equal quality). All
+    are seamless 4.3 s loops without audio; URLs carry a content hash
+    ({% asset %}) so nginx can cache them as immutable. preload="metadata" and
+    no autoplay attribute: only the few-KB header (faststart moov / WebM cues)
+    is fetched with the page, so playback can begin immediately once the
+    script below starts it after window "load" — the frames never compete
+    with the HTML/CSS/fonts for bandwidth or hold back the load event.
+    {% endcomment %}
+    <video class="hero-photo" muted loop playsinline preload="metadata" disablepictureinpicture aria-hidden="true" tabindex="-1">
+        <source src="{% asset 'videos/hero-loop-mobile.webm' %}" type='video/webm; codecs="vp9"' media="(max-width: 768px)">
+        <source src="{% asset 'videos/hero-loop-mobile.mp4' %}" type="video/mp4" media="(max-width: 768px)">
+        <source src="{% asset 'videos/hero-loop-desktop.webm' %}" type='video/webm; codecs="vp9"'>
+        <source src="{% asset 'videos/hero-loop-desktop.mp4' %}" type="video/mp4">
+    </video>
+    <script>
+    /* Hero video playback.
+       - Starts (download + muted autoplay) only after window "load", so the
+         page's own resources get the bandwidth first; until then the hero
+         shows its solid background, exactly as while any video is loading.
+       - prefers-reduced-motion: never downloads or plays; the hero keeps its
+         solid background.
+       - Pause while scrolled out of view or the tab is hidden; resume after.
+       - While the playing video is under the sticky .topbar, the topbar drops
+         its backdrop blur (re-blurring a video every frame is expensive). */
+    (function () {
+        var video = document.currentScript.previousElementSibling;
+        var hero = video.closest('.hero');
+        var topbar = document.querySelector('.topbar');
+        var reduce = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
+        var inView = true;
+        var started = false;
 
-{# ===== 1. Hero ===== #}
-<section class="ab-hero" data-section="hero">
-    <div class="ab-glow ab-glow--top" aria-hidden="true"></div>
-    <div class="ab-glow ab-glow--side" aria-hidden="true"></div>
-    <div class="container ab-hero__grid">
-        <div class="ab-hero__text">
-            <span class="ab-pill"><span class="ab-pill__dot" aria-hidden="true"></span><span data-i18n="ab.badge">Tajikistan's mutual aid service</span></span>
-            <h1 class="ab-hero__title"><span data-i18n="ab.h1_brand">KhayrKhoh</span> — <span class="ab-serif" data-i18n="ab.h1_accent">kindness close by</span> <span data-i18n="ab.h1_rest">in every home</span></h1>
-            <p class="ab-hero__lead" data-i18n="ab.lead">Volunteers help elderly people and those in need all over Tajikistan with everyday things: groceries, prescriptions and sincere warmth.</p>
-            <div class="ab-actions">
-                <a class="ab-btn ab-btn--coral ab-btn--lg" href="{{ help_url }}">{% include "myapp/about/_icon.html" with name="heart" %}<span data-i18n="ab.cta_help">I need help</span></a>
-                <a class="ab-btn ab-btn--light ab-btn--lg" href="{{ register_url }}">{% include "myapp/about/_icon.html" with name="hand-heart" %}<span data-i18n="ab.cta_volunteer">Become a volunteer</span></a>
+        var sources = Array.prototype.slice.call(video.querySelectorAll('source'));
+        function disable() {
+            video.autoplay = false;
+            video.removeAttribute('autoplay');
+            video.pause();
+            video.hidden = true;
+            // The browser picks a source as soon as <source> is parsed; detach
+            // them and reload so that fetch is aborted, not just hidden.
+            if (video.querySelector('source')) {
+                sources.forEach(function (s) { video.removeChild(s); });
+                video.load();
+            }
+            if (topbar) topbar.classList.remove('topbar--over-video');
+        }
+        function start() {
+            if (started || reduce.matches) return;
+            started = true;
+            video.preload = 'auto';
+            video.autoplay = true;
+            sync();
+        }
+        function sync() {
+            if (reduce.matches) return disable();
+            if (!started) return;
+            if (inView && !document.hidden) {
+                if (video.paused) { var p = video.play(); if (p && p.catch) p.catch(function () {}); }
+            } else if (!video.paused) {
+                video.pause();
+            }
+        }
+        if (reduce.matches) return disable();
+
+        if ('IntersectionObserver' in window) {
+            new IntersectionObserver(function (entries) {
+                inView = entries[0].isIntersecting;
+                sync();
+            }).observe(video);
+
+            if (topbar) {
+                // Observe a strip of the viewport exactly as tall as the topbar.
+                var navObserver;
+                var watchUnderNav = function () {
+                    if (navObserver) navObserver.disconnect();
+                    var strip = Math.max(window.innerHeight - topbar.offsetHeight + 1, 0);
+                    navObserver = new IntersectionObserver(function (entries) {
+                        topbar.classList.toggle('topbar--over-video', entries[0].isIntersecting && !video.hidden);
+                    }, { rootMargin: '0px 0px -' + strip + 'px 0px' });
+                    navObserver.observe(hero);
+                };
+                watchUnderNav();
+                var resizeTimer;
+                window.addEventListener('resize', function () {
+                    clearTimeout(resizeTimer);
+                    resizeTimer = setTimeout(watchUnderNav, 200);
+                }, { passive: true });
+            }
+        }
+        document.addEventListener('visibilitychange', sync);
+        if (document.readyState === 'complete') start();
+        else window.addEventListener('load', start, { once: true });
+        if (reduce.addEventListener) {
+            reduce.addEventListener('change', function () {
+                if (!reduce.matches && !video.querySelector('source')) {
+                    sources.forEach(function (s) { video.appendChild(s); });
+                    video.hidden = false;
+                    video.load();
+                    started = false;
+                    start();
+                }
+                sync();
+            });
+        }
+    })();
+    </script>
+    <div class="container">
+        <div class="hero-grid">
+            <div class="hero-content reveal">
+                <span class="eyebrow" data-i18n="hero.eyebrow">Volunteer platform for Tajikistan</span>
+                <h1><span class="hero-brand visually-hidden">KhayrKhoh — </span><span data-i18n="hero.title_1">Connect. </span><span class="h-accent" data-i18n="hero.title_accent">Help.</span><span data-i18n="hero.title_2"> Change lives.</span></h1>
+                <p data-i18n="hero.desc">KhayrKhoh matches volunteers with elderly people who need a hand — a request, an acceptance, a notification, a finished task. Clear roles, real accountability, five regions.</p>
+                <div class="hero-actions">
+                    <a class="button primary" href="{% url 'register' %}" data-i18n="hero.join">Become a Volunteer</a>
+                    <a class="button ghost" href="{% url 'create_request' %}" data-i18n="hero.request">Request Help</a>
+                </div>
             </div>
-            <ul class="ab-trust">
-                <li>{% include "myapp/about/_icon.html" with name="shield-check" %}<span data-i18n="ab.trust_reviewed">Every volunteer application is reviewed by an administrator</span></li>
-                <li>{% include "myapp/about/_icon.html" with name="gift" %}<span data-i18n="ab.trust_free">The service is free</span></li>
-            </ul>
         </div>
-        <div class="ab-hero__visual">
-            <figure class="ab-photo">
-                {# Placeholder photo — replace static/images/about/hero-volunteer-{480,960}.{webp,jpg} with the real one (same names). #}
-                <picture>
-                    <source type="image/webp" sizes="(max-width: 1023px) 92vw, 460px"
-                            srcset="{% static 'images/about/hero-volunteer-480.webp' %} 480w, {% static 'images/about/hero-volunteer-960.webp' %} 960w">
-                    <img class="ab-photo__img" src="{% static 'images/about/hero-volunteer-960.jpg' %}"
-                         srcset="{% static 'images/about/hero-volunteer-480.jpg' %} 480w, {% static 'images/about/hero-volunteer-960.jpg' %} 960w"
-                         sizes="(max-width: 1023px) 92vw, 460px"
-                         alt="Волонтёр помогает пожилому человеку у дверей его дома" data-i18n-alt="ab.photo_alt"
-                         width="960" height="1080" decoding="async">
-                </picture>
-                {% if hero_quote %}
-                <figcaption class="ab-photo__quote">
-                    <p class="ab-photo__text">«{{ hero_quote.text }}»</p>
-                    <p class="ab-photo__who">{% if hero_quote.name %}<span>{{ hero_quote.name }}</span>{% else %}<span data-i18n="ab.client">Platform client</span>{% endif %}{% if hero_quote.region %} · <span data-i18n="region.{{ hero_quote.region }}">{{ hero_quote.region }}</span>{% endif %}</p>
-                </figcaption>
-                {% endif %}
-            </figure>
-            {% if stats.last_completed %}
-            <div class="ab-float ab-float--top">
-                <span class="ab-float__icon">{% include "myapp/about/_icon.html" with name="check-circle" %}</span>
-                <span class="ab-float__body">
-                    <strong data-i18n="ab.badge_done">Request completed</strong>
-                    <small>{% if stats.last_completed.region %}<span data-i18n="region.{{ stats.last_completed.region }}">{{ stats.last_completed.region }}</span> · {% endif %}<span data-i18n="{{ last_completed_ago.0 }}" data-i18n-args='{"n": {{ last_completed_ago.1 }}}'>{{ last_completed_ago.1 }}</span></small>
-                </span>
+        <div class="hero-strip reveal">
+            <span class="hero-strip-label" data-i18n="hero.regions_label">5 regions of Tajikistan</span>
+            <div class="region-pills">
+                <span class="region-pill" data-i18n="region.dushanbe">Dushanbe</span>
+                <span class="region-pill" data-i18n="region.sogd">Sogd</span>
+                <span class="region-pill" data-i18n="region.khatlon">Khatlon</span>
+                <span class="region-pill" data-i18n="region.gbao">GBAO</span>
+                <span class="region-pill" data-i18n="region.rrp">RRP</span>
             </div>
-            {% endif %}
-            {% if stats.today_requests %}
-            <div class="ab-float ab-float--bottom">
-                <span class="ab-float__dot" aria-hidden="true"></span>
-                <strong data-i18n="ab.today_requests" data-i18n-args='{"n": {{ stats.today_requests }}}'>New requests today: {{ stats.today_requests }}</strong>
-            </div>
-            {% endif %}
         </div>
     </div>
 </section>
-
-{# ===== 2. Counters ===== #}
-<section class="container ab-stats" data-section="stats">
-    <div class="ab-card ab-stats__card">
-        {% if stats.has_activity %}
-        <div class="ab-stats__grid">
-            <div class="ab-stat">
-                <span class="ab-tile ab-tile--blue">{% include "myapp/about/_icon.html" with name="list-check" %}</span>
-                <span class="ab-stat__body"><span class="ab-stat__value" data-num="{{ stats.completed }}">{{ stats.completed|group_digits }}</span><span class="ab-stat__label" data-i18n="ab.stat_completed">Requests completed</span></span>
-            </div>
-            <div class="ab-stat">
-                <span class="ab-tile ab-tile--coral">{% include "myapp/about/_icon.html" with name="users" %}</span>
-                <span class="ab-stat__body"><span class="ab-stat__value" data-num="{{ stats.volunteers }}">{{ stats.volunteers|group_digits }}</span><span class="ab-stat__label" data-i18n="ab.stat_volunteers">Active volunteers</span></span>
-            </div>
-            <div class="ab-stat">
-                <span class="ab-tile ab-tile--sky">{% include "myapp/about/_icon.html" with name="map" %}</span>
-                <span class="ab-stat__body"><span class="ab-stat__value" data-num="{{ stats.regions }}">{{ stats.regions }}</span><span class="ab-stat__label" data-i18n="ab.stat_regions">Regions covered</span></span>
-            </div>
-            <div class="ab-stat">
-                <span class="ab-tile ab-tile--amber">{% include "myapp/about/_icon.html" with name="star" %}</span>
-                {% if stats.rating_avg is not None %}
-                <span class="ab-stat__body"><span class="ab-stat__value"><span data-num="{{ stats.rating_avg }}" data-num-digits="1">{{ stats.rating_avg|decimal_ru }}</span> <small>/ 5</small></span><span class="ab-stat__label" data-i18n="ab.stat_rating">Average rating of the help</span></span>
-                {% else %}
-                <span class="ab-stat__body"><span class="ab-stat__value">—</span><span class="ab-stat__label" data-i18n="ab.stat_rating_none">No ratings yet</span></span>
-                {% endif %}
+<section class="section">
+    <div class="two-col">
+        <div class="volunteers-photo-wrap reveal">
+            <picture>
+                <source type="image/webp" sizes="(max-width: 820px) 100vw, 620px"
+                        srcset="{% static 'images/volunteers/volunteers-team-640.webp' %} 640w, {% static 'images/volunteers/volunteers-team-960.webp' %} 960w, {% static 'images/volunteers/volunteers-team-1280.webp' %} 1280w">
+                <img class="volunteers-photo" src="{% static 'images/volunteers/volunteers-team-960.jpg' %}"
+                     srcset="{% static 'images/volunteers/volunteers-team-640.jpg' %} 640w, {% static 'images/volunteers/volunteers-team-960.jpg' %} 960w, {% static 'images/volunteers/volunteers-team-1280.jpg' %} 1280w"
+                     sizes="(max-width: 820px) 100vw, 620px"
+                     alt="Молодой волонтёр передаёт пожилому мужчине коробку с продуктовой помощью" data-i18n-alt="about.volunteers_photo_alt" width="1280" height="960" loading="lazy" decoding="async">
+            </picture>
+        </div>
+        <div class="reveal">
+            <span class="eyebrow" data-i18n="section.volunteers_eyebrow">Meet Our Volunteers </span>
+            <h2><span data-i18n="section.volunteers_title_1">These are </span><span class="h-accent" data-i18n="section.volunteers_title_accent">our people</span></h2>
+            <p data-i18n="section.volunteers_desc">Young people across Tajikistan are giving their time, energy and kindness to help others — visiting elders, carrying groceries, delivering aid, standing by families who need a hand.</p>
+            <div class="button-row">
+                <a class="button primary" href="{% url 'register' %}" data-i18n="hero.join">Become a Volunteer</a>
+                <a class="button ghost" href="{% url 'rating' %}" data-i18n="nav.rating">Rating</a>
             </div>
         </div>
-        {% else %}
-        <div class="ab-empty">
-            <strong data-i18n="ab.stats_empty_title">The platform is just getting started</strong>
-            <p data-i18n="ab.stats_empty_text">Real figures will appear here: completed requests, volunteers and ratings.</p>
-        </div>
-        {% endif %}
     </div>
 </section>
-
-{# ===== 3. How it works ===== #}
-<section class="container ab-section" data-section="how">
-    <header class="ab-head ab-head--center">
-        <span class="ab-eyebrow ab-eyebrow--coral" data-i18n="ab.steps_eyebrow">A clear process</span>
-        <h2 data-i18n="ab.steps_title">How the mutual aid service works</h2>
-        <p data-i18n="ab.steps_lead">We built it so that even someone far from technology can get support from caring neighbours.</p>
-    </header>
-    <div class="ab-grid ab-grid--3">
-        {% for step in "123" %}
-        <article class="ab-card ab-step">
-            <span class="ab-tile ab-tile--lg {% cycle 'ab-tile--sky' 'ab-tile--coral' 'ab-tile--green' %}">{% if step == "1" %}{% include "myapp/about/_icon.html" with name="edit" %}{% elif step == "2" %}{% include "myapp/about/_icon.html" with name="handshake" %}{% else %}{% include "myapp/about/_icon.html" with name="thumbs-up" %}{% endif %}</span>
-            <span class="ab-chip {% if step == '1' %}ab-chip--blue{% elif step == '2' %}ab-chip--coral{% else %}ab-chip--green{% endif %}" data-i18n="ab.step_label" data-i18n-args='{"n": {{ step }}}'>Step {{ step }}</span>
-            <h3 data-i18n="ab.step{{ step }}_title">Step {{ step }}</h3>
-            <p data-i18n="ab.step{{ step }}_text"></p>
-        </article>
+<section class="section alt">
+    <div class="two-col">
+        <div>
+            <span class="eyebrow" data-i18n="section.why_eyebrow">Values &amp; mission</span>
+            <h2 data-i18n="section.why">Why We Are Stronger Than a Regular Chat</h2>
+            <div class="grid">
+                <div class="card reveal">
+                    <span class="icon-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"></path></svg></span>
+                    <h3 data-i18n="card.roles">Roles Are Followed</h3>
+                    <p data-i18n="card.roles_desc">Admin and curator manage, volunteer helps, client creates requests.</p>
+                </div>
+                <div class="card reveal">
+                    <span class="icon-tile icon-tile--teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"></path><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"></path></svg></span>
+                    <h3 data-i18n="card.notif">Real Notifications</h3>
+                    <p data-i18n="card.notif_desc">Email and Telegram reduce the chance of missing urgent help.</p>
+                </div>
+                <div class="card reveal">
+                    <span class="icon-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-8.9 8.4L3 21l1.1-4.5A8.4 8.4 0 1 1 21 11.5Z"></path><path d="M8 11.5h.01M12 11.5h.01M16 11.5h.01"></path></svg></span>
+                    <h3 data-i18n="card.ai">AI Assistant</h3>
+                    <p data-i18n="card.ai_desc">For the client it responds softly and simply, for the volunteer it gives working advice.</p>
+                </div>
+                <div class="card reveal">
+                    <span class="icon-tile icon-tile--teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 12a11 11 0 1 1-22 0 11 11 0 0 1 22 0Z"></path><path d="m8 12 3 3 5-6"></path></svg></span>
+                    <h3 data-i18n="card.transp">Transparency</h3>
+                    <p data-i18n="card.transp_desc">Photo reports, archive and rating show the real work of the team.</p>
+                </div>
+            </div>
+        </div>
+        <div class="regions-panel reveal">
+            <picture>
+                <source type="image/webp" sizes="(max-width: 820px) 90vw, 440px"
+                        srcset="{% static 'images/tajikistan/mountains-480.webp' %} 480w, {% static 'images/tajikistan/mountains-960.webp' %} 960w">
+                <img class="regions-photo" src="{% static 'images/tajikistan/mountains-960.jpg' %}"
+                     srcset="{% static 'images/tajikistan/mountains-480.jpg' %} 480w, {% static 'images/tajikistan/mountains-960.jpg' %} 960w"
+                     sizes="(max-width: 820px) 90vw, 440px"
+                     alt="Ваханская долина, Памир, Таджикистан" data-i18n-alt="about.regions_photo_alt" width="960" height="640" loading="lazy" decoding="async">
+            </picture>
+            {% include "_peaks_mark.html" %}
+            <h3 data-i18n="section.regions">Five regions, one platform</h3>
+            <div class="region-grid">
+                <div class="region-card"><span class="peak-dot" style="background:var(--peak-1)"></span><span data-i18n="region.dushanbe">Dushanbe</span></div>
+                <div class="region-card"><span class="peak-dot" style="background:var(--peak-2)"></span><span data-i18n="region.sogd">Sogd</span></div>
+                <div class="region-card"><span class="peak-dot" style="background:var(--peak-3)"></span><span data-i18n="region.khatlon">Khatlon</span></div>
+                <div class="region-card"><span class="peak-dot" style="background:var(--peak-4)"></span><span data-i18n="region.gbao">GBAO</span></div>
+                <div class="region-card"><span class="peak-dot" style="background:var(--peak-5)"></span><span data-i18n="region.rrp">RRP</span></div>
+            </div>
+        </div>
+    </div>
+</section>
+<section class="section">
+    <div class="section-head">
+        <div>
+            <span class="eyebrow" data-i18n="section.photos_eyebrow">From the field</span>
+            <h2 data-i18n="section.photos">Photo Reports</h2>
+        </div>
+    </div>
+    {% if reports %}
+    <div class="grid">
+        {% for report in reports %}
+            <div class="card reveal">{% responsive_image report.image report.image_variants sizes="(max-width: 700px) 92vw, 380px" class="report-img" alt="Фотоотчёт: "|add:report.title data_i18n_alt="about.report_alt" data_i18n_args=report.title|i18n_args:"title" width=800 height=600 loading="lazy" decoding="async" %}<h3>{{ report.title }}</h3><p class="clamp-text">{{ report.description }}</p></div>
         {% endfor %}
     </div>
+    {% else %}
+    <div class="empty-state">
+        <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"></rect><circle cx="9" cy="9" r="2"></circle><path d="m21 15-5-5L5 21"></path></svg>
+        <strong data-i18n="photo.empty">Reports coming soon</strong>
+        <p data-i18n="photo.empty_desc">After events and help, volunteers can add photos and description.</p>
+    </div>
+    {% endif %}
 </section>
-
-{# ===== 4. Kinds of help ===== #}
-<section class="ab-band" data-section="help">
-    <div class="container ab-section">
-        <header class="ab-head ab-head--split">
-            <div>
-                <span class="ab-eyebrow" data-i18n="ab.help_eyebrow">Kinds of help</span>
-                <h2 data-i18n="ab.help_title">How we can help you today</h2>
-                <p data-i18n="ab.help_lead">Everyday chores that get lighter when we share them.</p>
-            </div>
-            <a class="ab-link" href="{{ help_url }}"><span data-i18n="ab.help_any">Ask for any help</span>{% include "myapp/about/_icon.html" with name="arrow-right" %}</a>
-        </header>
-        <div class="ab-grid ab-grid--3">
-            {% for kind in help_types %}
-            <a class="ab-card ab-help" href="{% if user.is_authenticated and user.is_client %}{% url 'create_request' %}?help_type={{ kind }}{% else %}{{ register_url }}{% endif %}">
-                <span class="ab-tile ab-tile--sky ab-help__tile">{% if kind == "grocery" %}{% include "myapp/about/_icon.html" with name="basket" %}{% elif kind == "medical" %}{% include "myapp/about/_icon.html" with name="pill" %}{% elif kind == "transport" %}{% include "myapp/about/_icon.html" with name="walk" %}{% elif kind == "household" %}{% include "myapp/about/_icon.html" with name="home" %}{% elif kind == "emotional" %}{% include "myapp/about/_icon.html" with name="message" %}{% else %}{% include "myapp/about/_icon.html" with name="more" %}{% endif %}</span>
-                <h3 data-i18n="ab.help.{{ kind }}">{{ kind }}</h3>
-                <p data-i18n="ab.help.{{ kind }}_text"></p>
-                <span class="ab-help__more"><span data-i18n="ab.help.{{ kind }}_cta"></span>{% include "myapp/about/_icon.html" with name="arrow-right" %}</span>
-            </a>
-            {% endfor %}
+<section class="section">
+    <div class="stats-band reveal">
+        <span class="eyebrow" data-i18n="stats.eyebrow">By the numbers</span>
+        <h2 data-i18n="stats.title">Real work, measured</h2>
+        <div class="stats-grid">
+            <div class="stat-plate"><span class="metric">{{ stats.volunteers }}</span><span data-i18n="stat.volunteers">Volunteers</span></div>
+            <div class="stat-plate"><span class="metric">{{ stats.clients }}</span><span data-i18n="stat.clients">Clients</span></div>
+            <div class="stat-plate"><span class="metric">{{ stats.completed }}</span><span data-i18n="stat.completed">Completed</span></div>
+            <div class="stat-plate"><span class="metric">{{ stats.regions }}</span><span data-i18n="stat.regions">Regions</span></div>
         </div>
     </div>
 </section>
-
-{# ===== 5. Regions + map ===== #}
-<section class="container ab-section" data-section="regions">
-    <header class="ab-head">
-        <span class="ab-eyebrow" data-i18n="ab.regions_eyebrow">Mutual aid geography</span>
-        <h2 data-i18n="ab.regions_title">A volunteer network across Tajikistan</h2>
-        <p data-i18n="ab.regions_lead">Pick a region to see it on the map and how many volunteers it has.</p>
-    </header>
-    <div class="ab-regions">
-        <ul class="ab-regions__list">
-            {% for region in regions %}
-            <li>
-                <button class="ab-card ab-region" type="button" data-region="{{ region.key }}" aria-controls="ab-map">
-                    <span class="ab-tile {% if forloop.first %}ab-tile--blue{% else %}ab-tile--sky{% endif %}">{% if region.key == "dushanbe" %}{% include "myapp/about/_icon.html" with name="building" %}{% elif region.key == "khatlon" %}{% include "myapp/about/_icon.html" with name="sun" %}{% elif region.key == "rrp" %}{% include "myapp/about/_icon.html" with name="village" %}{% else %}{% include "myapp/about/_icon.html" with name="mountain" %}{% endif %}</span>
-                    <span class="ab-region__body">
-                        <strong class="truncate" data-i18n="region.{{ region.key }}">{{ region.label }}</strong>
-                        <small class="truncate" data-i18n="ab.region_hint.{{ region.key }}"></small>
-                    </span>
-                    <span class="ab-region__count">
-                        <strong data-num="{{ region.count }}">{{ region.count|group_digits }}</strong>
-                        <small data-plural="ab.vol" data-n="{{ region.count }}" data-i18n="ab.vol.{{ region.count|plural_ru }}">volunteers</small>
-                    </span>
-                </button>
-            </li>
-            {% endfor %}
-        </ul>
-        <div class="ab-card ab-map-card">
-            {# The MapLibre map (follows the light/dark theme). about.js loads MapLibre + map.js only when this box scrolls into view — the landing page itself carries no map script. #}
-            <div class="ab-map" id="ab-map" role="region" aria-label="Map of Tajikistan's regions" data-i18n-aria="ab.map_label"
-                 data-map-js="{% asset 'js/map.js' %}"
-                 data-map-css="{% asset 'css/map.css' %}"
-                 data-maplibre-js="{% asset 'vendor/maplibre-gl-5.24.0/maplibre-gl.js' %}"
-                 data-maplibre-css="{% asset 'vendor/maplibre-gl-5.24.0/maplibre-gl.css' %}"></div>
-            {{ regions|json_script:"ab-regions-data" }}
-            <div class="ab-map__hud">
-                {% if stats.volunteers %}
-                <span class="ab-map__total">{% include "myapp/about/_icon.html" with name="users" %}<span data-i18n="ab.map_total" data-i18n-args='{"n": {{ stats.volunteers }}, "m": {{ stats.regions }}}'>Volunteers on the platform: {{ stats.volunteers }} · regions: {{ stats.regions }}</span></span>
-                {% else %}
-                <span class="ab-map__total">{% include "myapp/about/_icon.html" with name="users" %}<span data-i18n="ab.regions_empty">No volunteers yet — be the first in your region.</span></span>
-                {% endif %}
-                <a class="ab-link ab-link--coral" href="{{ register_url }}"><span data-i18n="ab.map_join">Volunteer in your town</span>{% include "myapp/about/_icon.html" with name="arrow-right" %}</a>
-            </div>
-        </div>
-    </div>
-</section>
-
-{# ===== 6. Our volunteers (the Rating list: same order, no places) ===== #}
-<section class="ab-band" data-section="volunteers">
-    <div class="container ab-section">
-        <header class="ab-head ab-head--split">
-            <div>
-                <span class="ab-eyebrow ab-eyebrow--coral" data-i18n="ab.vol_eyebrow">Community heroes</span>
-                <h2 data-i18n="ab.vol_title">Our volunteers</h2>
-                <p data-i18n="ab.vol_lead">People who help their neighbours. Clients rate the help after every completed request.</p>
-            </div>
-            <a class="ab-btn ab-btn--light" href="{% url 'rating' %}"><span data-i18n="ab.vol_all">Full rating</span>{% include "myapp/about/_icon.html" with name="trending-up" %}</a>
-        </header>
-        {% if volunteers %}
-        <div class="ab-grid ab-grid--4">
-            {% for item in volunteers %}{% with profile=item.profile %}{% with name=profile.full_name|default:profile.user.username %}
-            <article class="ab-card ab-volunteer">
-                {% if profile.image %}
-                    {% responsive_image profile.image profile.image_variants variant="thumb" class="ab-volunteer__photo" alt="Фото волонтёра "|add:name data_i18n_alt="rating.photo_alt" data_i18n_args=name|i18n_args:"name" width=80 height=80 loading="lazy" decoding="async" %}
-                {% else %}
-                    <span class="ab-volunteer__photo ab-volunteer__initial" aria-hidden="true">{{ name|first|upper }}</span>
-                {% endif %}
-                <h3 class="truncate" title="{{ name }}">{{ name }}</h3>
-                {% if profile.user.region %}<p class="ab-volunteer__region" data-i18n="region.{{ profile.user.region }}">{{ profile.user.get_region_display }}</p>{% endif %}
-                <div class="ab-volunteer__rating">{% review_summary profile %}</div>
-                <p class="ab-volunteer__done"><span data-i18n="ab.vol_done">Completed</span><strong><span data-num="{{ item.completed }}">{{ item.completed|group_digits }}</span> <span data-plural="ab.req" data-n="{{ item.completed }}" data-i18n="ab.req.{{ item.completed|plural_ru }}">requests</span></strong></p>
-            </article>
-            {% endwith %}{% endwith %}{% endfor %}
-        </div>
-        {% else %}
-        <div class="ab-card ab-empty">
-            <strong data-i18n="ab.vol_empty_title">Volunteers will appear here soon</strong>
-            <p data-i18n="ab.vol_empty">As soon as the first volunteers are approved, you'll see them here and in the rating.</p>
-        </div>
-        {% endif %}
-    </div>
-</section>
-
-{# ===== 7. Testimonials — only reviews staff marked "can be published on the site"; none → no section ===== #}
-{% if testimonials %}
-<section class="container ab-section" data-section="reviews">
-    <header class="ab-head ab-head--center">
-        <span class="ab-eyebrow" data-i18n="ab.reviews_eyebrow">Real stories</span>
-        <h2 data-i18n="ab.reviews_title">Words of thanks from the people we helped</h2>
-        <p data-i18n="ab.reviews_lead">Reviews clients left after their requests were completed.</p>
-    </header>
-    <div class="ab-grid ab-grid--3">
-        {% for review in testimonials %}
-        <figure class="ab-card ab-review">
-            <span class="ab-review__mark">{% include "myapp/about/_icon.html" with name="quote" %}</span>
-            {% review_stars review.stars %}
-            <blockquote class="ab-review__text">«{{ review.comment }}»</blockquote>
-            <figcaption class="ab-review__who">
-                <span class="ab-review__avatar {% cycle 'ab-tile--sky' 'ab-tile--coral' 'ab-tile--green' %}" aria-hidden="true">{% if review.name %}{{ review.name|first|upper }}{% else %}★{% endif %}</span>
-                <span class="ab-review__meta">
-                    {% if review.name %}<strong class="truncate" title="{{ review.name }}">{{ review.name }}</strong>{% else %}<strong data-i18n="ab.client">Platform client</strong>{% endif %}
-                    {% if review.region %}<small data-i18n="region.{{ review.region }}">{{ review.region }}</small>{% endif %}
-                </span>
-            </figcaption>
-        </figure>
-        {% endfor %}
-    </div>
-</section>
-{% endif %}
-
-{# ===== 8. Other services ===== #}
-<section class="ab-band" data-section="services">
-    <div class="container ab-section">
-        <header class="ab-head">
-            <span class="ab-eyebrow" data-i18n="ab.svc_eyebrow">An ecosystem of care</span>
-            <h2 data-i18n="ab.svc_title">Other services of the platform</h2>
-            <p data-i18n="ab.svc_lead">An alarm button for volunteers, help with goods, a lost-pet board and a Telegram bot.</p>
-        </header>
-        <div class="ab-grid ab-grid--4">
-            <article class="ab-card ab-service ab-service--sos">
-                <span class="ab-tile ab-tile--red">{% include "myapp/about/_icon.html" with name="siren" %}</span>
-                <h3><span class="ab-sos-dot" aria-hidden="true"></span><span data-i18n="ab.svc_sos">Emergency help (SOS)</span></h3>
-                <p data-i18n="ab.svc_sos_text">If a volunteer on a request is in danger, the SOS button alerts the coordinators at once.</p>
-            </article>
-            <a class="ab-card ab-service" href="{% url 'donate' %}">
-                <span class="ab-tile ab-tile--sky">{% include "myapp/about/_icon.html" with name="package" %}</span>
-                <h3 data-i18n="ab.svc_donate">Donating goods</h3>
-                <p data-i18n="ab.svc_donate_text">Warm clothes, shoes, wheelchairs and appliances for the people who need them most. A curator reviews every offer.</p>
-                <span class="ab-service__more"><span data-i18n="ab.svc_donate_cta">Give goods</span>{% include "myapp/about/_icon.html" with name="arrow-right" %}</span>
-            </a>
-            <a class="ab-card ab-service" href="{% url 'pet_list' %}">
-                <span class="ab-tile ab-tile--green">{% include "myapp/about/_icon.html" with name="paw" %}</span>
-                <h3 data-i18n="ab.svc_pets">Lost pets</h3>
-                <p data-i18n="ab.svc_pets_text">A board of lost and found cats and dogs, with a map by region.</p>
-                <span class="ab-service__more"><span data-i18n="ab.svc_pets_cta">Help animals</span>{% include "myapp/about/_icon.html" with name="arrow-right" %}</span>
-            </a>
-            {% if telegram_bot_username %}
-            <a class="ab-card ab-service" href="https://t.me/{{ telegram_bot_username }}" rel="noopener noreferrer" target="_blank">
-                <span class="ab-tile ab-tile--coral">{% include "myapp/about/_icon.html" with name="send" %}</span>
-                <h3 data-i18n="ab.svc_bot">Telegram bot</h3>
-                <p><span data-i18n="ab.svc_bot_text">Create and accept requests right in the messenger once your account is linked:</span> <span class="ab-nowrap">@{{ telegram_bot_username }}</span></p>
-                <span class="ab-service__more ab-service__more--coral"><span data-i18n="ab.svc_bot_cta">Open the bot</span>{% include "myapp/about/_icon.html" with name="external" %}</span>
-            </a>
-            {% endif %}
-        </div>
-    </div>
-</section>
-
-{# ===== Location privacy (feature 7) — kept from the old page: a retention promise; plain-text data-i18n items so the RU pre-render covers them. ===== #}
-<section class="container ab-section" id="privacy" data-section="privacy">
-    <div class="ab-card privacy-note">
-        <span class="ab-tile ab-tile--green privacy-note__icon">{% include "myapp/about/_icon.html" with name="shield-check" %}</span>
+<section class="section" id="privacy">
+    {# Location privacy (feature 7) — retention promise; plain-text data-i18n elements so the RU pre-render covers them. #}
+    <div class="privacy-note reveal">
+        <span class="icon-tile icon-tile--teal privacy-note__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"></path><circle cx="12" cy="11" r="2.5"></circle></svg></span>
         <div class="privacy-note__body">
-            <span class="ab-eyebrow" data-i18n="about.privacy_eyebrow">Privacy</span>
+            <span class="eyebrow" data-i18n="about.privacy_eyebrow">Privacy</span>
             <h2 data-i18n="about.privacy_title">Location privacy</h2>
             <ul class="privacy-note__list">
                 <li data-i18n="about.privacy_when">A volunteer's location is shared only during an active request, and only after the volunteer agrees.</li>
@@ -313,24 +257,25 @@ to EN/TJ in the browser. Each section carries data-section (test-locked).
         </div>
     </div>
 </section>
-
-{# ===== 9. Final call to action ===== #}
-<section class="container ab-section ab-section--last" data-section="cta">
-    <div class="ab-cta">
-        <div class="ab-cta__glow ab-cta__glow--a" aria-hidden="true"></div>
-        <div class="ab-cta__glow ab-cta__glow--b" aria-hidden="true"></div>
-        <div class="ab-cta__body">
-            <span class="ab-cta__pill">{% include "myapp/about/_icon.html" with name="heart" %}<span data-i18n="ab.cta_badge">Together we are stronger</span></span>
-            <h2 data-i18n="ab.cta_title">Become part of the kindness in your home town</h2>
-            <p data-i18n="ab.cta_text">Even one free hour a week can change the life of a lonely neighbour. Join the KhayrKhoh team.</p>
-            <div class="ab-actions">
-                <a class="ab-btn ab-btn--coral ab-btn--lg" href="{{ register_url }}">{% include "myapp/about/_icon.html" with name="user-check" %}<span data-i18n="ab.cta_register">Sign up as a volunteer</span></a>
-                <a class="ab-btn ab-btn--glass ab-btn--lg" href="{{ help_url }}"><span data-i18n="ab.cta_need">I need help</span></a>
+<section class="cta-band">
+    <div class="cta-inner reveal">
+        <span class="eyebrow" data-i18n="cta.eyebrow">Get started</span>
+        <h2><span data-i18n="cta.title_1">Two ways to be </span><span class="h-accent" data-i18n="cta.title_accent">part of this</span></h2>
+        <p data-i18n="cta.subtitle">Give your time as a volunteer, or ask for a hand when you need one.</p>
+        <div class="cta-actions">
+            <div class="card card--soft">
+                <span class="icon-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"></path></svg></span>
+                <h3 data-i18n="cta.volunteer_title">Become a volunteer</h3>
+                <p data-i18n="cta.volunteer_text">Help elderly people in your region. Your application is reviewed by our team.</p>
+                <a class="button primary" href="{% url 'register' %}" data-i18n="hero.join">Become a Volunteer</a>
+            </div>
+            <div class="card card--soft">
+                <span class="icon-tile icon-tile--teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.68 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.32 1.85.55 2.81.68A2 2 0 0 1 22 16.92Z"></path></svg></span>
+                <h3 data-i18n="cta.client_title">Request help</h3>
+                <p data-i18n="cta.client_text">Ask a nearby volunteer for support with errands, visits or transport.</p>
+                <a class="button secondary" href="{% url 'create_request' %}" data-i18n="hero.request">Request Help</a>
             </div>
         </div>
     </div>
 </section>
-
-</div>
 {% endblock %}
-{% block extra_js %}<script src="{% asset 'js/about.js' %}" defer></script>{% endblock %}
