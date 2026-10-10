@@ -11,7 +11,7 @@ from django.urls import reverse
 from accounts.models import Users
 from server.client_ip import client_ip, is_cloudflare
 
-DOCKER_GATEWAY = "172.18.0.1"
+PRIVATE_PEER = "172.18.0.1"
 CF_EDGE = "162.158.10.20"
 VISITOR = "95.142.80.7"
 OTHER_VISITOR = "95.142.80.8"
@@ -19,7 +19,7 @@ OTHER_VISITOR = "95.142.80.8"
 
 class ClientIpTests(SimpleTestCase):
     def ip(self, **meta):
-        meta.setdefault("REMOTE_ADDR", DOCKER_GATEWAY)
+        meta.setdefault("REMOTE_ADDR", PRIVATE_PEER)
         return client_ip(RequestFactory().get("/", **meta))
 
     @override_settings(BEHIND_TLS_PROXY=False, BEHIND_CLOUDFLARE=False)
@@ -37,7 +37,7 @@ class ClientIpTests(SimpleTestCase):
 
     @override_settings(BEHIND_TLS_PROXY=True, BEHIND_CLOUDFLARE=False)
     def test_garbage_header_falls_back_to_peer(self):
-        self.assertEqual(self.ip(HTTP_X_REAL_IP="not-an-ip"), DOCKER_GATEWAY)
+        self.assertEqual(self.ip(HTTP_X_REAL_IP="not-an-ip"), PRIVATE_PEER)
         self.assertEqual(self.ip(REMOTE_ADDR=""), "unknown")
 
     @override_settings(BEHIND_TLS_PROXY=True, BEHIND_CLOUDFLARE=False)
@@ -63,7 +63,7 @@ class ClientIpTests(SimpleTestCase):
 
 @override_settings(BEHIND_TLS_PROXY=True, BEHIND_CLOUDFLARE=False, TELEGRAM_BOT_TOKEN="")
 class LoginThrottlePerVisitorTests(TestCase):
-    """Regression: behind nginx every visitor used to share the Docker gateway's
+    """Regression: behind nginx every visitor used to share the proxy peer's
     throttle bucket, so one person's failed logins locked everyone out."""
 
     def setUp(self):
@@ -72,7 +72,7 @@ class LoginThrottlePerVisitorTests(TestCase):
 
     def post(self, ip, password):
         return self.client.post(reverse("login"), {"username": "m6_user", "password": password},
-                                REMOTE_ADDR=DOCKER_GATEWAY, HTTP_X_REAL_IP=ip)
+                                REMOTE_ADDR=PRIVATE_PEER, HTTP_X_REAL_IP=ip)
 
     def test_one_visitors_failures_do_not_block_another(self):
         from accounts import views as account_views

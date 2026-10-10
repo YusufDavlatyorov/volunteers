@@ -1,0 +1,16 @@
+{% load numfmt l10n %}{% comment %}Analytics card header: the period's headline number and its change against
+the same-length period right before (analytics_v2.headlines). Rendered in Russian;
+crm-analytics.js re-formats the numbers / chip in the visitor's language. The
+arrow carries the direction (not only the colour); colour = good/bad news.{% endcomment %}
+<div class="chart-headline">
+    <span class="chart-headline__value"{% if head.value is not None %} data-num="{{ head.value|unlocalize }}" data-decimals="{{ head.decimals }}"{% endif %}>{{ head.value|ru_num:head.decimals }}</span>
+    {% if head.live %}
+        <span class="chart-headline__vs" data-i18n="an.live_now">текущее состояние</span>
+    {% elif head.change is None %}
+        <span class="chart-delta" title="В прошлом периоде данных нет" data-i18n-title="an.prev_empty">—</span>
+        <span class="chart-headline__vs" data-i18n="an.vs_prev">к прошлому периоду</span>
+    {% else %}
+        <span class="chart-delta{% if head.good is True %} chart-delta--good{% elif head.good is False %} chart-delta--bad{% endif %}" data-change="{{ head.change }}" data-direction="{{ head.direction }}" data-prev="{{ head.previous|unlocalize }}" data-decimals="{{ head.decimals }}"><span class="chart-delta__text" aria-hidden="true">{{ head.delta_text }}</span><span class="visually-hidden">{{ head.delta_sr }}</span></span>
+        <span class="chart-headline__vs" data-i18n="an.vs_prev">к прошлому периоду</span>
+    {% endif %}
+</div>

@@ -11,6 +11,10 @@ the state transitions. This module owns the cross-cutting parts:
   * notification fan-out — typed ``services.notify.notify`` (in-app + WS +
     email/Telegram) to ``staff_recipients``, idempotent for the initial staff
     alert via ``EmergencyReport.notified_at`` (+ the ``sos:<id>`` dedupe key)
+  * the live map — ``realtime.publish.sos_marker``: a ``sos.marker`` event to
+    staff and the volunteers of the report's region (pulsing marker) while it
+    is open/acknowledged, a removal when it ends; those volunteers also get one
+    ``sos_nearby`` notification (no location, no names in it)
 
 Views stay thin: parse the request, call one function here, redirect.
 """
@@ -22,7 +26,8 @@ from django.urls import reverse
 from django.utils import timezone
 
 from ..models import EmergencyReport
-from ..notifications import staff_recipients
+from ..notifications import staff_recipients, volunteer_queryset_for_region
+from ..realtime import publish
 from .notify import notify
 from .notify_texts import CHANNEL_TEXTS
 from .geo import is_valid_coordinate
@@ -111,7 +116,24 @@ def report_emergency(*, volunteer, help_request, reason="", latitude=None, longi
             return existing, False
         raise
     notify_staff(report)
+    publish.sos_marker(report)
+    notify_region_volunteers(report)
     return report, True
+
+
+def notify_region_volunteers(report):
+    """One ``sos_nearby`` notification to the other active volunteers of the
+    report's region (deduped per report). A report without a region reaches
+    no volunteer — never "all regions". Returns the count reached."""
+    if not report.region:
+        return 0
+    recipients = volunteer_queryset_for_region(report.region).exclude(pk=report.volunteer_id)
+    return notify(
+        recipients, "sos_nearby",
+        params={"report_id": report.pk, "region": report.region},
+        link=f"{reverse('map')}?sos={report.pk}",
+        dedupe_key=f"sos_nearby:{report.pk}",
+    )
 
 
 def notify_staff(report, *, force=False):
@@ -176,6 +198,7 @@ def _log_transition(report, action, actor):
 def acknowledge(report, *, actor):
     report.acknowledge(actor)
     _log_transition(report, "acknowledged", actor)
+    publish.sos_marker(report)          # status changes, the marker stays
     _notify_reporter(report, "acknowledged")
     return report
 
@@ -183,6 +206,7 @@ def acknowledge(report, *, actor):
 def resolve(report, *, actor, note=""):
     report.resolve(actor, note=note)
     _log_transition(report, "resolved", actor)
+    publish.sos_marker(report)          # removal: the location stops being shared
     _notify_reporter(report, "resolved")
     return report
 
@@ -190,6 +214,7 @@ def resolve(report, *, actor, note=""):
 def cancel(report, *, actor, note=""):
     report.cancel(actor, note=note)
     _log_transition(report, "cancelled", actor)
+    publish.sos_marker(report)          # removal
     _notify_reporter(report, "cancelled")
     return report
 

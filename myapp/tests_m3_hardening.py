@@ -17,6 +17,7 @@ from django.core.management import CommandError, call_command
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from PIL import Image
+import requests
 
 from accounts.models import Profile, Users
 from myapp.testing import TempMediaRoot
@@ -106,6 +107,14 @@ class ChatFlagDetectorTests(SimpleTestCase):
 class ChatFlagFlowTests(TestCase):
     def setUp(self):
         cache.clear()
+        # The fake token used to reach the live Bot API (which answered 401):
+        # the same answer now comes from a mock, so the tests never touch the
+        # network and don't depend on it.
+        rejected = mock.Mock(status_code=401)
+        rejected.raise_for_status.side_effect = requests.HTTPError(response=rejected)
+        patcher = mock.patch("myapp.notifications.requests.post", return_value=rejected)
+        self.telegram_post = patcher.start()
+        self.addCleanup(patcher.stop)
         self.client_user = _make("fl_client", is_client=True, telegram_id="111")
         self.vol = _make("fl_vol", is_volunteer=True, telegram_id="222")
         self.curator = _make("fl_curator", is_curator=True, telegram_id="333")
@@ -363,13 +372,3 @@ class CheckRealtimeCommandTests(SimpleTestCase):
         self.assertEqual(_masked("redis://:s3cret@redis:6379/2"), "redis://:***@redis:6379/2")
         self.assertEqual(_masked("redis://user:s3cret@redis:6379/2"), "redis://user:***@redis:6379/2")
         self.assertEqual(_masked("redis://redis:6379/2"), "redis://redis:6379/2")
-
-    def test_compose_points_every_app_container_at_redis_db2(self):
-        from pathlib import Path
-
-        from django.conf import settings
-
-        compose = (Path(settings.BASE_DIR) / "docker-compose.yml").read_text(encoding="utf-8")
-        self.assertIn('DJANGO_CHANNEL_REDIS_URL: "redis://redis:6379/2"', compose)
-        # web, ws, celery_worker and telegram_bot all merge the shared app env
-        self.assertGreaterEqual(compose.count("<<: *app-env"), 4)

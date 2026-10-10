@@ -11,7 +11,7 @@ from django.utils import timezone
 
 MAX_UPLOAD_SIZE_MB = 5
 # Public rating page cache (myapp.views.rating_view); cleared whenever points change.
-RATING_CACHE_KEY = "rating_page:v2"  # v2: by region + name, no places (2026-10-03)
+RATING_CACHE_KEY = "rating_page:v3"  # v3: one shared list by name, no places (2026-10-09)
 MAX_UPLOAD_SIZE_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024
 
 
@@ -80,9 +80,11 @@ class Users(AbstractBaseUser, PermissionsMixin):
     ROLE_VOLUNTEER = "volunteer"
     ROLE_CLIENT = "client"
 
-    # Display limits (long names broke layouts — horizontal scroll). The DB
-    # columns keep their original size so no existing value is lost; the
-    # validators bite on every validated path (forms, Django admin).
+    # Display limits (long names broke layouts — horizontal scroll). The
+    # username column keeps its original size (150) so no existing value is
+    # lost; its validator bites on every validated path (forms, Django admin).
+    # Profile.full_name IS a 60-char column since accounts 0013 (owner request
+    # 2026-10-09; that migration refuses to run while a longer name exists).
     USERNAME_MAX_LENGTH = 30
     FULL_NAME_MAX_LENGTH = 60
 
@@ -223,7 +225,7 @@ class Profile(models.Model):
     ]
 
     user = models.OneToOneField(Users, on_delete=models.CASCADE, related_name="profile")
-    full_name = models.CharField(max_length=255, blank=True, validators=[MaxLengthValidator(Users.FULL_NAME_MAX_LENGTH)])
+    full_name = models.CharField(max_length=Users.FULL_NAME_MAX_LENGTH, blank=True)
     age = models.PositiveIntegerField(null=True, blank=True)
     image = models.ImageField(upload_to="avatars/", blank=True, validators=[validate_file_size])
     # WebP thumb/medium next to the original (myapp/services/images.py,

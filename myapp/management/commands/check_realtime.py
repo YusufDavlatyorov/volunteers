@@ -1,14 +1,13 @@
 """Realtime self-check: is the Channels layer the shared Redis one, and does a
 group message make a round trip through it?
 
-Run inside any app container after a deploy (DEPLOY.md → "WebSockets"):
+Run on the server after a deploy (deploy/MIGRATION.md, step 8):
 
-    docker compose exec -T web python manage.py check_realtime
-    docker compose exec -T ws  python manage.py check_realtime
+    cd /opt/khayrkhoh && .venv/bin/python manage.py check_realtime
 
 Exit code 0 = OK. Exit code 1 = the layer is missing, still the in-process
-``InMemoryChannelLayer`` (events from ``web`` / ``celery_worker`` would never
-reach the ``ws`` process), or the round trip failed / timed out. Read-only:
+``InMemoryChannelLayer`` (events from Celery / another gunicorn worker would
+never reach the sockets of this one), or the round trip failed / timed out. Read-only:
 uses a throw-away group and channel, prints no secrets (the Redis URL's
 password, if any, is masked).
 """
@@ -49,8 +48,8 @@ class Command(BaseCommand):
             self.stdout.write(f"redis: {_masked(getattr(settings, 'CHANNEL_REDIS_URL', ''))}")
         elif not options["allow_memory"]:
             raise CommandError(
-                "In-process channel layer: realtime events from web/celery would not reach the ws "
-                "service. Set DJANGO_CHANNEL_REDIS_URL (docker-compose.yml sets redis://redis:6379/2)."
+                "In-process channel layer: realtime events from Celery or another web worker would "
+                "not reach these sockets. Set DJANGO_CHANNEL_REDIS_URL=redis://127.0.0.1:6379/2 in .env."
             )
 
         group = f"selfcheck_{uuid.uuid4().hex[:12]}"

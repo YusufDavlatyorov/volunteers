@@ -6,7 +6,7 @@
     {% include "partials/_page_header.html" with title="Notifications" title_i18n="ntf.page_title" lede="Everything the platform told you, newest first." lede_i18n="ntf.page_lede" action_url=prefs_url action_label="Notification settings" action_i18n="ntf.preferences" action_class="ghost" %}
 
     <div class="notifications-toolbar">
-        <nav class="tab-bar" aria-label="Filter">
+        <nav class="tab-bar" aria-label="Filter" data-i18n-aria="task.filter">
             <a href="?{% if type_filter %}type={{ type_filter }}{% endif %}"{% if not unread_only %} aria-current="page"{% endif %}><span data-i18n="ntf.tab_all">All</span></a>
             <a href="?unread=1{% if type_filter %}&amp;type={{ type_filter }}{% endif %}"{% if unread_only %} aria-current="page"{% endif %}><span data-i18n="ntf.tab_unread">Unread</span> <span class="tab-count" data-unread-count="{{ unread_count }}">{{ unread_count }}</span></a>
         </nav>

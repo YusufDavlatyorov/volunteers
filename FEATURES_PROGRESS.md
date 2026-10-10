@@ -232,6 +232,24 @@ Baseline: 657 tests green at `2467bc5` (main).
   AppRegistryNotReady even on PostgreSQL (CLAUDE.md corrected). Also rehearsed on postgres:16 with the
   `2467bc5` schema + demo data: new code 503 before migrate, 200 after; `check_demo_data` finds every
   kind of demo row on the old schema; `rename_legacy_uploads` 9 → 0 on the second run.
+- 2026-10-05 — **Docker removed from the project** (owner's task; decisions: one rollout window
+  for the move off Docker + Feature Pack v2, Python 3.14 from deadsnakes, OSRM containers dropped,
+  app containers stop at the start of the window while `shared_postgres` + redis stay as the
+  rollback point for ≥ 7 days, mandatory dress rehearsal). Deleted `Dockerfile`,
+  `docker-compose.yml`, `.dockerignore`, `scripts/osrm_build.sh`. New `deploy/`: systemd units
+  (web = gunicorn + `server.asgi_worker.UvicornWorker` serving pages **and** `/ws/` on :8000 —
+  no separate `ws` process; celery `--pool=threads`; main bot; community bot disabled), gunicorn
+  config (`DJANGO_DB_CONN_MAX_AGE=0` under ASGI), nginx, PostgreSQL 16 tuning for 3.8 GB, Redis
+  (same settings as the container), journald/logrotate caps, crontab (9 jobs from `.venv`),
+  `deploy.sh` (redeploy; never seeds), `check_env.py` (systemd vs python-dotenv), and
+  **`deploy/MIGRATION.md`** — the single deploy-day runbook (supersedes the command part of
+  `docs/DEPLOY_FEATURE_PACK_V2.md`, which is now a reference). `uvicorn-worker==0.4.0` added (the
+  `uvicorn.workers` module is deprecated). `scripts/verify_backup.sh` uses Homebrew
+  `postgresql@16` instead of a container. Compose tests replaced by `myapp/tests_deploy.py`.
+  DEPLOY.md / README / CLAUDE.md ("No Docker" rule) / docs rewritten. Local smoke: gunicorn ASGI
+  — pages, `/health/ready/`, WS 101 / foreign Origin 403 / 20 KB frame → 1009, `check_realtime`
+  through Redis, Celery delivery. Nothing run on the server. Plan/handover:
+  `docs/DOCKER_REMOVAL_PLAN.md`.
 - 2026-10-05 — **Telegram bots: network resilience + token never in output.** Root cause of the
   old production bot's 86 restarts in 4 days (read-only log check, token masked): uncaught
   `ReadTimeout` (47), `ConnectionError` "Network is unreachable" (31) and Telegram 502 (8) in the
@@ -245,64 +263,33 @@ Baseline: 657 tests green at `2467bc5` (main).
   502 / dropped connections → keeps polling, no token / no URL / no httpx line at INFO and DEBUG,
   both bots. Mutation-checked (each guard removed → its test fails).
 
-## Deploy checklist (milestones 1–6 together = milestone 7; only after the owner writes "deploy")
+## Deploy checklist (milestone 7; only after the owner writes "deploy")
 
-Full runbook with commands, expected output and the rollback plan:
-**`docs/DEPLOY_FEATURE_PACK_V2.md`** (rollback rehearsed on postgres:16, 2026-10-03). Order:
+The executable runbook is **`deploy/MIGRATION.md`** — the move off Docker (to venv + systemd) and
+the Feature Pack v2 rollout in one window (owner decision 2026-10-05). Short form:
 
-0. Local: full suite green → `git merge --ff-only feature-pack-v2` into `main` →
-   `git push origin main` (the server pulls from the **public** GitHub repo; `git bundle` + scp is
-   the no-publish alternative). **OSRM is not part of this deploy** (owner, 2026-10-03).
-1. Server pre-flight (read-only): DB role is superuser (`rolsuper = t`, needed by rollback level 2);
-   clean tree at `2467bc5`, `docker compose ps`, `nginx -t`,
-   `/health/ready/`, no `$` in `.env`; `DJANGO_BEHIND_TLS_PROXY=True` in `.env` and
-   `proxy_set_header X-Real-IP $remote_addr` in nginx `location /` (milestone 6: rate limits read
-   the visitor IP from it); demo password accepts no account (read-only `shell -c` one-liner — if not, STOP and tell the owner, delete nothing); `free -h`, `df -h`, `docker system df`, DB size, `du -sh media`
-   (need ≥ 2 GB free: ≈ 0.6 GB image/cache + dump + media; RAM "available" noted for the later OSRM deploy).
-2. Backups: `pg_dump -Fc`, `media.tgz`, `docker tag khayrkhoh:latest khayrkhoh:rollback-2467bc5`,
-   `staticfiles.json`, nginx site file, `crontab -l`, `SHA256SUMS`; then on the Mac `rsync` the backup
-   to `~/khayrkhoh-backups/` and run `scripts/verify_backup.sh` (checksums + test restore into postgres:16)
-   — no verified copy, no deploy.
-3. `git pull --ff-only` → `docker compose build` (`.env` unchanged).
-3a. `docker compose run --rm --no-deps web python manage.py check_demo_data` — new image, old schema,
-   read-only (skips tables that don't exist yet) → "OK: no demo data"; anything found → STOP, delete
-   nothing, tell the owner.
-4. `collectstatic` — **before** migrate (touches no data; on error stop, nothing changed yet —
-   the 2026-10-04 rehearsal caught a manifest error here).
-5. `migrate` (accounts 0008–0012, myapp 0016–0024 — 14 migrations) — then steps 6–7 without a pause
-   (old code reads but can't write on the new schema).
-6. nginx: `map $http_upgrade $connection_upgrade` + `/ws/` + `/media/chat/` 404 +
-   `internal /protected-media/` (DEPLOY.md §10a); milestone 6: `open_file_cache` (4 lines) +
-   new `location /media/` (30 d, `nosniff`, `sendfile`) from DEPLOY.md §10 → `nginx -t` → reload —
-   **before** `up -d` (`web` now serves chat photos via X-Accel).
-7. `rename_legacy_uploads --dry-run` → `docker compose stop web telegram_bot celery_worker` →
-   `run --rm --no-deps web … rename_legacy_uploads` (pre-milestone-6 photos under personal names →
-   `<uuid>.<ext>`, rows updated, old files removed; app stopped so no save can race it) →
-   `docker compose up -d` (new `ws`; `telegram_bot` now runs the PTB bot — same command; no `osrm`
-   and no `community` profile this time — the community bot is enabled separately, docs/COMMUNITY_BOT.md).
-   Downtime ≈ 30–40 s (was 10–20 s).
-8. Verify: health/ready (now also `migrations` + `schema` = ok), `check_realtime` in `web` and `ws`, `/ws/` handshake 101, logs, `docker stats`.
-9. `backfill_achievements --dry-run`, then without (silent); `purge_chats --dry-run`;
-   `check_demo_data` → OK (includes `check_demo_password`);
-   unreferenced non-random leftovers → `rename_legacy_uploads --quarantine-unreferenced <dir outside
-   media/> --verify-backup media.tgz` (moved, never deleted; refuses unless the backup reads to the
-   end and holds each file byte-identical); delete the quarantine 30 days later (runbook §13);
-   `backfill_image_variants --dry-run --strip-metadata`, then with `--strip-metadata` (owner
-   decision; media backup from step 2 exists), then once more → `variants 0, stripped 0`.
-10. crons (DEPLOY.md §13): `sweep_availability` */5, `purge_tracking` hourly, `prune_notifications`
-    daily, `purge_chats` daily, `remind_stale_locations` daily 05:00 UTC, `community_sweep` hourly,
-    `community_weekly` Mondays 05:00 UTC (both no-op until the community is configured).
-10a. **New main-bot token** (runbook §10a): before milestone 5 a Telegram send error logged the URL
-    with the token, so old server logs may hold it → @BotFather `/revoke` → new token into `.env`
-    (`nano`, never printed) → `up -d --force-recreate telegram_bot celery_worker web ws` (restart
-    doesn't re-read `.env`) → `/start` + a real notification arrives, celery queue 0.
-11. Browser + Telegram check by role (runbook §11); 12. 24 h monitoring (+ `check_demo_data` once more).
-Later, separately: community bot (`.env` TELEGRAM_COMMUNITY_*, `--profile community`), OSRM,
-Cloudflare (owner switches NS at navjucloud — `docs/CLOUDFLARE.md`; then `DJANGO_BEHIND_CLOUDFLARE=True`
-+ `up -d --force-recreate web ws`).
+R. Dress rehearsal of the whole runbook on a Multipass VM (old Docker stack at `2467bc5` with demo
+   data → steps 1–12, both rollback levels, reboot test, `deploy.sh`) — before the deploy day.
+0. Local: full suite green → `git merge --ff-only feature-pack-v2` into `main` → push.
+1. Server pre-flight (read-only): containers / volumes / databases inventory (nothing foreign?),
+   `shared_postgres` version + locale + non-default settings, demo password audit, `id -u deploy`,
+   ports, memory, disk (≥ 3 GB free).
+2. Backups (`db.dump`, `media.tgz`, `staticfiles.json`, `.env`, nginx, crontab, SHA256SUMS) → Mac →
+   `scripts/verify_backup.sh` — no verified copy, no deploy.
+3. apt: python3.14 (deadsnakes), postgresql-16, redis-server; tuning, journald, logrotate. Site up.
+4. `git pull`, crontab → `docker exec`, venv, `.env` (+ the vars compose used to set) →
+   `check_env.py`; role + DB; collectstatic; **trial restore of the step-2 dump + `check_demo_data`
+   + 14 migrations + a preview app on :8099**. Site up.
+5. systemd units installed (disabled); nginx config from `deploy/nginx/`. Site up.
+6. **Window**: stop old web/bot, drain the Celery queue, stop the worker → final dump → recreate +
+   restore → counts equal → migrate → `rename_legacy_uploads` → enable units → new crontab.
+7. Checks (readiness, `check_realtime`, WS 101/403, journals, memory). 8. One-off commands
+   (achievements, quarantine, image variants, `check_demo_data`). 9. New bot token. 10. Browser +
+   Telegram by role. 11. Monitoring (+ nightly `pg_dump`). 12. **≥ 7 days later**: remove Docker
+   (guards: nothing foreign; archive dumps; reboot test). 13. +30 days: delete the quarantine.
 
-Rollback: level 0 (switch one feature off), level 1 (migrate `myapp 0015` → `accounts 0007` with the
-NEW image — rehearsed again on postgres:16.15 with milestone 6's 0012/0024, 14 migrations back in 1 s, then old commit + `rollback-2467bc5` image + collectstatic + nginx/crontab backups),
-level 2 (`DROP SCHEMA public CASCADE; CREATE SCHEMA public` + `pg_restore --exit-on-error` of the
-pre-deploy dump — loses everything written after step 2; the old `pg_restore --clean` silently failed
-in the 2026-10-04 rehearsal). Whole runbook rehearsed end-to-end 2026-10-04 (see log).
+Rollback (until step 12): level 0 (one feature off), level 1 (back to the untouched old DB:
+`docker start` the old containers + old manifest / media / nginx / crontab), level 2 (migrate the new
+DB back to `0015`/`0007`, restore it into `shared_postgres`, then level 1 without the media restore).
+Later, separately: community bot (`systemctl enable --now khayrkhoh-community-bot`), OSRM (native,
+not Docker), Cloudflare (`docs/CLOUDFLARE.md`).

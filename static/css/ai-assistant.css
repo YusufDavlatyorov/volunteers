@@ -14,6 +14,7 @@
     display: flex;
     flex-direction: column;
     height: min(70vh, 640px);
+    height: min(70dvh, 640px);   /* dvh: the visible area, not the one behind a phone's URL bar */
     background: var(--card-bg);
     border: 1px solid var(--card-border);
     border-radius: 16px;
@@ -41,12 +42,26 @@
 .ai-msg-avatar { width: 28px; height: 28px; }
 .ai-msg-avatar svg { width: 15px; height: 15px; }
 
-/* justify-content: flex-end keeps a short conversation anchored to the
-   bottom (next to the input) instead of floating under the header with a
-   big empty gap above it — the empty state overrides this for itself via
-   margin: auto, which still wins over the container's justify-content. */
-.ai-chat-body { flex: 1; overflow-y: auto; padding: var(--space-5); display: flex; flex-direction: column; justify-content: flex-end; }
-.ai-messages { display: flex; flex-direction: column; }
+/* The scrolling message pane. A short conversation sits at the bottom (next
+   to the input) through margin-top: auto on the message list — NOT through
+   justify-content: flex-end on this scroll container: Chrome and Firefox put
+   the overflow of a flex-end column above the scroll origin, where it can't
+   be scrolled to (older messages were unreachable; Safari scrolled anyway).
+   min-height: 0 lets the pane shrink below its content inside the fixed-height
+   card instead of growing it. The empty state centres itself (margin: auto)
+   while the list is still :empty. */
+.ai-chat-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    padding: var(--space-5);
+    display: flex;
+    flex-direction: column;
+}
+.ai-messages { display: flex; flex-direction: column; flex-shrink: 0; margin-top: auto; min-width: 0; }
+.ai-messages:empty { display: none; }
 
 .ai-empty-state { margin: auto; text-align: center; max-width: 360px; padding: var(--space-4) 0; }
 .ai-empty-state h3 { margin: 0 0 0.4rem; font-size: 1.1rem; }
@@ -65,7 +80,7 @@
 }
 .ai-suggestion-chip:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-glow); }
 
-.ai-msg { display: flex; align-items: flex-end; gap: 0.5rem; max-width: 82%; margin-bottom: var(--space-4); }
+.ai-msg { display: flex; align-items: flex-end; gap: 0.5rem; max-width: 82%; min-width: 0; margin-bottom: var(--space-4); }
 .ai-msg--ai { margin-right: auto; }
 .ai-msg--user { margin-left: auto; flex-direction: row-reverse; }
 .ai-msg-bubble {
@@ -75,7 +90,8 @@
     color: var(--text);
     font-size: 0.92rem;
     line-height: 1.55;
-    overflow-wrap: break-word;
+    min-width: 0;
+    overflow-wrap: anywhere;
     white-space: pre-wrap;
     animation: aiMsgIn 0.2s ease;
 }
@@ -120,7 +136,7 @@
     gap: var(--space-3);
     margin-bottom: var(--space-4);
     padding: var(--space-3) var(--space-4);
-    border: 1px solid var(--danger);
+    border: 1px solid var(--danger-line);
     border-radius: 12px;
     background: var(--danger-glow);
     color: var(--danger);
@@ -134,7 +150,7 @@
 
 @media (max-width: 768px) {
     .ai-layout { grid-template-columns: 1fr; }
-    .ai-chat-app { height: min(68vh, 560px); }
+    .ai-chat-app { height: min(68vh, 560px); height: min(68dvh, 560px); }
 }
 @media (max-width: 480px) {
     .ai-chat-header, .ai-chat-body, .ai-chat-input { padding-left: var(--space-4); padding-right: var(--space-4); }

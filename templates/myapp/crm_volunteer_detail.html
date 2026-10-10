@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% load assets realtime_ui reviews achievements_ui responsive %}
 {% block title %}{{ profile.full_name|default:volunteer.username }} - KhayrKhoh{% endblock %}
+{% block extra_css %}{% if activity %}<link rel="stylesheet" href="{% asset 'css/activity.css' %}">{% endif %}{% endblock %}
 {% block content %}
 <section class="section">
     <div class="card detail-card reveal">
@@ -55,6 +56,8 @@
         </div>
     </div>
 
+    {% if activity %}{% include "myapp/_activity_calendar.html" %}{% endif %}
+
     {% if achievement_items %}{% achievement_grid achievement_items own=False %}{% endif %}
     {% if not mentor_awarded %}
         <form method="post" action="{% url 'crm_award_mentor' volunteer.pk %}" class="button-row crm-mentor-form">
@@ -98,4 +101,4 @@
     {% endif %}
 </section>
 {% endblock %}
-{% block extra_js %}<script src="{% asset 'js/achievements.js' %}" defer></script>{% endblock %}
+{% block extra_js %}<script src="{% asset 'js/achievements.js' %}" defer></script>{% if activity %}<script src="{% asset 'js/activity.js' %}" defer></script>{% endif %}{% endblock %}

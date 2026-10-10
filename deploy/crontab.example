@@ -1,0 +1,29 @@
+# KhayrKhoh — the deploy user's crontab (`crontab deploy/crontab.example`, or
+# paste via `crontab -e`). Every job is an idempotent management command run
+# from the venv; settings read /opt/khayrkhoh/.env themselves (python-dotenv).
+# flock: a slow run is never overlapped by the next one. Times are the server
+# clock (UTC): 05:00 UTC = 10:00 in Dushanbe.
+# Log: /var/log/khayrkhoh/cron.log (rotated by deploy/logrotate/khayrkhoh).
+# Periodic jobs are deliberately plain cron — Celery only delivers notifications.
+SHELL=/bin/bash
+PY=/opt/khayrkhoh/.venv/bin/python
+LOG=/var/log/khayrkhoh/cron.log
+
+# Alert curators/admins about tasks overdue past 3h. Every 15 min.
+*/15 * * * * cd /opt/khayrkhoh && flock -n /tmp/khayrkhoh-overdue.lock $PY manage.py check_overdue_tasks >> $LOG 2>&1
+# Pending requests stuck without a volunteer past 48h. Hourly.
+0 * * * * cd /opt/khayrkhoh && flock -n /tmp/khayrkhoh-stale.lock $PY manage.py check_stale_requests >> $LOG 2>&1
+# Volunteer availability: idle → offline, expired do-not-disturb → off. Every 5 min.
+*/5 * * * * cd /opt/khayrkhoh && flock -n /tmp/khayrkhoh-availability.lock $PY manage.py sweep_availability >> $LOG 2>&1
+# Live-tracking trail: delete points of ended tasks / older than 24 h. Hourly.
+20 * * * * cd /opt/khayrkhoh && flock -n /tmp/khayrkhoh-tracking.lock $PY manage.py purge_tracking >> $LOG 2>&1
+# In-app notifications older than 90 days. Daily.
+10 3 * * * cd /opt/khayrkhoh && flock -n /tmp/khayrkhoh-notifications.lock $PY manage.py prune_notifications >> $LOG 2>&1
+# Chat retention: photos 90 d / messages 180 d after the task ended. Daily.
+30 3 * * * cd /opt/khayrkhoh && flock -n /tmp/khayrkhoh-chats.lock $PY manage.py purge_chats >> $LOG 2>&1
+# Remind volunteers whose saved location is older than 30 days. Daily, 10:00 Dushanbe.
+0 5 * * * cd /opt/khayrkhoh && flock -n /tmp/khayrkhoh-location.lock $PY manage.py remind_stale_locations >> $LOG 2>&1
+# Volunteer community (docs/COMMUNITY_BOT.md): remove members no longer eligible. Hourly.
+40 * * * * cd /opt/khayrkhoh && flock -n /tmp/khayrkhoh-community.lock $PY manage.py community_sweep >> $LOG 2>&1
+# Volunteer community: the weekly "thank you" post (once per ISO week). Mondays, 10:00 Dushanbe.
+0 5 * * 1 cd /opt/khayrkhoh && flock -n /tmp/khayrkhoh-weekly.lock $PY manage.py community_weekly >> $LOG 2>&1

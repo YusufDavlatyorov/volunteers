@@ -16,7 +16,7 @@
     min-height: 82vh;
     display: grid;
     align-items: center;
-    padding: clamp(2.2rem, 6vw, 5rem);
+    padding: clamp(2.2rem, 6vw, 5rem) 0;   /* sides: the .container gutter */
     background: var(--hero-from);
     color: var(--hero-ink);
 }
@@ -46,6 +46,18 @@
     background-size: cover, 22px 22px;
     pointer-events: none;
 }
+/* Video and scrim span the screen; the text, buttons and region strip sit in
+   a .container (1200px, centred, its padding is the side gutter — the same
+   edge as the header and every section). It fills the hero's height and is
+   itself a two-row grid, so the headline and the strip keep the vertical
+   rhythm they had as direct children of .hero. */
+.hero > .container {
+    position: relative;
+    z-index: 2;
+    align-self: stretch;
+    display: grid;
+    align-items: center;
+}
 .hero-grid {
     position: relative;
     z-index: 2;
@@ -53,8 +65,6 @@
     grid-template-columns: 1fr;
     gap: clamp(1.5rem, 4vw, 3rem);
     align-items: center;
-    max-width: var(--container-lg);
-    margin: 0 auto;
     width: 100%;
 }
 .hero-content { max-width: 640px; }
@@ -70,13 +80,12 @@
 .hero-actions .ghost { color: white; border-color: rgba(255,255,255,0.35); }
 .hero-actions .ghost:hover { border-color: white; background: rgba(255,255,255,0.08); }
 /* Primary CTA on the dark hero: a solid white pill with blue text for contrast. */
-.hero-actions .primary { background: #fff; color: var(--primary); }
+.hero-actions .primary { background: #fff; color: var(--brand-blue); }   /* brand blue in both themes: the dark --primary is a light tint (2.4:1 on white) */
 .hero-actions .primary:hover { background: #fff; box-shadow: 0 8px 22px rgba(0,0,0,0.28); }
 .hero-strip {
     position: relative;
     z-index: 2;
-    max-width: var(--container-lg);
-    margin: clamp(2rem, 5vw, 3.5rem) auto 0;
+    margin-top: clamp(2rem, 5vw, 3.5rem);
     padding-top: var(--space-5);
     border-top: 1px solid rgba(255,255,255,0.14);
     display: flex;

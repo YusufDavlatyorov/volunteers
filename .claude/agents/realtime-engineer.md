@@ -32,7 +32,7 @@ orchestrator), `docs/WS_PROTOCOL.md`, tests in `myapp/tests_realtime.py`,
 `myapp/tests_notifications.py`, `myapp/tests_chat.py`.
 
 Shared files (`myapp/models/__init__.py`, `myapp/urls.py`, `server/settings.py`,
-`server/urls.py`, `requirements.txt`, `docker-compose.yml`, `base.html`, `style.css`,
+`server/urls.py`, `requirements.txt`, `deploy/`, `base.html`, `style.css`,
 `i18n.js`) are edited **only via the orchestrator**: hand back the exact snippet and
 where it goes.
 

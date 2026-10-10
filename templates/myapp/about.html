@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load static assets responsive %}
+{% load static assets responsive form_i18n %}
 {% block extra_css %}<link rel="stylesheet" href="{% asset 'css/home.css' %}">{% endblock %}
 {% block content %}
 <section class="hero">
@@ -111,25 +111,27 @@
         }
     })();
     </script>
-    <div class="hero-grid">
-        <div class="hero-content reveal">
-            <span class="eyebrow" data-i18n="hero.eyebrow">Volunteer platform for Tajikistan</span>
-            <h1><span class="hero-brand visually-hidden">KhayrKhoh — </span><span data-i18n="hero.title_1">Connect. </span><span class="h-accent" data-i18n="hero.title_accent">Help.</span><span data-i18n="hero.title_2"> Change lives.</span></h1>
-            <p data-i18n="hero.desc">KhayrKhoh matches volunteers with elderly people who need a hand — a request, an acceptance, a notification, a finished task. Clear roles, real accountability, five regions.</p>
-            <div class="hero-actions">
-                <a class="button primary" href="{% url 'register' %}" data-i18n="hero.join">Become a Volunteer</a>
-                <a class="button ghost" href="{% url 'create_request' %}" data-i18n="hero.request">Request Help</a>
+    <div class="container">
+        <div class="hero-grid">
+            <div class="hero-content reveal">
+                <span class="eyebrow" data-i18n="hero.eyebrow">Volunteer platform for Tajikistan</span>
+                <h1><span class="hero-brand visually-hidden">KhayrKhoh — </span><span data-i18n="hero.title_1">Connect. </span><span class="h-accent" data-i18n="hero.title_accent">Help.</span><span data-i18n="hero.title_2"> Change lives.</span></h1>
+                <p data-i18n="hero.desc">KhayrKhoh matches volunteers with elderly people who need a hand — a request, an acceptance, a notification, a finished task. Clear roles, real accountability, five regions.</p>
+                <div class="hero-actions">
+                    <a class="button primary" href="{% url 'register' %}" data-i18n="hero.join">Become a Volunteer</a>
+                    <a class="button ghost" href="{% url 'create_request' %}" data-i18n="hero.request">Request Help</a>
+                </div>
             </div>
         </div>
-    </div>
-    <div class="hero-strip reveal">
-        <span class="hero-strip-label" data-i18n="hero.regions_label">5 regions of Tajikistan</span>
-        <div class="region-pills">
-            <span class="region-pill" data-i18n="region.dushanbe">Dushanbe</span>
-            <span class="region-pill" data-i18n="region.sogd">Sogd</span>
-            <span class="region-pill" data-i18n="region.khatlon">Khatlon</span>
-            <span class="region-pill" data-i18n="region.gbao">GBAO</span>
-            <span class="region-pill" data-i18n="region.rrp">RRP</span>
+        <div class="hero-strip reveal">
+            <span class="hero-strip-label" data-i18n="hero.regions_label">5 regions of Tajikistan</span>
+            <div class="region-pills">
+                <span class="region-pill" data-i18n="region.dushanbe">Dushanbe</span>
+                <span class="region-pill" data-i18n="region.sogd">Sogd</span>
+                <span class="region-pill" data-i18n="region.khatlon">Khatlon</span>
+                <span class="region-pill" data-i18n="region.gbao">GBAO</span>
+                <span class="region-pill" data-i18n="region.rrp">RRP</span>
+            </div>
         </div>
     </div>
 </section>
@@ -142,11 +144,11 @@
                 <img class="volunteers-photo" src="{% static 'images/volunteers/volunteers-team-960.jpg' %}"
                      srcset="{% static 'images/volunteers/volunteers-team-640.jpg' %} 640w, {% static 'images/volunteers/volunteers-team-960.jpg' %} 960w, {% static 'images/volunteers/volunteers-team-1280.jpg' %} 1280w"
                      sizes="(max-width: 820px) 100vw, 620px"
-                     alt="Молодой волонтёр передаёт пожилому мужчине коробку с продуктовой помощью" width="1280" height="960" loading="lazy" decoding="async">
+                     alt="Молодой волонтёр передаёт пожилому мужчине коробку с продуктовой помощью" data-i18n-alt="about.volunteers_photo_alt" width="1280" height="960" loading="lazy" decoding="async">
             </picture>
         </div>
         <div class="reveal">
-            <span class="eyebrow" data-i18n="section.volunteers_eyebrow">Meet Our Volunteers</span>
+            <span class="eyebrow" data-i18n="section.volunteers_eyebrow">Meet Our Volunteers </span>
             <h2><span data-i18n="section.volunteers_title_1">These are </span><span class="h-accent" data-i18n="section.volunteers_title_accent">our people</span></h2>
             <p data-i18n="section.volunteers_desc">Young people across Tajikistan are giving their time, energy and kindness to help others — visiting elders, carrying groceries, delivering aid, standing by families who need a hand.</p>
             <div class="button-row">
@@ -191,7 +193,7 @@
                 <img class="regions-photo" src="{% static 'images/tajikistan/mountains-960.jpg' %}"
                      srcset="{% static 'images/tajikistan/mountains-480.jpg' %} 480w, {% static 'images/tajikistan/mountains-960.jpg' %} 960w"
                      sizes="(max-width: 820px) 90vw, 440px"
-                     alt="Ваханская долина, Памир, Таджикистан" width="960" height="640" loading="lazy" decoding="async">
+                     alt="Ваханская долина, Памир, Таджикистан" data-i18n-alt="about.regions_photo_alt" width="960" height="640" loading="lazy" decoding="async">
             </picture>
             {% include "_peaks_mark.html" %}
             <h3 data-i18n="section.regions">Five regions, one platform</h3>
@@ -215,7 +217,7 @@
     {% if reports %}
     <div class="grid">
         {% for report in reports %}
-            <div class="card reveal">{% responsive_image report.image report.image_variants sizes="(max-width: 700px) 92vw, 380px" class="report-img" alt="Фотоотчёт: "|add:report.title width=800 height=600 loading="lazy" decoding="async" %}<h3>{{ report.title }}</h3><p class="clamp-text">{{ report.description }}</p></div>
+            <div class="card reveal">{% responsive_image report.image report.image_variants sizes="(max-width: 700px) 92vw, 380px" class="report-img" alt="Фотоотчёт: "|add:report.title data_i18n_alt="about.report_alt" data_i18n_args=report.title|i18n_args:"title" width=800 height=600 loading="lazy" decoding="async" %}<h3>{{ report.title }}</h3><p class="clamp-text">{{ report.description }}</p></div>
         {% endfor %}
     </div>
     {% else %}

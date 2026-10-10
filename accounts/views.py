@@ -18,7 +18,7 @@ from .models import Profile, REGION_CHOICES, Users, hash_token, validate_file_si
 from myapp.models import VolunteerApplication
 from myapp.notifications import queue_email
 from myapp.services.notify import notify
-from myapp.services import dashboard, images
+from myapp.services import activity, dashboard, images
 from server.client_ip import client_ip
 
 logger = logging.getLogger(__name__)
@@ -39,7 +39,7 @@ PASSWORD_RESET_WINDOW_SECONDS = 15 * 60
 
 
 def _client_ip(request):
-    # Behind nginx/Docker REMOTE_ADDR is the bridge gateway for everyone —
+    # Behind nginx REMOTE_ADDR is the proxy's address for everyone —
     # the shared helper reads the trusted proxy headers (server/client_ip.py).
     return client_ip(request)
 
@@ -104,7 +104,8 @@ def login_view(request):
             logger.warning(
                 "login throttled: ip=%s username=%s", _client_ip(request), username.lower(),
             )
-            form.add_error(None, "Слишком много попыток входа. Попробуйте снова через несколько минут.")
+            form.add_error(None, ValidationError(
+                "Слишком много попыток входа. Попробуйте снова через несколько минут.", code="login_throttled"))
         else:
             user = authenticate(request, username=username, password=form.cleaned_data["password"])
             if user and user.is_active:
@@ -118,7 +119,7 @@ def login_view(request):
                 return redirect("profile")
             _register_attempt(ip_key, LOGIN_ATTEMPT_WINDOW_SECONDS)
             _register_attempt(user_key, LOGIN_ATTEMPT_WINDOW_SECONDS)
-            form.add_error(None, "Неверный username или пароль")
+            form.add_error(None, ValidationError("Неверный username или пароль", code="login_failed"))
     return render(request, "accounts/login.html", {"form": form})
 
 
@@ -148,6 +149,9 @@ def profile_view(request):
         "community_card": _community_card(request.user),
         **dashboard.for_user(request.user),
     }
+    # Activity calendar (volunteers and clients only; None for staff).
+    context["activity"] = activity.calendar(request.user)
+    context["activity_empty_key"] = "act.empty_volunteer" if request.user.is_volunteer else "act.empty_client"
     return render(request, "accounts/profile.html", context)
 
 
@@ -313,11 +317,16 @@ def update_profile(request):
     # requires the verified code round-trip in telegram_link_view.
     request.user.save()
 
-    full_name = request.POST.get("full_name", profile.full_name)
+    full_name = request.POST.get("full_name", profile.full_name).strip()
     if len(full_name) > Users.FULL_NAME_MAX_LENGTH:
-        return JsonResponse(
-            {"success": False, "error": f"Имя не длиннее {Users.FULL_NAME_MAX_LENGTH} символов."}, status=400
-        )
+        # `error_i18n` + `error_args`: the same err.max_length key the forms
+        # use, so a client can show it in EN/RU/TJ (`error` stays Russian).
+        return JsonResponse({
+            "success": False,
+            "error": f"Имя не длиннее {Users.FULL_NAME_MAX_LENGTH} символов.",
+            "error_i18n": "err.max_length",
+            "error_args": {"limit_value": Users.FULL_NAME_MAX_LENGTH, "show_value": len(full_name)},
+        }, status=400)
     profile.full_name = full_name
     raw_age = request.POST.get("age")
     if raw_age:

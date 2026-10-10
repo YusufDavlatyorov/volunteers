@@ -2,7 +2,7 @@
 {% block title %}Volunteer Applications - KhayrKhoh{% endblock %}
 {% block content %}
 <section class="section section-xl">
-    {% include "partials/_page_header.html" with title="Volunteer Applications" title_i18n="va.list_title" lede="Review and decide on people applying to volunteer." %}
+    {% include "partials/_page_header.html" with title="Volunteer Applications" title_i18n="va.list_title" lede="Review and decide on people applying to volunteer." lede_i18n="va.list_lede" %}
 
     {% with qs_region=region_filter|default:"" qs_q=search_query|default:"" %}
     <div class="tab-bar">
@@ -30,7 +30,7 @@
             <select id="appRegion" name="region" class="control">
                 <option value="" data-i18n="va.all_regions">All regions</option>
                 {% for value, label in region_choices %}
-                    <option value="{{ value }}" {% if region_filter == value %}selected{% endif %}>{{ label }}</option>
+                    <option value="{{ value }}" data-i18n="region.{{ value }}" {% if region_filter == value %}selected{% endif %}>{{ label }}</option>
                 {% endfor %}
             </select>
         </div>

@@ -1,0 +1,27 @@
+{% comment %}Activity calendar (GitHub-style) — myapp/services/activity.py::calendar.
+Context: `activity` (the calendar dict) and `activity_empty_key` (the i18n key of the
+"no activity yet" hint: act.empty_volunteer / act.empty_client on one's own profile,
+act.empty_other in the CRM). Rendered server-side in Russian; static/js/activity.js
+re-labels it in the visitor's language (Intl.PluralRules), shows tooltips on hover /
+tap / arrow keys and scrolls the grid to the latest weeks.{% endcomment %}
+<section class="card reveal act-card" id="activityCard" aria-labelledby="actTitle">
+    <div class="section-head"><h3 id="actTitle" data-i18n="act.title">Activity</h3></div>
+    <p class="act-total" id="actTotal" data-n="{{ activity.total }}" data-i18n="{{ activity.total_key }}" data-i18n-args='{{ activity.total_args }}'>{{ activity.total_text }}</p>
+    <div class="act-scroll" id="actScroll" tabindex="0" role="group" aria-label="Activity over the last 12 months, by day" data-i18n-aria="act.grid_label">
+        <div class="act-graph">
+            <div class="act-months" aria-hidden="true">{% for m in activity.months %}<span style="grid-column: {{ m.col|add:1 }} / span 3" data-i18n="{{ m.key }}">{{ m.text }}</span>{% endfor %}</div>
+            <div class="act-wd" aria-hidden="true"><span data-i18n="act.wd_mon">Mon</span><span></span><span data-i18n="act.wd_wed">Wed</span><span></span><span data-i18n="act.wd_fri">Fri</span><span></span><span></span></div>
+            <div class="act-grid" id="actGrid">{% for week in activity.weeks %}{% for day in week %}{% if day.out %}<span class="act-cell is-out" aria-hidden="true"></span>{% else %}<span class="act-cell l{{ day.level }}{% if day.today %} is-today{% endif %}" role="img" aria-label="{{ day.label }}" data-d="{{ day.iso }}"{% if day.count %} data-n="{{ day.count }}" data-k="{{ day.kinds }}"{% endif %}></span>{% endif %}{% endfor %}{% endfor %}</div>
+        </div>
+    </div>
+    <div class="act-foot">
+        {% if activity.empty %}<p class="act-empty" data-i18n="{{ activity_empty_key }}">No activity yet.</p>{% else %}<span></span>{% endif %}
+        <div class="act-legend" aria-hidden="true">
+            <span data-i18n="act.less">Less</span>
+            <i class="act-cell l0"></i><i class="act-cell l1"></i><i class="act-cell l2"></i><i class="act-cell l3"></i><i class="act-cell l4"></i>
+            <span data-i18n="act.more">More</span>
+        </div>
+    </div>
+    <div class="act-tip" id="actTip" hidden></div>
+    <p class="visually-hidden" id="actLive" aria-live="polite"></p>
+</section>

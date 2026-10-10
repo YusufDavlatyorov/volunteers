@@ -40,6 +40,26 @@ ERROR_I18N_KEYS = {
     "max_length": "err.max_length",
     # accounts/forms.py ProfileForm.clean_away_until (do-not-disturb end date)
     "away_until_past": "err.away_until_past",
+    # accounts/forms.py (registration / profile)
+    "username_too_short": "err.username_too_short",
+    "username_taken": "err.username_taken",
+    "email_taken": "err.email_taken",
+    # map location pickers (HelpRequestForm / PetReportForm / ProfileForm)
+    "coords_pair": "err.coords_pair",
+    "coords_invalid": "err.coords_invalid",
+    # myapp/forms.py DonationForm
+    "donation_item_required": "err.donation_item_required",
+    "organization_required": "err.organization_required",
+    # accounts/views.py login_view
+    "login_failed": "err.login_failed",
+    "login_throttled": "err.login_throttled",
+    # Django's own field errors (rendered in English — LANGUAGE_CODE is en-us)
+    "required": "err.required",
+    "invalid": "err.invalid",
+    "invalid_choice": "err.invalid_choice",
+    "min_value": "err.min_value",
+    "max_value": "err.max_value",
+    "invalid_image": "err.invalid_image",
 }
 
 # Params passed through to i18n.js placeholders. Anything else (e.g. the
@@ -64,6 +84,13 @@ def _first_error(errors):
         data = errors.as_data()
         return data[0] if data else None
     return None
+
+
+@register.filter
+def i18n_args(value, name):
+    """JSON for data-i18n-args with one named value, e.g. an alt text that
+    embeds a title: ``data_i18n_args=report.title|i18n_args:"title"``."""
+    return json.dumps({name: str(value)}, ensure_ascii=False)
 
 
 @register.simple_tag

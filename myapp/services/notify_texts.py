@@ -202,6 +202,18 @@ CHANNEL_TEXTS = {
                "Reason: {reason}\n"
                "Time: {time}\n"),
     },
+    "sos_nearby": {
+        "maps": {"region_name": _REGION},
+        "ru": ("⚠️ SOS рядом с вами",
+               "Волонтёр в регионе {region_name} подал сигнал опасности. "
+               "Откройте карту на сайте, чтобы увидеть, где он, — точка видна, пока сигнал активен."),
+        "tj": ("⚠️ SOS дар наздикии шумо",
+               "Ихтиёрӣ дар минтақаи {region_name} сигнали хатар дод. "
+               "Харитаро дар сайт кушоед, то бинед, ки ӯ дар куҷост, — нуқта то фаъол будани сигнал намоён аст."),
+        "en": ("⚠️ SOS near you",
+               "A volunteer in {region_name} raised a danger alert. "
+               "Open the map on the site to see where — the point is visible while the alert is active."),
+    },
     "sos_update": {
         "maps": {"phrase": ("action", {
             "ru": {"acknowledged": "принят координатором", "resolved": "закрыт координатором",
@@ -508,6 +520,11 @@ INAPP_TEXTS = {
         "en": ("SOS: volunteer in danger", "Volunteer {volunteer_name} raised an alert on request #{task_id}."),
         "ru": ("SOS: волонтёр в опасности", "Волонтёр {volunteer_name} подал сигнал по запросу #{task_id}."),
         "tj": ("SOS: ихтиёрӣ дар хатар", "Ихтиёрӣ {volunteer_name} оид ба дархости #{task_id} сигнал дод."),
+    },
+    "sos_nearby": {
+        "en": ("SOS in your region", "A volunteer nearby needs help. Open the map to see where."),
+        "ru": ("SOS в вашем регионе", "Волонтёру рядом с вами нужна помощь. Откройте карту, чтобы увидеть, где."),
+        "tj": ("SOS дар минтақаи шумо", "Ба ихтиёрии наздики шумо кумак лозим аст. Харитаро кушоед, то бинед, ки дар куҷо."),
     },
     "sos_update": {
         "variants": {
@@ -864,6 +881,7 @@ TYPE_LABELS = {
     "task_completed": {"en": "Request completed", "ru": "Запрос выполнен", "tj": "Дархост иҷро шуд"},
     "task_cancelled": {"en": "Request cancelled", "ru": "Запрос отменён", "tj": "Дархост бекор шуд"},
     "sos_new": {"en": "SOS alerts", "ru": "Сигналы SOS", "tj": "Сигналҳои SOS"},
+    "sos_nearby": {"en": "SOS alerts in my region", "ru": "Сигналы SOS в моём регионе", "tj": "Сигналҳои SOS дар минтақаи ман"},
     "sos_update": {"en": "My SOS updates", "ru": "Обновления моего SOS", "tj": "Навсозиҳои SOS-и ман"},
     "application_submitted": {"en": "Volunteer applications", "ru": "Заявки волонтёров", "tj": "Аризаҳои ихтиёриён"},
     "application_approved": {"en": "Application approved", "ru": "Заявка одобрена", "tj": "Ариза тасдиқ шуд"},

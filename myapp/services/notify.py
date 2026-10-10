@@ -77,6 +77,10 @@ NOTIFICATION_TYPES = dict([
        role_defaults={"admin": frozenset(), "curator": frozenset()}),
     _t("sos_new", STAFF, forced=True),
     _t("sos_update", ("volunteer",)),
+    # A volunteer of the same region raised an SOS: in-app (toast + the live
+    # map marker) + Telegram. The text never carries a location or a name —
+    # the point is visible on the map only while the SOS is active.
+    _t("sos_nearby", ("volunteer",), defaults={TELEGRAM}),
     _t("application_submitted", ("admin",)),
     _t("application_approved", ("guest", "volunteer", "client")),
     _t("application_rejected", ("guest", "volunteer", "client")),

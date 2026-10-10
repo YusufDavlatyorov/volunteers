@@ -21,8 +21,8 @@ db.sqlite3-journal
 *.sqlite3
 *.sqlite3-journal
 
-# User-uploaded media — never tracked; the Docker volume / deploy step
-# creates this directory at runtime (see DEPLOY.md).
+# User-uploaded media — never tracked; created on the server at deploy
+# (see DEPLOY.md).
 media/
 
 # Collected static files
@@ -38,5 +38,5 @@ Thumbs.db
 # Local scratch files
 strart
 
-# OSRM routing data (built by scripts/osrm_build.sh, copied to the server — never committed)
+# OSRM routing data (old local build output; self-hosted OSRM is not deployed — never committed)
 osrm-data/

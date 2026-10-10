@@ -1,6 +1,6 @@
 """Inbound WebSocket rate limits (plan §3.4), on the shared Django cache.
 
-Production cache = Redis, so the limits hold across the ``ws`` process'
+Production cache = Redis, so the limits hold across all gunicorn workers'
 connections and survive reconnects; tests use LocMemCache. Fixed windows keyed
 per user (+ per task for chat.send): cheap ``add`` + ``incr``, no Lua.
 

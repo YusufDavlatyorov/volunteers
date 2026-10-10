@@ -4,7 +4,7 @@ from .services import maps
 
 
 def maps_config(request):
-    """Exposes the current provider's Leaflet tile config to every template.
+    """Exposes the current provider's map config to every template.
     base.html renders it with `{{ maps_tile_config|json_script:"gc-maps-tile" }}`
     and static/js/map.js reads that element instead of hard-coding a tile URL.
 
@@ -18,4 +18,10 @@ def maps_config(request):
         config = maps.tile_layer()
     except Exception:  # noqa: BLE001 — never let map config break page rendering
         config = {}
+    # The MapLibre vector style (3D buildings); the raster config above is its
+    # fallback. Same rule: a misconfiguration only means "no vector style".
+    try:
+        config["vector"] = maps.vector_style()
+    except Exception:  # noqa: BLE001
+        config["vector"] = {}
     return {"maps_tile_config": config}

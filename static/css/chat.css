@@ -52,7 +52,7 @@
 }
 .chat__large:hover { border-color: var(--primary); color: var(--primary); }
 .chat__large[aria-pressed="true"] { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
-.chat__large-icon { font-family: 'Playfair Display', Georgia, serif; font-size: 1.15em; line-height: 1; }
+.chat__large-icon { font-size: 1.15em; line-height: 1; }
 .chat__mode {
     flex: 1 1 14rem;
     margin: 0;

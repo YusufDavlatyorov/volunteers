@@ -1,0 +1,24 @@
+# KhayrKhoh — /etc/logrotate.d/nginx: Ubuntu's stock file (daily, 14 kept,
+# compressed) plus `maxsize`, so a flood of requests rotates the log before the
+# day ends instead of filling the disk. Replaces the package's file; on an
+# nginx upgrade apt keeps this version (answer "keep the local version").
+# Check: sudo logrotate --debug /etc/logrotate.d/nginx
+/var/log/nginx/*.log {
+    daily
+    rotate 14
+    maxsize 100M
+    missingok
+    notifempty
+    compress
+    delaycompress
+    create 0640 www-data adm
+    sharedscripts
+    prerotate
+        if [ -d /etc/logrotate.d/httpd-prerotate ]; then \
+            run-parts /etc/logrotate.d/httpd-prerotate; \
+        fi \
+    endscript
+    postrotate
+        invoke-rc.d nginx rotate >/dev/null 2>&1
+    endscript
+}

@@ -4,7 +4,7 @@
 {% block extra_css %}
 <link rel="stylesheet" href="{% asset 'css/task-detail.css' %}">
 {% if show_route or show_location_map %}
-{% include "partials/_leaflet_css.html" %}
+{% include "partials/_maplibre_css.html" %}
 <link rel="stylesheet" href="{% asset 'css/map.css' %}">
 {% endif %}
 {% endblock %}
@@ -256,10 +256,18 @@
         </div>
         {% endif %}
 
-        <div class="seg-toggle" role="group" aria-labelledby="routeModeLabel" id="routeMode">
-            <span class="visually-hidden" id="routeModeLabel" data-i18n="route.mode_label">Travel mode</span>
-            <button type="button" class="seg-toggle__btn" data-profile="driving" aria-pressed="true" data-i18n="route.mode_driving">By car</button>
-            <button type="button" class="seg-toggle__btn" data-profile="walking" aria-pressed="false" data-i18n="route.mode_walking">On foot</button>
+        <div class="route-toggles">
+            <div class="seg-toggle" role="group" aria-labelledby="routeModeLabel" id="routeMode">
+                <span class="visually-hidden" id="routeModeLabel" data-i18n="route.mode_label">Travel mode</span>
+                <button type="button" class="seg-toggle__btn" data-profile="driving" aria-pressed="true" data-i18n="route.mode_driving">By car</button>
+                <button type="button" class="seg-toggle__btn" data-profile="walking" aria-pressed="false" data-i18n="route.mode_walking">On foot</button>
+            </div>
+            {# Shorter = least distance, faster = least time (routing API `preference`; default: faster by car, shorter on foot). #}
+            <div class="seg-toggle" role="group" aria-labelledby="routePrefLabel" id="routePref">
+                <span class="visually-hidden" id="routePrefLabel" data-i18n="route.pref_label">Route type</span>
+                <button type="button" class="seg-toggle__btn" data-preference="shortest" aria-pressed="false" data-i18n="route.pref_shortest">Shorter</button>
+                <button type="button" class="seg-toggle__btn" data-preference="fastest" aria-pressed="true" data-i18n="route.pref_fastest">Faster</button>
+            </div>
         </div>
 
         <p class="field-hint" id="routeStatus" role="status" aria-live="polite" data-i18n="route.loading">Calculating route…</p>
@@ -275,6 +283,11 @@
             <strong class="nav-next__dist" id="navNextDist"></strong>
         </div>
         {% endif %}
+        {# Route variants (up to 3): task-route.js fills it; a click (or a click on a grey line on the map) makes one the drawn route. #}
+        <div class="route-variants" id="routeVariants" role="group" aria-labelledby="routeVariantsLabel" hidden>
+            <span class="meta-label" id="routeVariantsLabel" data-i18n="route.variants_label">Route options</span>
+            <div class="route-variants__row" id="routeVariantsRow"></div>
+        </div>
         <div id="routeMap" class="map-mini" hidden></div>
         <div id="routeEmpty" class="empty-state" hidden>
             <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0Z"></path><path d="M9.5 9.5l5 5m0-5l-5 5"></path></svg>
@@ -393,11 +406,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const emptyTextEl = document.getElementById('recommendEmptyText');
     const csrfToken = card.querySelector('[name=csrfmiddlewaretoken]');
 
+    // i18n.js keys (EN fallbacks); read through tr() at render time.
     const freshnessLabel = {
-        fresh: 'обновлено только что', recent: 'обновлено недавно',
-        aging: 'координаты давно не обновлялись', stale: 'координаты устарели',
-        unknown: 'координаты никогда не обновлялись',
+        fresh: ['rec.fresh_fresh', 'updated just now'], recent: ['rec.fresh_recent', 'updated recently'],
+        aging: ['rec.fresh_aging', 'location not updated for a while'], stale: ['rec.fresh_stale', 'location is outdated'],
+        unknown: ['rec.fresh_unknown', 'location never updated'],
     };
+    const freshness = (code) => (freshnessLabel[code] ? tr(freshnessLabel[code][0], freshnessLabel[code][1]) : '');
 
     function showEmpty(text) {
         statusEl.hidden = true;
@@ -429,13 +444,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 <p class="opportunity-location">
                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg>
                     ${item.distance_km} km · ~${Math.round(item.estimated_minutes)} min ·
-                    ${item.active_task_count} active · ${freshnessLabel[item.location_freshness] || ''}
+                    ${item.active_task_count} active · ${freshness(item.location_freshness)}
                 </p>
                 <ul class="rec-reasons">${reasons}</ul>
             </div>
             <div class="button-row">
-                <button type="button" class="button primary rec-assign-btn" data-i18n="rec.assign">Assign</button>
-                <button type="button" class="button ghost rec-notify-btn" data-i18n="rec.notify">Notify</button>
+                <button type="button" class="button primary rec-assign-btn" data-i18n="rec.assign">${tr('rec.assign', 'Assign')}</button>
+                <button type="button" class="button ghost rec-notify-btn" data-i18n="rec.notify">${tr('rec.notify', 'Notify')}</button>
             </div>`;
 
         const notifyBtn = row.querySelector('.rec-notify-btn');
@@ -450,17 +465,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 .then((r) => r.json())
                 .then((data) => {
                     if (data.success) {
-                        notifyBtn.textContent = 'Уведомлён ✓';
+                        notifyBtn.setAttribute('data-i18n', 'rec.notified');
+                        notifyBtn.textContent = tr('rec.notified', 'Notified') + ' ✓';
                     } else {
                         notifyBtn.disabled = false;
-                        alert('Не удалось отправить уведомление (возможно, запрос уже не свободен).');
+                        alert(tr('rec.notify_failed', 'Could not send the notification (the request may no longer be free).'));
                     }
                 })
                 .catch(() => { notifyBtn.disabled = false; });
         });
 
         assignBtn.addEventListener('click', () => {
-            if (!confirm(`Назначить ${item.full_name} на этот запрос?`)) return;
+            if (!confirm(tr('rec.assign_confirm', 'Assign {name} to this request?', { name: item.full_name }))) return;
             assignBtn.disabled = true;
             notifyBtn.disabled = true;
             fetch(assignUrlTemplate.replace('999999', item.volunteer_id), {
@@ -474,7 +490,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     } else {
                         assignBtn.disabled = false;
                         notifyBtn.disabled = false;
-                        alert('Не удалось назначить (запрос уже не свободен).');
+                        alert(tr('rec.assign_failed', 'Could not assign (the request is no longer pending).'));
                     }
                 })
                 .catch(() => { assignBtn.disabled = false; notifyBtn.disabled = false; });
@@ -562,7 +578,7 @@ document.addEventListener('DOMContentLoaded', () => {
         .then((data) => {
             renderAway(data.away_volunteers);
             if (!data.task_has_location) {
-                showEmpty('У этого запроса пока нет точки на карте — подобрать волонтёров по расстоянию нельзя.');
+                showEmpty(tr('rec.no_task_location', 'This request has no point on the map yet, so volunteers can’t be matched by distance.'));
                 return;
             }
             if (!data.recommendations.length) {
@@ -578,24 +594,19 @@ document.addEventListener('DOMContentLoaded', () => {
 </script>
 {% endif %}
 {% if show_location_map %}
-{% include "partials/_leaflet_js.html" %}
+{% include "partials/_maplibre_js.html" %}
 <script src="{% asset 'js/map.js' %}"></script>
 <script>
 (function () {
     const card = document.getElementById('locationMapCard');
-    if (!card || typeof L === 'undefined') return;
-    const lat = parseFloat(card.dataset.lat);
-    const lng = parseFloat(card.dataset.lng);
-    if (Number.isNaN(lat) || Number.isNaN(lng)) return;
-    const map = L.map('locationMap').setView([lat, lng], 14);
-    GCMap.tileLayer(map);
-    L.marker([lat, lng], { icon: GCMap.pinIcon('--accent', 'C') }).addTo(map);
-    setTimeout(() => map.invalidateSize(), 50);
+    if (!card) return;
+    GCMap.initPointMap('locationMap', parseFloat(card.dataset.lat), parseFloat(card.dataset.lng),
+        { color: '--accent', glyph: 'C' });
 })();
 </script>
 {% endif %}
 {% if show_route %}
-{% include "partials/_leaflet_js.html" %}
+{% include "partials/_maplibre_js.html" %}
 <script src="{% asset 'js/map.js' %}"></script>
 <script src="{% asset 'js/task-route.js' %}"></script>
 {% endif %}

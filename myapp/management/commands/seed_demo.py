@@ -184,7 +184,7 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        # Production runs with DEBUG=False (settings default; docker-compose.yml).
+        # Production runs with DEBUG=False (settings default; the server's .env).
         # Demo accounts share a public password, so this must never get there.
         if not settings.DEBUG and not options["allow_without_debug"]:
             raise CommandError(

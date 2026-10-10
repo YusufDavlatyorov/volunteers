@@ -29,7 +29,7 @@
 </section>
 {% endif %}
 <section class="section {% if my_active %}alt{% endif %}">
-    {% include "partials/_page_header.html" with title="Free Requests" title_i18n="task.title" lede="Open help requests in your region — accept one at a time." %}
+    {% include "partials/_page_header.html" with title="Free Requests" title_i18n="task.title" lede="Open help requests in your region — accept one at a time." lede_i18n="task.lede" %}
     <form class="card filter-bar" method="get">
         {% include "partials/_form.html" with form=filter_form %}
         <button class="button primary" type="submit" data-i18n="task.filter">Filter</button>

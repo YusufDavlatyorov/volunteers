@@ -1,0 +1,30 @@
+# KhayrKhoh — background delivery of email/Telegram notifications and WebP
+# image variants (myapp/tasks.py), broker = local Redis DB 1. Periodic jobs are
+# NOT here — they are cron (deploy/crontab.example); there is no celery beat.
+[Unit]
+Description=KhayrKhoh Celery worker
+After=network.target postgresql.service redis-server.service
+Wants=postgresql.service redis-server.service
+
+[Service]
+Type=simple
+User=deploy
+Group=deploy
+WorkingDirectory=/opt/khayrkhoh
+EnvironmentFile=/opt/khayrkhoh/.env
+Environment=PYTHONUNBUFFERED=1
+# --pool=threads: Celery's default prefork pool crashed every task on Python
+# 3.14; the sends are I/O-bound, threads are light on 1 vCPU.
+ExecStart=/opt/khayrkhoh/.venv/bin/celery -A server worker --pool=threads --concurrency=4 --loglevel=INFO
+# SIGTERM = warm shutdown (finish running tasks); acks_late re-delivers the rest.
+KillSignal=SIGTERM
+TimeoutStopSec=100
+Restart=always
+RestartSec=5
+MemoryMax=300M
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

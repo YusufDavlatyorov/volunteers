@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- KhayrKhoh mark: a heart (care, khayr) holding the mountains of Tajikistan.
+       For light backgrounds; logo-mark-white.svg is the dark-background variant. -->
+  <defs>
+    <linearGradient id="kk-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2A3BA5"/>
+      <stop offset="1" stop-color="#006a61"/>
+    </linearGradient>
+    <clipPath id="kk-heart"><path d="M32 52.5 C32 52.5 11.5 39.8 11.5 25.8 C11.5 19.1 16.6 14 22.9 14 C27 14 30.3 16.3 32 19.6 C33.7 16.3 37 14 41.1 14 C47.4 14 52.5 19.1 52.5 25.8 C52.5 39.8 32 52.5 32 52.5 Z"/></clipPath>
+  </defs>
+  <rect width="64" height="64" rx="15" fill="url(#kk-bg)"/>
+  <path d="M32 52.5 C32 52.5 11.5 39.8 11.5 25.8 C11.5 19.1 16.6 14 22.9 14 C27 14 30.3 16.3 32 19.6 C33.7 16.3 37 14 41.1 14 C47.4 14 52.5 19.1 52.5 25.8 C52.5 39.8 32 52.5 32 52.5 Z" fill="#fff"/>
+  <path d="M6 44 L17.5 33.5 L23 38.5 L32.5 25.5 L40.5 34 L45.5 29.5 L58 42 V58 H6 Z" fill="url(#kk-bg)" clip-path="url(#kk-heart)"/>
+  <path d="M32 52.5 C32 52.5 11.5 39.8 11.5 25.8 C11.5 19.1 16.6 14 22.9 14 C27 14 30.3 16.3 32 19.6 C33.7 16.3 37 14 41.1 14 C47.4 14 52.5 19.1 52.5 25.8 C52.5 39.8 32 52.5 32 52.5 Z" fill="none" stroke="#fff" stroke-width="3.4" stroke-linejoin="round"/>
+</svg>

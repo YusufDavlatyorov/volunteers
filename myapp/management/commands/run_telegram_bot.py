@@ -2,8 +2,8 @@
 
 A role-aware assistant for linked accounts (volunteer / client / staff menus);
 see myapp/telegram/main_bot/core.py for what it does and app.py for the
-python-telegram-bot wiring. Same command name as before, so the compose
-`telegram_bot` service needs no change. Exits (code 0) when
+python-telegram-bot wiring. Run by deploy/systemd/khayrkhoh-telegram-bot.service.
+Exits (code 0) when
 TELEGRAM_BOT_TOKEN is unset.
 """
 

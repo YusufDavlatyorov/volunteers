@@ -5,6 +5,7 @@
                 ``services.access.can_view_task``
 ``staff``       curators + admins (CRM counters, availability changes)
 ``map_staff``   curators + admins viewing the operations map (markers)
+``volunteers_<region>``  active volunteers of one region (SOS markers nearby)
 """
 
 STAFF_GROUP = "staff"
@@ -17,3 +18,12 @@ def user_group(user_id):
 
 def task_group(task_id):
     return f"task_{int(task_id)}"
+
+
+def region_volunteers_group(region):
+    """Volunteers of one region; None for an empty / unknown region code (a
+    group name must stay ASCII alphanumerics + ``_``)."""
+    region = str(region or "")
+    if not region or not region.isascii() or not region.replace("_", "").isalnum():
+        return None
+    return f"volunteers_{region}"

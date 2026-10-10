@@ -1,16 +1,19 @@
 """The one place that answers "what is this visitor's IP?" (rate limits, logs).
 
-Production chain: visitor → (optionally Cloudflare) → host nginx → gunicorn in
-Docker. Inside the container ``REMOTE_ADDR`` is the Docker bridge gateway for
-*every* request, so using it directly made all visitors share one login /
-password-reset throttle bucket (a few failed logins anywhere locked everyone
-out). nginx passes the TCP peer it saw as ``X-Real-IP`` (DEPLOY.md §10).
+Production chain: visitor → (optionally Cloudflare) → nginx → gunicorn on
+127.0.0.1. ``REMOTE_ADDR`` is nginx's address for *every* request (in the
+Docker era it was the bridge gateway — same problem), so using it directly made
+all visitors share one login / password-reset throttle bucket (a few failed
+logins anywhere locked everyone out). nginx passes the TCP peer it saw as
+``X-Real-IP`` (deploy/nginx/khayrkhoh.conf). The uvicorn worker deliberately
+does not rewrite the peer from proxy headers (server/asgi_worker.py), so this
+module is the only place that decides.
 
 Trust rules — a header is only believed when the hop that set it is ours:
 
 * ``X-Real-IP`` — only when ``DJANGO_BEHIND_TLS_PROXY=True`` *and* the direct
-  peer is a loopback / private address (our nginx through the Docker port
-  mapping). A visitor can't reach gunicorn directly — it listens on 127.0.0.1.
+  peer is a loopback / private address (our nginx). A visitor can't reach
+  gunicorn directly — it listens on 127.0.0.1.
 * ``CF-Connecting-IP`` — only when ``DJANGO_BEHIND_CLOUDFLARE=True`` *and* the
   address nginx saw belongs to Cloudflare (``CLOUDFLARE_IP_RANGES``). Someone
   who bypasses Cloudflare and talks to the origin with a forged header is not

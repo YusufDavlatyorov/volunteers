@@ -25,14 +25,14 @@
             <label for="petSpecies" data-i18n="pet.field_species">Species</label>
             <select id="petSpecies" name="species" class="control">
                 <option value="" data-i18n="pet.any_species">Any species</option>
-                {% for value, label in species_choices %}<option value="{{ value }}" {% if species_filter == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+                {% for value, label in species_choices %}<option value="{{ value }}" data-i18n="species.{{ value }}" {% if species_filter == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
             </select>
         </div>
         <div class="field-group">
             <label for="petRegion" data-i18n="tbl.region">Region</label>
             <select id="petRegion" name="region" class="control">
                 <option value="" data-i18n="emg.all_regions">All regions</option>
-                {% for value, label in region_choices %}<option value="{{ value }}" {% if region_filter == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+                {% for value, label in region_choices %}<option value="{{ value }}" data-i18n="region.{{ value }}" {% if region_filter == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
             </select>
         </div>
         <button class="button primary" type="submit" data-i18n="task.filter">Filter</button>

@@ -4,7 +4,7 @@
 traceback. Telegram puts the token in the URL path (`/bot<id>:<secret>/…`), so
 any library that logs a request URL or an exception carrying one (requests,
 httpx under python-telegram-bot) would otherwise write the token to
-journald / `docker logs`. Milestone 5 fixed the one known call site; this is the
+journald. Milestone 5 fixed the one known call site; this is the
 safety net for every other one.
 """
 

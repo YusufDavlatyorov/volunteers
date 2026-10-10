@@ -1,0 +1,33 @@
+# KhayrKhoh — the site: HTTP + WebSockets (/ws/) under gunicorn with uvicorn
+# workers (server/asgi.py). nginx proxies everything that isn't a file here.
+# Install: sudo cp deploy/systemd/*.service /etc/systemd/system/ && sudo systemctl daemon-reload
+[Unit]
+Description=KhayrKhoh web (gunicorn + uvicorn, ASGI)
+After=network.target postgresql.service redis-server.service
+Wants=postgresql.service redis-server.service
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=deploy
+Group=deploy
+WorkingDirectory=/opt/khayrkhoh
+EnvironmentFile=/opt/khayrkhoh/.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/khayrkhoh/.venv/bin/gunicorn server.asgi:application \
+    -k server.asgi_worker.UvicornWorker \
+    --bind 127.0.0.1:8000 \
+    -c deploy/gunicorn.conf.py
+ExecReload=/bin/kill -s HUP $MAINPID
+KillMode=mixed
+TimeoutStopSec=40
+Restart=always
+RestartSec=5
+# Was 700 MB (web) + 256 MB (ws) as two containers; one process tree now.
+MemoryMax=900M
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

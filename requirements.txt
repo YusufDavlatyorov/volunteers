@@ -7,17 +7,22 @@ python-dotenv==1.2.2
 pillow==12.1.1
 
 # --- Production only (harmless, unused in local SQLite dev) ---
+# The site runs as one ASGI app: gunicorn with uvicorn workers serving HTTP and
+# WebSockets (deploy/systemd/khayrkhoh-web.service, server/asgi_worker.py).
+# uvicorn-worker is the maintained home of the worker class (the old
+# uvicorn.workers module is deprecated).
 gunicorn==23.0.0
-# Shared cache + Celery broker (the `redis` compose service) and background
-# notification delivery (`celery_worker`). Without a broker, tasks run inline.
+uvicorn[standard]==0.54.0
+uvicorn-worker==0.4.0
+# Shared cache + Celery broker (local redis-server) and background
+# notification delivery (khayrkhoh-celery.service). Without a broker, tasks run inline.
 celery==5.5.3
 redis==6.4.0
 psycopg[binary]==3.2.13
-# WebSockets (Feature Pack v2): Django Channels on the `ws` service (uvicorn,
-# server/asgi.py); channel layer on the same Redis (DB 2). HTTP stays on gunicorn.
+# WebSockets (Feature Pack v2): Django Channels; channel layer on the same
+# Redis (DB 2).
 channels==4.3.2
 channels-redis==4.3.0
-uvicorn[standard]==0.54.0
 # Telegram bots (Feature Pack v2, milestone 5): the main bot and the volunteer
 # community bot (asyncio, long polling). Smoke-tested on Python 3.14.
 python-telegram-bot==22.8

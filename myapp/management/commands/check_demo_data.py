@@ -3,8 +3,8 @@
 Production must hold no demo data at all — no demo accounts (their password is
 public), no demo requests, events, broadcasts, photo reports, SOS, donation
 offers, pet reports, chat lines, and no demo photo files. The deploy runbook
-runs this **before** the deploy (with the new image, before ``migrate``) and
-**after** it. If anything is found, nothing is deleted: the owner decides.
+(deploy/MIGRATION.md) runs this **before** the deploy (on a restored copy, before
+``migrate``) and **after** it; deploy/deploy.sh after every redeploy. If anything is found, nothing is deleted: the owner decides.
 
 What counts as demo data is exactly what ``seed_demo`` writes — its texts,
 usernames, e-mail domain and bundled photos are imported from it, so the two
@@ -144,6 +144,6 @@ class Command(BaseCommand):
             self.stdout.write(line)
         if found:
             raise CommandError(
-                "demo data found — do NOT delete anything yourself: stop and tell the owner (runbook §1)"
+                "demo data found — do NOT delete anything yourself: stop and tell the owner (deploy/MIGRATION.md)"
             )
         self.stdout.write(self.style.SUCCESS("OK: no demo data"))

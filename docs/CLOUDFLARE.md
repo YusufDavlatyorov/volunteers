@@ -68,7 +68,7 @@ Cloudflare (бесплатный тариф) держит копии этих ф
 ```bash
 cd /opt/khayrkhoh
 nano .env      # добавить строку:  DJANGO_BEHIND_CLOUDFLARE=True   → Ctrl+O, Enter, Ctrl+X
-docker compose up -d --force-recreate web ws   # .env перечитывается только при пересоздании; ≈ 10–20 с простоя
+sudo systemctl restart khayrkhoh-web      # systemd перечитывает .env при каждом запуске; ≈ 5–10 с простоя
 ```
 
 Без этой строки сайт работает, но защита от подбора пароля видит вместо посетителей адреса
@@ -83,7 +83,7 @@ U=$(curl -s https://khayrkhoh.tj/ | grep -o '/static/css/style\.[0-9a-f]*\.css' 
 curl -sI https://khayrkhoh.tj$U | grep -i cf-cache-status                  # 2-й-3-й раз: HIT
 curl -sI https://khayrkhoh.tj/profile/ | grep -i cf-cache-status           # DYNAMIC (не кэшируется)
 sudo certbot renew --dry-run                                               # продление сертификата работает
-docker compose logs --since 10m web | grep -i "throttled" | head           # в строках — IP посетителей, не 172.x / 162.158.x
+journalctl -u khayrkhoh-web --since -10min | grep -i "throttled" | head   # в строках — IP посетителей, не 127.0.0.1 / 162.158.x
 ```
 
 В браузере (телефон + компьютер): вход, создание запроса, чат (сообщение приходит сразу —

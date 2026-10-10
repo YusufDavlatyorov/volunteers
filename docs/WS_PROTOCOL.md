@@ -1,7 +1,8 @@
 # KhayrKhoh WebSocket protocol (v1)
 
-One endpoint: **`/ws/`** (served by the `ws` compose service — uvicorn running
-`server/asgi.py`; nginx routes `/ws/` there with `Upgrade`/`Connection` headers).
+One endpoint: **`/ws/`** (served by the same gunicorn + uvicorn-worker app as the pages —
+`khayrkhoh-web.service` running `server/asgi.py`; nginx passes `/ws/` with
+`Upgrade`/`Connection` headers).
 Code: `myapp/realtime/` (`consumers.py`, `events.py`, `groups.py`, `ratelimit.py`,
 `publish.py`). Tests: `myapp/tests_realtime.py`, `myapp/tests_realtime_tracking.py`,
 `myapp/tests_chat.py`.
@@ -15,7 +16,9 @@ Code: `myapp/realtime/` (`consumers.py`, `events.py`, `groups.py`, `ratelimit.py
   **4401**. Clients must not reconnect on 4401 (log in first).
 * On success the server sends `hello` and joins the socket to:
   * `user_<id>` — always;
-  * `staff` and `map_staff` — curators and admins only.
+  * `staff` and `map_staff` — curators and admins only;
+  * `volunteers_<region>` — volunteers with a region (live SOS markers of their region);
+    re-synced when the periodic user re-read sees a role/region change.
 * The connection counts as presence (`presence.mark_seen(user, source="ws")`).
 
 ## Envelope
@@ -137,6 +140,7 @@ deletes the trail, publishes `tracking.stopped` and gives staff an in-app
 | `chat.typing` | `{task_id, sender_display}` — show "… is typing" for ~4 s | `task_<id>` — guarded, not to the typist |
 | `chat.read` | `{task_id, user_display, last_id, mine}` — read ticks on messages with `id ≤ last_id` | `task_<id>` — guarded; a curator's receipt only to staff |
 | `chat.hidden` | `{task_id, id, hidden}` (moderation; a `chat.message_updated` follows) | `task_<id>` — guarded |
+| `sos.marker` | active SOS: `{id, region, status, lat, lng, created_at}`; ended (resolved/cancelled): `{id, region, removed: true}` — ids + point only, never a name, phone or reason | `staff` + `volunteers_<region>` — **guarded** (`SosGuard`): staff, or an active volunteer whose *current* region equals `payload.region`. Sent by `services/emergency.py` on report / acknowledge / resolve / cancel (`publish.sos_marker`). The ops map draws a pulsing marker and drops it on removal |
 | `crm.counters` | later milestone | `staff` |
 
 ### Delivery guards (re-check before every sensitive delivery)
@@ -207,7 +211,7 @@ the `chat.send` rejections `empty`, `too_long` (+ `invalid`, `rate_limited`,
 | `chat.typing` | 1 / 2 s | `error rate_limited` (dropped) |
 
 Frames larger than 4 KB close the socket with 4408 (uvicorn also caps frames at
-16 KB via `--ws-max-size`).
+16 KB — `ws_max_size` in `server/asgi_worker.py`).
 
 ## Publishing from server code
 

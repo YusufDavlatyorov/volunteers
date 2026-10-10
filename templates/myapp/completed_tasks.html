@@ -2,7 +2,7 @@
 {% block title %}Archive - KhayrKhoh{% endblock %}
 {% block content %}
 <section class="section">
-    {% include "partials/_page_header.html" with title="Archive" title_i18n="archive.title" lede="Completed help requests, kept for accountability." %}
+    {% include "partials/_page_header.html" with title="Archive" title_i18n="archive.title" lede="Completed help requests, kept for accountability." lede_i18n="archive.lede" %}
     {% if page_obj.object_list %}
         <div class="table-scroll">
             <table class="data-table">

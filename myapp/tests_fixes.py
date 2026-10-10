@@ -87,12 +87,14 @@ class MapAccessPerRoleTests(TestCase):
         self.assertIn("basemaps.cartocdn.com", cfg["url"])
         self.assertNotIn("fallback", cfg)
 
-    def test_leaflet_has_local_fallback_and_error_message_is_translated(self):
+    def test_maplibre_has_local_fallback_and_error_message_is_translated(self):
         self.client.force_login(self.users["client"])
         html = self.client.get(reverse("map")).content.decode()
-        self.assertIn("https://unpkg.com/leaflet@1.9.4/dist/leaflet.js", html)
-        self.assertIn("vendor/leaflet-1.9.4/leaflet.js", html)  # document.write fallback
-        self.assertIsNotNone(finders.find("vendor/leaflet-1.9.4/leaflet.js"))
+        self.assertIn("https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js", html)
+        self.assertIn("vendor/maplibre-gl-5.24.0/maplibre-gl.js", html)  # document.write fallback
+        self.assertIn("vendor/maplibre-gl-5.24.0/maplibre-gl.css", html)  # onerror fallback
+        for name in ("maplibre-gl.js", "maplibre-gl.css", "LICENSE.txt"):
+            self.assertIsNotNone(finders.find(f"vendor/maplibre-gl-5.24.0/{name}"), name)
         for lang, block in _i18n_blocks().items():
             with self.subTest(lang=lang):
                 self.assertIn('"map.error_load":', block)
@@ -227,15 +229,38 @@ class NameLengthLimitTests(TestCase):
         profile.refresh_from_db()
         self.assertNotEqual(profile.full_name, "Я" * 61)
 
-    def test_existing_longer_names_are_kept_and_render(self):
-        # No data loss: the DB columns keep their size; a legacy 255-char name
-        # still loads and renders (CSS truncates/wraps it).
+    def test_full_name_column_is_60_and_a_60_char_name_renders(self):
+        # accounts 0013 shortened the column (owner 2026-10-09); a name at the
+        # limit loads and renders (CSS truncates/wraps it).
+        self.assertEqual(Profile._meta.get_field("full_name").max_length, Users.FULL_NAME_MAX_LENGTH)
         user = _make("legacy_long", is_volunteer=True)
         profile, _ = Profile.objects.get_or_create(user=user)
-        Profile.objects.filter(pk=profile.pk).update(full_name="Д" * 255)
+        Profile.objects.filter(pk=profile.pk).update(full_name="Д" * 60)
         profile.refresh_from_db()
-        self.assertEqual(len(profile.full_name), 255)
+        self.assertEqual(len(profile.full_name), 60)
         self.assertEqual(self.client.get(reverse("rating")).status_code, 200)
+
+    def test_update_profile_error_carries_the_i18n_key(self):
+        user = _make("long_api", is_volunteer=True)
+        self.client.force_login(user)
+        data = self.client.post(reverse("update_profile"), {"full_name": "Я" * 61}).json()
+        self.assertEqual(data["error_i18n"], "err.max_length")
+        self.assertEqual(data["error_args"], {"limit_value": 60, "show_value": 61})
+
+    def test_migration_refuses_to_shorten_over_a_longer_name(self):
+        # No silent truncation: the guard stops with ids, never names.
+        import importlib
+
+        from django.apps import apps as global_apps
+
+        guard = importlib.import_module("accounts.migrations.0013_profile_full_name_max_60").refuse_longer_names
+        guard(global_apps, None)  # nothing longer than 60 → passes
+        user = _make("too_long_row", is_volunteer=True)
+        profile, _ = Profile.objects.get_or_create(user=user)
+        # SQLite ignores the varchar length, so a legacy row can be simulated.
+        Profile.objects.filter(pk=profile.pk).update(full_name="Д" * 61)
+        with self.assertRaisesRegex(RuntimeError, rf"1 profile\(s\).*{profile.pk}"):
+            guard(global_apps, None)
 
     def test_translations_and_overflow_css_present(self):
         for lang, block in _i18n_blocks().items():

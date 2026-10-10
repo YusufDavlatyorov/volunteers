@@ -61,13 +61,13 @@ COMMUNITY_INVITE_HOURS=24
 
 ```bash
 cd /opt/khayrkhoh
-docker compose up -d web ws celery_worker telegram_bot          # чтобы сайт увидел новые переменные
-docker compose --profile community up -d community_bot
-docker compose logs --tail 20 community_bot                     # "Community bot started (2 chat(s))"
+sudo systemctl restart khayrkhoh-web khayrkhoh-celery khayrkhoh-telegram-bot   # чтобы сайт увидел новые переменные
+sudo systemctl enable --now khayrkhoh-community-bot
+journalctl -u khayrkhoh-community-bot -n 20 --no-pager           # "Community bot started (2 chat(s))"
 ```
 
-Включите две cron-задачи из `docs/DEPLOY_FEATURE_PACK_V2.md`, шаг 10: `community_sweep` раз в час
-и `community_weekly` по понедельникам.
+Две cron-задачи — `community_sweep` раз в час и `community_weekly` по понедельникам — уже есть в
+`deploy/crontab.example`; до настройки сообщества они только пишут «community not configured».
 
 ## 5. Проверить (вдвоём, 5 минут)
 
@@ -77,7 +77,7 @@ docker compose logs --tail 20 community_bot                     # "Community bot
 3. Участник отправляет ссылку на сторонний сайт → сообщение удалено.
 4. Координатор отвечает на сообщение командой `/mentor` → у волонтёра на сайте появился значок
    «Наставник».
-5. `docker compose exec -T web python manage.py community_weekly --preview` показывает текст
+5. `.venv/bin/python manage.py community_weekly --preview` (в `/opt/khayrkhoh`) показывает текст
    «Спасибо недели», но ничего не публикует.
 
 ## Если что-то не так
@@ -89,6 +89,6 @@ docker compose logs --tail 20 community_bot                     # "Community bot
 | Бот не удаляет чужих | у бота нет права «блокировать пользователей» |
 | Кнопки «Сообщество» на сайте нет | не заданы токен или `general:` в `TELEGRAM_COMMUNITY_CHAT_IDS`, либо у пользователя нет привязанного Telegram |
 
-Отключить бота: `docker compose --profile community stop community_bot`. Сайт и основной бот
+Отключить бота: `sudo systemctl disable --now khayrkhoh-community-bot`. Сайт и основной бот
 продолжат работать, ссылки на сайте перестанут выдаваться, как только переменные будут удалены
 из `.env`.

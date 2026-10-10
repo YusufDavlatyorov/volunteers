@@ -2,7 +2,7 @@
 {% load static assets %}
 {% block title %}Operations Map - KhayrKhoh{% endblock %}
 {% block extra_css %}
-{% include "partials/_leaflet_css.html" %}
+{% include "partials/_maplibre_css.html" %}
 <link rel="stylesheet" href="{% asset 'css/map.css' %}">
 {% endblock %}
 {% block content %}
@@ -14,9 +14,9 @@
             <label for="opsFilterStatus" data-i18n="map.filter_status">Status</label>
             <select id="opsFilterStatus" class="control">
                 <option value="" data-i18n="map.filter_any">Any</option>
-                {% for value, label in status_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+                {% for value, label in status_choices %}<option value="{{ value }}" data-i18n="task_status.{{ value }}">{{ label }}</option>{% endfor %}
                 <option value="overdue" data-i18n="map.legend_overdue">Overdue</option>
-                {% if is_ops_staff %}<option value="emergency" data-i18n="map.legend_sos">SOS report</option>{% endif %}
+                {% if is_ops_staff or user.is_volunteer %}<option value="emergency" data-i18n="map.legend_sos">SOS report</option>{% endif %}
                 <option value="pets" data-i18n="map.filter_pets">Lost &amp; found pets</option>
             </select>
         </div>
@@ -24,21 +24,21 @@
             <label for="opsFilterPriority" data-i18n="map.filter_priority">Priority</label>
             <select id="opsFilterPriority" class="control">
                 <option value="" data-i18n="map.filter_any">Any</option>
-                {% for value, label in priority_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+                {% for value, label in priority_choices %}<option value="{{ value }}" data-i18n="priority.{{ value }}">{{ label }}</option>{% endfor %}
             </select>
         </div>
         <div class="field-group">
             <label for="opsFilterRegion" data-i18n="map.filter_region">Region</label>
             <select id="opsFilterRegion" class="control">
                 <option value="" data-i18n="map.filter_any">Any</option>
-                {% for value, label in region_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+                {% for value, label in region_choices %}<option value="{{ value }}" data-i18n="region.{{ value }}">{{ label }}</option>{% endfor %}
             </select>
         </div>
         <div class="field-group">
             <label for="opsFilterType" data-i18n="map.filter_type">Request type</label>
             <select id="opsFilterType" class="control">
                 <option value="" data-i18n="map.filter_any">Any</option>
-                {% for value, label in help_type_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+                {% for value, label in help_type_choices %}<option value="{{ value }}" data-i18n="help.{{ value }}">{{ label }}</option>{% endfor %}
             </select>
         </div>
         <button type="button" class="button ghost" id="opsLocateBtn" data-i18n="map.locate_me">Locate me</button>
@@ -56,6 +56,7 @@
             <span class="map-legend-item"><span class="map-legend-dot map-legend-dot--offline"></span><span data-i18n="map.legend_volunteer_offline">Volunteer offline</span></span>
             <span class="map-legend-item"><span class="map-legend-dot map-legend-dot--live"></span><span data-i18n="map.live_volunteer">Volunteer (live)</span></span>
         {% else %}
+            {% if user.is_volunteer %}<span class="map-legend-item"><span class="map-legend-dot map-legend-dot--urgent map-legend-dot--pulse"></span><span data-i18n="map.legend_sos_region">SOS in my region</span></span>{% endif %}
             <span class="map-legend-item"><span class="map-legend-dot map-legend-dot--pending"></span><span data-i18n="map.legend_task_pending">Free request</span></span>
             <span class="map-legend-item"><span class="map-legend-dot map-legend-dot--active"></span><span data-i18n="map.legend_task_active">In progress</span></span>
             <span class="map-legend-item"><span class="map-legend-dot map-legend-dot--urgent"></span><span data-i18n="map.legend_emergency">Emergency</span></span>
@@ -86,7 +87,7 @@
 </section>
 {% endblock %}
 {% block extra_js %}
-{% include "partials/_leaflet_js.html" %}
+{% include "partials/_maplibre_js.html" %}
 <script src="{% asset 'js/map.js' %}"></script>
 {% csrf_token %}
 <script>
@@ -112,12 +113,13 @@
         return me ? [me.lat, me.lng] : null;
     }
 
-    const emgStatusLabel = {
-        open: I('emg.status_open', 'Open'), acknowledged: I('emg.status_acknowledged', 'Acknowledged'),
-        resolved: I('emg.status_resolved', 'Resolved'), cancelled: I('emg.status_cancelled', 'Cancelled'),
-    };
+    // Read from the i18n table at render time (these keys have no element on
+    // this page, so I() fell back to English; i18n.js may also load later).
+    const emgStatusLabel = (status) => GCMap.t(`emg.status_${status}`, null, status || '');
 
     function renderPanel(point) {
+        if (point.kind === 'emergency') panel.dataset.sosId = String(point.id);
+        else delete panel.dataset.sosId;
         function maybeScroll() {
             if (window.matchMedia('(max-width: 860px)').matches) {
                 panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -126,10 +128,22 @@
         if (point.kind === 'emergency') {
             panel.hidden = false;
             panelBody.innerHTML = `
-                <h3 class="ops-panel__title">${point.title}</h3>
-                <div class="ops-panel__badges"><span class="tag urgent">${emgStatusLabel[point.status] || point.status}</span></div>
-                <p class="ops-panel__sub">${point.subtitle || ''}</p>
-                <div class="ops-panel__actions"><a class="button danger" href="${point.url}">${I('emg.notice_view', 'View SOS report')}</a></div>`;
+                <h3 class="ops-panel__title"></h3>
+                <div class="ops-panel__badges"><span class="tag urgent"></span></div>
+                <p class="ops-panel__sub"></p>
+                <p class="ops-panel__note" data-i18n="map.sos_shared_note"></p>
+                <div class="ops-panel__actions"></div>`;
+            panelBody.querySelector('.ops-panel__title').textContent = point.title || GCMap.t('map.legend_sos');
+            panelBody.querySelector('.tag').textContent = emgStatusLabel(point.status);
+            panelBody.querySelector('.ops-panel__sub').textContent = point.subtitle || '';
+            panelBody.querySelector('.ops-panel__note').textContent = GCMap.t('map.sos_shared_note', null, 'The location is shown only while the alert is active.');
+            if (point.url) {
+                const link = document.createElement('a');
+                link.className = 'button danger';
+                link.href = point.url;
+                link.textContent = I('emg.notice_view', 'View SOS report');
+                panelBody.querySelector('.ops-panel__actions').appendChild(link);
+            }
             maybeScroll();
             return;
         }
@@ -147,6 +161,16 @@
             link.href = `/myapp/tasks/${Number(point.task_id)}/`;
             link.textContent = I('map.view_task', 'View Task');
             maybeScroll();
+            return;
+        }
+        if (point.kind === 'emergency_gone') {
+            panel.hidden = false;
+            panelBody.textContent = '';
+            const note = document.createElement('p');
+            note.className = 'ops-panel__sub';
+            note.setAttribute('data-i18n', 'map.sos_ended');
+            note.textContent = GCMap.t('map.sos_ended', null, 'This alert has been closed.');
+            panelBody.appendChild(note);
             return;
         }
         if (point.kind === 'pet') {
@@ -227,6 +251,20 @@
 
     const controller = GCMap.createOpsMap('opsMap', {
         onSelect: renderPanel,
+        // Staff open the SOS card; a volunteer sees only the point (no link).
+        sosUrl: IS_STAFF ? (id) => `/myapp/emergency/${Number(id)}/` : null,
+        onSos: (p) => {
+            // The SOS the panel shows has ended: say so instead of a stale card.
+            if (p.removed && panel.dataset.sosId === String(p.id)) {
+                panelBody.textContent = '';
+                const note = document.createElement('p');
+                note.className = 'ops-panel__sub';
+                note.setAttribute('data-i18n', 'map.sos_ended');
+                note.textContent = GCMap.t('map.sos_ended', null, 'This alert has been closed.');
+                panelBody.appendChild(note);
+                delete panel.dataset.sosId;
+            }
+        },
         onLiveChange: renderLive,
         updateUrl: "{% url 'update_location' %}",
         csrfToken: csrfToken ? csrfToken.value : '',
@@ -272,6 +310,13 @@
         .then((data) => {
             controller.render(data.points || []);
             if (IS_STAFF && Array.isArray(data.live)) controller.setLive(data.live);
+            // Opened from an SOS notification (?sos=<id>): centre on it.
+            const sosId = new URLSearchParams(window.location.search).get('sos');
+            if (sosId) {
+                const point = controller.focusPoint('emergency', sosId);
+                if (point) renderPanel(point);
+                else renderPanel({ kind: 'emergency_gone' });
+            }
         })
         .catch(() => {});
 })();

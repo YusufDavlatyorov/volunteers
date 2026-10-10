@@ -122,7 +122,7 @@ INSTALLED_APPS = [
     'django_filters',
     'crispy_forms',
     'crispy_bootstrap5',
-    'channels',  # WebSockets (server/asgi.py, myapp/realtime/) — served by the `ws` service
+    'channels',  # WebSockets (server/asgi.py, myapp/realtime/) — same ASGI app as the pages
 
     # Local apps
     'accounts.apps.AccountsConfig',  # 👈 только так!
@@ -165,9 +165,9 @@ TEMPLATES = [
     },
 ]
 
+# runserver only. Production serves HTTP *and* /ws/ from the ASGI app below:
+# gunicorn + uvicorn workers (deploy/systemd/khayrkhoh-web.service).
 WSGI_APPLICATION = 'server.wsgi.application'
-# HTTP stays on WSGI gunicorn (`web`); the `ws` compose service runs this ASGI
-# app under uvicorn for /ws/ only (nginx routes it). See myapp/realtime/.
 ASGI_APPLICATION = 'server.asgi.application'
 
 
@@ -190,7 +190,7 @@ if os.getenv('DJANGO_DB_NAME'):
         'NAME': os.getenv('DJANGO_DB_NAME'),
         'USER': os.getenv('DJANGO_DB_USER', ''),
         'PASSWORD': os.getenv('DJANGO_DB_PASSWORD', ''),
-        'HOST': os.getenv('DJANGO_DB_HOST', 'localhost'),
+        'HOST': os.getenv('DJANGO_DB_HOST', '127.0.0.1'),
         'PORT': os.getenv('DJANGO_DB_PORT', '5432'),
         # Persistent connections (CONN_MAX_AGE) + a liveness check on reuse, so a
         # connection dropped by PgBouncer / a DB restart is transparently
@@ -206,8 +206,8 @@ if os.getenv('DJANGO_DB_NAME'):
 # Cache — also the backing store for the login / password-reset / AI-assistant /
 # Telegram-link rate limiters. The default LocMemCache is per-process, so those
 # throttles only bite within a single worker: a multi-process (gunicorn) web
-# deployment MUST use a shared cache. Production sets DJANGO_REDIS_URL (the
-# `redis` compose service); DJANGO_DB_CACHE=True (DB table, run
+# deployment MUST use a shared cache. Production sets DJANGO_REDIS_URL (local
+# redis-server, DB 0); DJANGO_DB_CACHE=True (DB table, run
 # `createcachetable`) remains as a dependency-free alternative.
 REDIS_URL = os.getenv('DJANGO_REDIS_URL', '').strip()
 if REDIS_URL:
@@ -240,7 +240,7 @@ else:
 
 # Celery — background delivery of email/Telegram notifications
 # (myapp/tasks.py, queued by myapp.notifications.notify_users). Production:
-# CELERY_BROKER_URL=redis://redis:6379/1 and a `celery_worker` compose service.
+# CELERY_BROKER_URL=redis://127.0.0.1:6379/1 and khayrkhoh-celery.service.
 # Without a broker (tests, local dev) tasks run inline ("eager"), exactly as the
 # old synchronous sends did; a failing task never raises into the request.
 CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', '').strip()
@@ -261,7 +261,7 @@ CELERY_TASK_PUBLISH_RETRY_POLICY = {'max_retries': 1, 'interval_start': 0, 'inte
 
 
 # Channels layer (WebSocket fan-out). Production: DJANGO_CHANNEL_REDIS_URL
-# (redis://redis:6379/2, set in docker-compose.yml). Without it — tests, local
+# (redis://127.0.0.1:6379/2 in the server's .env). Without it — tests, local
 # dev — an in-process layer: realtime events reach sockets of this process only,
 # and publishing from sync code is still safe (myapp/realtime/publish.py).
 CHANNEL_REDIS_URL = os.getenv('DJANGO_CHANNEL_REDIS_URL', '').strip()
@@ -373,12 +373,12 @@ STATICFILES_DIRS=[
 # `runserver` (STATICFILES_DIRS covers local dev).
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
-# Production (docker-compose sets DJANGO_STATIC_MANIFEST=True): collectstatic
+# Production (.env sets DJANGO_STATIC_MANIFEST=True): collectstatic
 # writes content-hashed copies (style.3f2a…css) plus staticfiles.json, and
 # {% static %} returns the hashed names, so nginx can cache /static/ for a year
 # as immutable. Off by default: the manifest only exists after collectstatic,
 # so tests and runserver keep the plain storage. With it on, run collectstatic
-# BEFORE (re)starting web — DEPLOY.md "Redeploying" does this.
+# BEFORE (re)starting the app — deploy/deploy.sh does this.
 STATIC_MANIFEST = os.getenv('DJANGO_STATIC_MANIFEST', 'False').lower() in ('1', 'true', 'yes')
 STORAGES = {
     'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
@@ -394,7 +394,7 @@ STORAGES = {
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 # Private media (chat photos) are served by a permission-checked view; with
-# this on (production, docker-compose.yml) the view only sets X-Accel-Redirect
+# this on (production .env) the view only sets X-Accel-Redirect
 # and nginx streams the file from its `internal` /protected-media/ alias.
 MEDIA_X_ACCEL = env_bool('DJANGO_MEDIA_X_ACCEL', False)
 
@@ -455,23 +455,51 @@ from server.dev_safety import warn_if_real_keys  # noqa: E402
 warn_if_real_keys(debug=DEBUG)
 
 # Maps — a provider-agnostic layer lives in myapp/services/maps.py.
-#   osm    (default) : free Leaflet tiles + OSRM routing + Nominatim geocoding, no key
+#   osm    (default) : free raster tiles + OSRM routing + Nominatim geocoding, no key
 #   mapbox / google  : drop-in, requires MAPS_API_KEY
+# The maps themselves are MapLibre GL (static/js/map.js) on a vector style with
+# 3D buildings — MAPS_VECTOR_STYLE: openfreemap (default, keyless) | maptiler
+# (+ MAPTILER_API_KEY, a browser-side key: restrict it to the site's origin) |
+# off (raster only). The raster tiles above stay the fallback.
 MAPS_PROVIDER = os.getenv('MAPS_PROVIDER', 'osm').strip().lower()
 MAPS_API_KEY = os.getenv('MAPS_API_KEY', '')
 GEOCODING_TIMEOUT_SECONDS = 5
 OSRM_BASE_URL = os.getenv('OSRM_BASE_URL', 'https://router.project-osrm.org').rstrip('/')
-# Walking routes (myapp/services/routing.py): a self-hosted OSRM built with the
-# foot profile (compose profile `osrm`, http://osrm_foot:5000). Empty = walking
-# ETA is a straight-line estimate at 4.5 km/h.
-OSRM_FOOT_BASE_URL = os.getenv('OSRM_FOOT_BASE_URL', '').rstrip('/')
+# Walking routes when there is no ORS key (with one, walking always uses ORS
+# foot-walking): an OSRM server built with the *foot* profile. The public
+# router.project-osrm.org is car-only (asked for foot it returns the car route),
+# so the default is FOSSGIS' free foot server (fair use, needs the app
+# User-Agent: NOMINATIM_USER_AGENT). Unset/empty = that default; `off` = no
+# walking routes (straight-line estimate at 4.5 km/h, "route unavailable").
+_osrm_foot = (os.getenv('OSRM_FOOT_BASE_URL') or 'https://routing.openstreetmap.de/routed-foot').strip()
+OSRM_FOOT_BASE_URL = '' if _osrm_foot.lower() == 'off' else _osrm_foot.rstrip('/')
+MAPS_VECTOR_STYLE = os.getenv('MAPS_VECTOR_STYLE', 'openfreemap').strip().lower()
+MAPTILER_API_KEY = os.getenv('MAPTILER_API_KEY', '')
+# Road routing provider (myapp/services/maps.py routing_provider): `ors` =
+# OpenRouteService (free key, car + foot), called only from the server so the
+# key never reaches a browser; `osrm` = OSRM_BASE_URL / OSRM_FOOT_BASE_URL.
+# Unset → ors when ORS_API_KEY is set, else osrm.
+ROUTING_PROVIDER = os.getenv('ROUTING_PROVIDER', '').strip().lower()
+ORS_API_KEY = os.getenv('ORS_API_KEY', '')
+ORS_BASE_URL = os.getenv('ORS_BASE_URL', 'https://api.openrouteservice.org').rstrip('/')
+if len(sys.argv) > 1 and sys.argv[1] == 'test':
+    # Like the bot tokens above: a developer's real key must not send the
+    # OSRM-mocking tests to the live ORS API. Tests opt in via override_settings.
+    ORS_API_KEY = ''
 NOMINATIM_USER_AGENT = os.getenv('NOMINATIM_USER_AGENT', 'khayrkhoh-dev')
+# Geocoding host (myapp/services/maps.py::_nominatim). Blank = no geocoding.
+# `manage.py test` blanks it like the keys above: a test that saves an address
+# must not depend on the live Nominatim (network, its 1 request/s policy) —
+# the geocoding tests opt in with override_settings and mock the HTTP layer.
+NOMINATIM_BASE_URL = 'https://nominatim.openstreetmap.org'
+if len(sys.argv) > 1 and sys.argv[1] == 'test':
+    NOMINATIM_BASE_URL = ''
 
 # Logging — without this the app's own logger.warning/error calls (the
 # zero-recipient safety net in the overdue/stale/emergency sweeps, OSRM/Nominatim
 # failures, Telegram send failures) propagate to the root logger, which has no
 # handler under DEBUG=False and silently drops them. Route them to stderr so the
-# process manager (systemd/journald, Docker) captures them.
+# process manager (systemd → journald) captures them.
 LOG_LEVEL = os.getenv('DJANGO_LOG_LEVEL', 'INFO').upper()
 LOGGING = {
     'version': 1,

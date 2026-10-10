@@ -5,6 +5,7 @@ Protocol: ``docs/WS_PROTOCOL.md``. Rules:
 * anonymous (or inactive) sockets are accepted then closed with 4401, so the
   browser sees the code and stops reconnecting with the same session;
 * on connect: join ``user_<id>``; curators/admins also ``staff`` + ``map_staff``;
+  volunteers with a region also ``volunteers_<region>`` (SOS markers nearby);
   send ``hello``; mark the user seen (presence);
 * ``subscribe {topic: "task", id}`` joins ``task_<id>`` only after
   ``services.access.can_view_task`` — the same rule as the task detail page;
@@ -36,7 +37,7 @@ from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 
 from . import events, ratelimit
-from .groups import MAP_STAFF_GROUP, STAFF_GROUP, task_group, user_group
+from .groups import MAP_STAFF_GROUP, STAFF_GROUP, region_volunteers_group, task_group, user_group
 
 logger = logging.getLogger(__name__)
 
@@ -286,6 +287,19 @@ def can_read_chat(user, task):
     return access.can_read_chat(user, task)
 
 
+class SosGuard:
+    """``sos.marker``: staff see every SOS; a volunteer only those of their
+    own (current) region — checked on the socket's re-read user, so a role
+    or region change stops delivery even before the groups are updated."""
+
+    async def __call__(self, consumer, payload):
+        if consumer.is_staff:
+            return True
+        user = consumer.user
+        region = payload.get("region")
+        return bool(user.is_active and user.is_volunteer and region and user.region == region)
+
+
 LOCATION_GUARD = TaskGuard("location", can_see_location)
 CHAT_GUARD = TaskGuard("chat", can_read_chat)
 
@@ -294,6 +308,7 @@ DELIVERY_GUARDS = {
     events.LOCATION_UPDATED: LOCATION_GUARD,
     events.TRACKING_STOPPED: TaskGuard("location_party", was_location_party),
     events.MAP_MARKER: StaffGuard(task_guard=LOCATION_GUARD),
+    events.SOS_MARKER: SosGuard(),
     **{event_type: CHAT_GUARD for event_type in events.CHAT_EVENTS},
 }
 
@@ -330,6 +345,8 @@ class RealtimeConsumer(AsyncJsonWebsocketConsumer):
         if self.is_staff:
             await self._join(STAFF_GROUP)
             await self._join(MAP_STAFF_GROUP)
+        self.region_group = None
+        await self._sync_region_group(user)
         await self.send_json(events.hello(user))
         await _mark_seen(user)
 
@@ -349,6 +366,19 @@ class RealtimeConsumer(AsyncJsonWebsocketConsumer):
     async def _leave(self, group):
         await self.channel_layer.group_discard(group, self.channel_name)
         self.groups_joined.discard(group)
+
+    async def _sync_region_group(self, user):
+        """Volunteers sit in ``volunteers_<region>`` of their current region
+        (SOS markers); anyone else in none."""
+        wanted = region_volunteers_group(user.region) if user.is_volunteer else None
+        current = getattr(self, "region_group", None)
+        if wanted == current:
+            return
+        if current:
+            await self._leave(current)
+        if wanted:
+            await self._join(wanted)
+        self.region_group = wanted
 
     # ------------------------------------------------------- user re-check
 
@@ -379,6 +409,7 @@ class RealtimeConsumer(AsyncJsonWebsocketConsumer):
             await self._join(STAFF_GROUP)
             await self._join(MAP_STAFF_GROUP)
         self.is_staff = is_staff
+        await self._sync_region_group(fresh)
         return True
 
     # ----------------------------------------------------------- guards
