@@ -36,7 +36,7 @@
             {% if task.is_urgent %}<span class="tag urgent" data-i18n="task.urgent_badge">Urgent</span>{% endif %}
         </div>
         <div class="opportunity-body">
-            {% include "myapp/_task_status_tag.html" with status=task.status status_display=task.get_status_display %}
+            {% if user == task.client %}{% include "myapp/_task_status_tag.html" with status=task.status status_display=task.get_status_display for_client=True %}{% else %}{% include "myapp/_task_status_tag.html" with status=task.status status_display=task.get_status_display %}{% endif %}
             <h1>{{ task.get_help_type_display }}</h1>
             <p class="opportunity-location">
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg>
@@ -53,6 +53,13 @@
                 <div><span class="meta-label" data-i18n="detail.phone">Phone</span><p class="muted" data-i18n="detail.phone_after_accept">Shown after you accept the request</p></div>
                 {% endif %}
             </div>
+            {% if user == task.client and task.status == "pending" %}
+                {# What happens next, for the client (often elderly) waiting on their own request. #}
+                <div class="next-step" role="status">
+                    <strong data-i18n="task.client_next_title">We are looking for a volunteer</strong>
+                    <p data-i18n="task.client_next_pending">Volunteers of your region can see this request. When one of them accepts it, you will get a notification and their name will appear here.</p>
+                </div>
+            {% endif %}
             {% if user.is_volunteer and task.status == "pending" %}
                 <div class="button-row">
                     <form method="post" action="{% url 'accept_task' task.id %}" class="inline-form">
@@ -83,7 +90,7 @@
                     </form>
                     {% endif %}
                     {% if user == task.volunteer %}
-                    <form method="post" action="{% url 'complete_task' task.id %}" class="inline-form">
+                    <form method="post" action="{% url 'complete_task' task.id %}" class="inline-form" data-confirm="task.complete_confirm">
                         {% csrf_token %}
                         <button type="submit" class="button secondary" data-i18n="task.complete">Complete</button>
                     </form>
@@ -443,8 +450,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 <h3>${item.full_name}</h3>
                 <p class="opportunity-location">
                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg>
-                    ${item.distance_km} km · ~${Math.round(item.estimated_minutes)} min ·
-                    ${item.active_task_count} active · ${freshness(item.location_freshness)}
+                    ${item.distance_km} ${tr('unit.km', 'km')} · ~${Math.round(item.estimated_minutes)} ${tr('unit.min', 'min')} ·
+                    ${tr('rec.n_active', '{n} active', { n: item.active_task_count })} · ${freshness(item.location_freshness)}
                 </p>
                 <ul class="rec-reasons">${reasons}</ul>
             </div>
@@ -529,7 +536,7 @@ document.addEventListener('DOMContentLoaded', () => {
         name.textContent = item.full_name;
         const meta = document.createElement('p');
         meta.className = 'opportunity-location';
-        meta.textContent = [item.region, item.distance_km != null ? `${item.distance_km} km` : ''].filter(Boolean).join(' · ');
+        meta.textContent = [item.region, item.distance_km != null ? `${item.distance_km} ${tr('unit.km', 'km')}` : ''].filter(Boolean).join(' · ');
         body.append(tag, name, meta);
         const actions = document.createElement('div');
         actions.className = 'button-row';

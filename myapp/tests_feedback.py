@@ -430,7 +430,7 @@ class VisibilityTests(FeedbackTestBase):
     def test_rating_page_shows_average_not_comments_or_contacts(self):
         response = self.client.get(reverse("rating"))
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "review-summary")
+        self.assertContains(response, "rating-score")
         self.assertContains(response, "5.0")
         for secret in ("Visible comment", "Hidden comment", self.volunteer.email):
             self.assertNotContains(response, secret)
@@ -459,7 +459,7 @@ class VisibilityTests(FeedbackTestBase):
         for user in (self.other_volunteer, self.other_client):
             with self.subTest(user=user.username):
                 response = self._get(user)
-                self.assertRedirects(response, reverse("profile"), fetch_redirect_response=False)
+                self.assertRedirects(response, reverse("dashboard"), fetch_redirect_response=False)
         response = self._get(None)
         self.assertEqual(response.status_code, 302)
         self.assertIn(reverse("login"), response["Location"])
@@ -467,7 +467,7 @@ class VisibilityTests(FeedbackTestBase):
     def test_reviewed_volunteer_cannot_see_a_hidden_review(self):
         hidden_task = self.hidden.task
         response = self._get(self.volunteer, hidden_task)
-        self.assertRedirects(response, reverse("profile"), fetch_redirect_response=False)
+        self.assertRedirects(response, reverse("dashboard"), fetch_redirect_response=False)
         response = self._get(self.curator, hidden_task)
         self.assertContains(response, "Hidden comment")
         self.assertContains(response, 'value="unhide"')
@@ -480,13 +480,13 @@ class VisibilityTests(FeedbackTestBase):
         self.assertNotContains(response, "Hidden comment")
         for user in (self.client_user, self.curator):
             self.client.force_login(user)
-            self.assertRedirects(self.client.get(reverse("my_reviews")), reverse("profile"),
+            self.assertRedirects(self.client.get(reverse("my_reviews")), reverse("dashboard"),
                                  fetch_redirect_response=False)
 
     def test_crm_reviews_staff_only_with_filters(self):
         for user in (self.volunteer, self.client_user):
             self.client.force_login(user)
-            self.assertRedirects(self.client.get(reverse("crm_reviews")), reverse("profile"),
+            self.assertRedirects(self.client.get(reverse("crm_reviews")), reverse("dashboard"),
                                  fetch_redirect_response=False)
         self.client.force_login(self.curator)
         response = self.client.get(reverse("crm_reviews"))

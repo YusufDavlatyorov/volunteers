@@ -1,5 +1,4 @@
 import logging
-from datetime import timedelta
 
 from django.conf import settings
 from django.contrib import messages
@@ -10,7 +9,7 @@ from django.core.exceptions import ValidationError
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
-from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme, urlencode
 from django.views.decorators.http import require_POST
 
 from .forms import ForgotPasswordForm, LoginForm, ProfileForm, RegistrationForm, ResetPasswordForm, UserUpdateForm
@@ -18,7 +17,7 @@ from .models import Profile, REGION_CHOICES, Users, hash_token, validate_file_si
 from myapp.models import VolunteerApplication
 from myapp.notifications import queue_email
 from myapp.services.notify import notify
-from myapp.services import activity, dashboard, images
+from myapp.services import achievements, activity, images, profile_location
 from server.client_ip import client_ip
 
 logger = logging.getLogger(__name__)
@@ -54,8 +53,12 @@ def _register_attempt(cache_key, window_seconds):
 
 def register_view(request):
     if request.user.is_authenticated:
-        return redirect("profile")
-    form = RegistrationForm(request.POST or None)
+        return redirect("dashboard")
+    # ?role=client|volunteer pre-selects the choice the visitor already made
+    # ("Request help" / "Become a volunteer"); they can still switch it.
+    role = request.GET.get("role")
+    initial = {"role": role} if role in ("client", "volunteer") else None
+    form = RegistrationForm(request.POST or None, initial=initial)
     if request.method == "POST" and form.is_valid():
         user = form.save()
         token = user.generate_email_verification_token()
@@ -86,13 +89,46 @@ def register_view(request):
         else:
             messages.success(request, "Аккаунт создан. Проверьте email для подтверждения.")
         login(request, user)
-        return redirect("profile")
-    return render(request, "accounts/register.html", {"form": form})
+        # Back to what they came for (e.g. the request form) — same-site only.
+        # Someone who switched to "volunteer" can't use the client's request form.
+        next_url = _safe_next(request)
+        if next_url and next_url.startswith(reverse("create_request")) and form.cleaned_data["role"] != "client":
+            return redirect("dashboard")
+        return _after_login(request)
+    return render(request, "accounts/register.html", {"form": form, "next": _safe_next(request)})
+
+
+def _safe_next(request):
+    """``?next=`` (kept in the form's POST to the same URL) when it points
+    back to this site — never an open redirect — else None."""
+    next_url = request.POST.get("next") or request.GET.get("next")
+    if next_url and url_has_allowed_host_and_scheme(
+        next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure(),
+    ):
+        return next_url
+    return None
+
+
+def _after_login(request):
+    """The safe ``?next=`` page, else the dashboard."""
+    next_url = _safe_next(request)
+    return redirect(next_url) if next_url else redirect("dashboard")
+
+
+def _register_link(next_url):
+    """The sign-up link offered on the login page: carries ``next`` along, and
+    a visitor sent here by "Request help" gets "I need help" pre-selected."""
+    if not next_url:
+        return reverse("register")
+    params = {"next": next_url}
+    if next_url.startswith(reverse("create_request")):
+        params["role"] = "client"
+    return f"{reverse('register')}?{urlencode(params)}"
 
 
 def login_view(request):
     if request.user.is_authenticated:
-        return redirect("profile")
+        return _after_login(request)
     form = LoginForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
         username = form.cleaned_data["username"].strip()
@@ -116,11 +152,17 @@ def login_view(request):
                 else:
                     request.session.set_expiry(0)
                 messages.success(request, f"Добро пожаловать, {user.username}!")
-                return redirect("profile")
+                return _after_login(request)
             _register_attempt(ip_key, LOGIN_ATTEMPT_WINDOW_SECONDS)
             _register_attempt(user_key, LOGIN_ATTEMPT_WINDOW_SECONDS)
             form.add_error(None, ValidationError("Неверный username или пароль", code="login_failed"))
-    return render(request, "accounts/login.html", {"form": form})
+    next_url = _safe_next(request)
+    return render(request, "accounts/login.html", {
+        "form": form,
+        "next": next_url,
+        "register_url": _register_link(next_url),
+        "wants_help": bool(next_url and next_url.startswith(reverse("create_request"))),
+    })
 
 
 @require_POST
@@ -132,26 +174,26 @@ def logout_view(request):
 
 @login_required
 def profile_view(request):
-    """The one role-aware dashboard. All per-role aggregation lives in
-    myapp.services.dashboard (scoped to request.user); this view stays thin."""
-    profile, _ = Profile.objects.get_or_create(user=request.user)
-    # Prime the reverse one-to-one cache so user.profile (dashboard services,
-    # templates) reuses this row instead of querying it again.
-    request.user.profile = profile
-    hour = timezone.localtime().hour
-    greeting = "morning" if hour < 12 else "afternoon" if hour < 18 else "evening"
+    """"Who I am": the user's card, activity calendar, badges, saved location,
+    community card and (volunteers) review summary. Deliberately NOT the role
+    dashboard — "what do I do now" is myapp.views.dashboard_view — so nothing
+    from services.dashboard is computed here."""
+    user = request.user
+    profile, _ = Profile.objects.get_or_create(user=user)
+    # Prime the reverse one-to-one cache so user.profile (services, templates)
+    # reuses this row instead of querying it again.
+    user.profile = profile
     context = {
         "profile": profile,
-        "greeting": greeting,
-        "volunteer_application": VolunteerApplication.objects.filter(user=request.user).first(),
-        "location_stale": request.user.is_volunteer and _location_is_stale(profile),
+        "location_stale": user.is_volunteer and profile_location.is_stale(profile),
         # Volunteer community card (Telegram, milestone 5): approved volunteers + staff.
-        "community_card": _community_card(request.user),
-        **dashboard.for_user(request.user),
+        "community_card": _community_card(user),
+        # Badges + progress (feature 6) — display only, never a matching input.
+        "achievement_items": achievements.progress_for(user) if user.is_volunteer else [],
+        # Activity calendar (volunteers and clients only; None for staff).
+        "activity": activity.calendar(user),
+        "activity_empty_key": "act.empty_volunteer" if user.is_volunteer else "act.empty_client",
     }
-    # Activity calendar (volunteers and clients only; None for staff).
-    context["activity"] = activity.calendar(request.user)
-    context["activity_empty_key"] = "act.empty_volunteer" if request.user.is_volunteer else "act.empty_client"
     return render(request, "accounts/profile.html", context)
 
 
@@ -162,13 +204,6 @@ def _community_card(user):
     if not community.configured() or not (user.is_volunteer or is_staff_user(user)):
         return None
     return {"linked": user.telegram_id is not None}
-
-
-def _location_is_stale(profile):
-    """No saved point, or older than LOCATION_STALE_DAYS (matching uses it)."""
-    if not profile.has_location or profile.location_updated_at is None:
-        return True
-    return timezone.now() - profile.location_updated_at > timedelta(days=settings.LOCATION_STALE_DAYS)
 
 
 @login_required

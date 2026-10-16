@@ -11,7 +11,7 @@
         <p data-i18n="error403.desc">You don't have permission to view this page with your current role.</p>
         <div class="button-row">
             {% if user.is_authenticated %}
-                <a class="button primary" href="{% url 'profile' %}" data-i18n="error.back_dashboard">Dashboard</a>
+                <a class="button primary" href="{% url 'dashboard' %}" data-i18n="error.back_dashboard">Dashboard</a>
             {% else %}
                 <a class="button primary" href="{% url 'login' %}" data-i18n="nav.login">Login</a>
             {% endif %}

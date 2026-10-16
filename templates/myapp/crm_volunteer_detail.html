@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load assets realtime_ui reviews achievements_ui responsive %}
+{% load assets realtime_ui reviews achievements_ui responsive i18n_plural %}
 {% block title %}{{ profile.full_name|default:volunteer.username }} - KhayrKhoh{% endblock %}
 {% block extra_css %}{% if activity %}<link rel="stylesheet" href="{% asset 'css/activity.css' %}">{% endif %}{% endblock %}
 {% block content %}
@@ -46,7 +46,7 @@
             </div>
             <div>
                 <span class="meta-label" data-i18n="crm.last_activity">Last activity</span>
-                <p>{% if last_activity %}{{ last_activity|timesince }} <span data-i18n="va.ago_suffix">ago</span>{% else %}—{% endif %}</p>
+                <p>{% if last_activity %}{% time_ago last_activity %}{% else %}—{% endif %}</p>
             </div>
             <div><span class="meta-label" data-i18n="va.email">Email</span><p>{{ volunteer.email }}</p></div>
         </div>

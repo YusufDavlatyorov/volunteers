@@ -132,6 +132,35 @@ class ChartPageTests(AnalyticsBase):
         rows = len(an.chart("help_types", an.parse_filters({}))["labels"])
         self.assertIn(f"--box-h: {rows * 30 + 8}px", help_types)
 
+    def test_half_cards_share_one_box_height_and_scroll_long_rankings(self):
+        """Every non-wide card is built the same way (one-line title with a
+        translated title, a 2-line note slot, one 18rem box, table toggle at the
+        bottom) so a row of two is always one size; a ranking that needs more
+        rows than fit scrolls inside the box (--rows), never grows the card."""
+        self.seed(2)
+        body = self.page()
+        help_types = self.card(body, "help_types")
+        self.assertIn("chart-card--half", help_types)
+        self.assertIn('title="По видам помощи" data-i18n-title="an.c.help_types"', help_types)
+        self.assertIn('class="field-hint chart-card__note" aria-hidden="true"', help_types)
+        rows = len(an.chart("help_types", an.parse_filters({}))["labels"])
+        self.assertIn(f"--rows: {rows}", help_types)
+        self.assertIn('<div class="chart-plot"><canvas', help_types)
+        self.assertIn('data-i18n-title="an.n.workload"', self.card(body, "workload"))
+        timeline = self.card(body, "requests_timeline")
+        self.assertIn("chart-card--wide", timeline)
+        self.assertNotIn("chart-card--half", timeline)
+
+        css = _read("css/analytics.css")
+        grid = re.search(r"\.chart-grid \{(.*?)\}", css, re.S).group(1)
+        self.assertIn("repeat(2, minmax(0, 1fr))", grid)
+        self.assertIn("align-items: stretch", grid)
+        self.assertIn(".chart-box { position: relative; height: 18rem;", css)
+        self.assertIn(".chart-card--half .chart-box { overflow-y: auto;", css)
+        self.assertIn(".chart-card--half .chart-table { margin-top: auto; }", css)
+        # No per-display heights left for half-width cards (wide ones keep theirs).
+        self.assertNotRegex(css, r"(^|[,\n])\s*\.chart-box--(doughnut|rows)\s*[,{]")
+
     def test_empty_period_shows_text_in_the_chart_area(self):
         body = self.page("?region=gbao")
         card = self.card(body, "requests_timeline")
@@ -206,10 +235,15 @@ class PaletteTests(SimpleTestCase):
         dark = re.search(r"--act-1: (#\w+);\s*--act-2: (#\w+);\s*--act-3: (#\w+);\s*--act-4: (#\w+);", dark_block, re.I)
         self.assertEqual([c.lower() for c in heat["dark"]], [c.lower() for c in dark.groups()])
 
-    def test_dashboard_sparkline_uses_the_same_entity_colours(self):
+    def test_dashboard_trend_legend_uses_the_same_entity_colours(self):
+        # The dashboard's 14-day chart is drawn by charts-theme.js (entity keys
+        # created / completed); its HTML legend dots must match those colours.
         palette, _ = self.palette()
         css = _read("css/style.css")
-        self.assertIn(f".trend-spark__line--created {{ stroke: {palette['light']['primary']}; }}", css)
-        self.assertIn(f".trend-spark__line--completed {{ stroke: {palette['light']['teal']}; }}", css)
-        self.assertIn(f'[data-theme="dark"] .trend-spark__line--created {{ stroke: {palette["dark"]["primary"]}; }}', css)
-        self.assertIn(f'[data-theme="dark"] .trend-spark__line--completed {{ stroke: {palette["dark"]["teal"]}; }}', css)
+        self.assertIn(f".trend-legend__item::before {{ content: \"\"; width: 0.6rem; height: 0.6rem; border-radius: 50%; background: {palette['light']['primary']}; }}", css)
+        self.assertIn(f".trend-legend__item--completed::before {{ background: {palette['light']['teal']}; }}", css)
+        self.assertIn(f'[data-theme="dark"] .trend-legend__item::before {{ background: {palette["dark"]["primary"]}; }}', css)
+        self.assertIn(f'[data-theme="dark"] .trend-legend__item--completed::before {{ background: {palette["dark"]["teal"]}; }}', css)
+        js = _read("js/dashboard.js")
+        self.assertIn("key: 'created'", js)
+        self.assertIn("key: 'completed'", js)

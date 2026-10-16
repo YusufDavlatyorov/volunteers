@@ -269,7 +269,9 @@ class NameLengthLimitTests(TestCase):
         css = Path(finders.find("css/style.css")).read_text(encoding="utf-8")
         self.assertIn("grid-template-columns: minmax(0, 1fr) auto", css)
         self.assertRegex(css, r"\.row-rank h3 \{ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; \}")
-        self.assertIn(".activity-body { min-width: 0; }", css)
+        # The activity feed (dashboard + /panel/, dashboard.css): its text column may shrink.
+        dash_css = Path(finders.find("css/dashboard.css")).read_text(encoding="utf-8")
+        self.assertRegex(dash_css, r"\.dash-feed__body \{[^}]*min-width: 0;")
 
 
 # --------------------------------------------------------------------------- #
@@ -352,5 +354,5 @@ class PublicPageCacheTests(TestCase):
         profile, _ = Profile.objects.get_or_create(user=volunteer)
         self.client.get(reverse("rating"))
         self.assertIsNotNone(cache.get(RATING_CACHE_KEY))
-        profile.add_points(5)
-        self.assertIsNone(cache.get(RATING_CACHE_KEY))  # next view rebuilds with the new points
+        profile.add_points(5)  # = a task completed: the ranking moves at once
+        self.assertIsNone(cache.get(RATING_CACHE_KEY))

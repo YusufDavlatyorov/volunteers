@@ -36,7 +36,7 @@ _SUBMIT_MESSAGES = {
 
 def _deny(request):
     messages.error(request, "У вас нет доступа к этой странице")
-    return redirect("profile")
+    return redirect("dashboard")
 
 
 @login_required

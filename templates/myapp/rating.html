@@ -1,35 +1,120 @@
 {% extends "base.html" %}
-{% load reviews achievements_ui responsive form_i18n %}
+{% load static assets reviews achievements_ui responsive form_i18n i18n_plural %}
+{% block extra_css %}<link rel="stylesheet" href="{% asset 'css/rating.css' %}">{% endblock %}
 {% block content %}
-<section class="section">
-    {% include "partials/_page_header.html" with title="Rating" title_i18n="rating.title" lede="All our volunteers in one list: the clients' average rating and badges. No places and no points — helping is not a contest." lede_i18n="rating.desc" %}
-    {% if page_obj.object_list %}
-        <div class="table-list">
-            {% for profile in page_obj %}
-                <div class="request-row reveal">
-                    <div class="row-rank">
-                        {% if profile.image %}
-                            {% with name=profile.full_name|default:profile.user.username %}{% responsive_image profile.image profile.image_variants variant="thumb" class="avatar avatar-sm" alt="Фото волонтёра "|add:name data_i18n_alt="rating.photo_alt" data_i18n_args=name|i18n_args:"name" width=44 height=44 loading="lazy" decoding="async" %}{% endwith %}
-                        {% else %}
-                            <div class="avatar avatar-fallback avatar-sm">{{ profile.full_name|default:profile.user.username|first|upper }}</div>
-                        {% endif %}
-                        <div>
-                            <h3 title="{{ profile.full_name|default:profile.user.username }}">{{ profile.full_name|default:profile.user.username }}</h3>
-                            {% if profile.user.region %}<p class="row-region" data-i18n="region.{{ profile.user.region }}">{{ profile.user.get_region_display }}</p>{% endif %}
-                            {% review_summary profile compact=True %}
-                            {% badge_row badges|badges_for:profile.user_id %}
-                            {% if profile.bio %}<p>{{ profile.bio|truncatechars:90 }}</p>{% endif %}
-                        </div>
-                    </div>
-                </div>
+{% comment %}
+Public volunteer rating with places (owner 2026-10-14; services/rating.py).
+One national, all-time ranking: the podium (places 1–3, first page only),
+then the table from the next place. No search / filter / sort. Only name, region,
+counts, average rating and badges are public — never contacts or addresses.
+"You" and the profile button are decided per viewer in rating_view.
+{% endcomment %}
+<section class="section rating-page">
+    <div class="rating-topline">
+        <nav class="breadcrumbs" aria-label="Навигация" data-i18n-aria="rating.crumbs">
+            <a href="{% url 'home' %}" data-i18n="rating.crumb_home">Home</a>
+            <span class="breadcrumbs__sep" aria-hidden="true">›</span>
+            <span aria-current="page" data-i18n="rating.crumb_self">Volunteer rating</span>
+        </nav>
+        <span class="rating-updated">{% if updated_minutes %}{% plural_i18n "rating.updated" updated_minutes %}{% else %}<span data-i18n="rating.updated_now">Updated just now</span>{% endif %}</span>
+    </div>
+
+    <header class="rating-head">
+        <h1 data-i18n="rating.title">Volunteer rating of Tajikistan</h1>
+    </header>
+
+    {% if podium %}
+    <section class="rating-podium" aria-labelledby="podiumTitle">
+        <h2 id="podiumTitle" data-i18n="rating.podium_title">Hall of honour</h2>
+        <ol class="podium podium--{{ podium|length }}">
+            {% for row in podium %}
+                <li class="card podium-card podium-card--{{ row.rank }}{% if row.user_id == viewer_id %} is-me{% endif %}">
+                    {% if row.rank == 1 %}<span class="podium-card__crown" data-i18n="rating.leader">Leader of Tajikistan</span>{% endif %}
+                    <span class="podium-card__rank">#{{ row.rank }}</span>
+                    {% include "myapp/partials/_rating_avatar.html" with row=row size="lg" %}
+                    <h3 class="truncate" title="{{ row.name }}">{{ row.name }}</h3>
+                    {% if row.user_id == viewer_id %}<span class="tag info" data-i18n="rating.you">You</span>{% endif %}
+                    {% if row.region %}<p class="podium-card__region" data-i18n="region.{{ row.region }}">{{ row.region_label }}</p>{% endif %}
+                    <p class="podium-card__done">{% plural_i18n "rating.n_closed" row.completed %}</p>
+                    {% include "myapp/partials/_rating_score.html" with row=row %}
+                    {% badge_row badges|badges_for:row.user_id %}
+                    {% if row.user_id == viewer_id %}
+                        <div class="podium-card__foot"><a class="button primary" href="{% url 'dashboard' %}" data-i18n="rating.my_cabinet">My dashboard</a></div>
+                    {% elif staff_viewer %}
+                        <div class="podium-card__foot"><a class="button ghost" href="{% url 'crm_volunteer_detail' row.user_id %}" data-i18n="rating.view_profile">View profile</a></div>
+                    {% endif %}
+                </li>
             {% endfor %}
-        </div>
-        {% include "myapp/_pagination.html" with page_obj=page_obj querystring="" %}
-    {% else %}
-        <div class="empty-state">
-            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="5"></circle><path d="M8.5 13 6 22l6-3 6 3-2.5-9"></path></svg>
-            <p data-i18n="rating.empty">No volunteers in the rating yet.</p>
-        </div>
+        </ol>
+    </section>
     {% endif %}
+
+    <section class="rating-places" aria-label="Рейтинг" data-i18n-aria="nav.rating">
+        {% if page_rows %}
+            <div class="table-scroll">
+                <table class="data-table rating-table">
+                    <thead>
+                        <tr>
+                            <th scope="col" data-i18n="rating.col_place">Place</th>
+                            <th scope="col" data-i18n="rating.col_volunteer">Volunteer</th>
+                            <th scope="col" data-i18n="tbl.region">Region</th>
+                            <th scope="col" data-i18n="rating.col_done">Completed</th>
+                            <th scope="col" data-i18n="rating.col_rating">Rating</th>
+                            <th scope="col" data-i18n="rating.col_badges">Achievements</th>
+                            <th scope="col" class="col-actions"><span class="visually-hidden" data-i18n="rating.col_action">Action</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in page_rows %}
+                            <tr data-rank="{{ row.rank }}"{% if row.user_id == viewer_id %} class="is-me"{% endif %}>
+                                <td class="col-num rating-place" data-label="Место"><span class="rating-rank{% if row.rank <= 3 %} rating-rank--{{ row.rank }}{% endif %}">#{{ row.rank }}</span></td>
+                                <td class="rating-person-cell" data-label="Волонтёр">
+                                    <div class="rating-person">
+                                        {% include "myapp/partials/_rating_avatar.html" with row=row size="sm" %}
+                                        <div class="rating-person__text">
+                                            <span class="cell-title truncate" title="{{ row.name }}">{{ row.name }}</span>
+                                            {% if row.user_id == viewer_id %}<span class="tag info" data-i18n="rating.you">You</span>{% endif %}
+                                            <span class="cell-sub" data-i18n="rating.since" data-i18n-args='{"date": "{{ row.joined|date:"m.Y" }}"}'>On the platform since {{ row.joined|date:"m.Y" }}</span>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td data-label="Регион">{% if row.region %}<span data-i18n="region.{{ row.region }}">{{ row.region_label }}</span>{% else %}—{% endif %}</td>
+                                <td data-label="Выполнено">
+                                    <span class="rating-done">{% plural_i18n "rating.n_tasks" row.completed %}</span>
+                                    <span class="rating-bar" aria-hidden="true"><span style="width: {{ row.progress }}%"></span></span>
+                                    {% if row.week %}<span class="rating-week" data-i18n="rating.week" data-i18n-args='{"n": {{ row.week }}}'>+{{ row.week }} this week</span>{% endif %}
+                                </td>
+                                <td data-label="Рейтинг">{% include "myapp/partials/_rating_score.html" with row=row %}</td>
+                                <td data-label="Достижения">{% badge_row badges|badges_for:row.user_id %}</td>
+                                {% if row.user_id == viewer_id %}
+                                    <td class="col-actions" data-label=""><a class="button primary" href="{% url 'dashboard' %}" data-i18n="rating.my_cabinet">My dashboard</a></td>
+                                {% elif staff_viewer %}
+                                    <td class="col-actions" data-label=""><a class="button ghost" href="{% url 'crm_volunteer_detail' row.user_id %}" data-i18n="rating.profile">Profile</a></td>
+                                {% else %}
+                                    <td class="col-actions is-empty" data-label=""></td>
+                                {% endif %}
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <nav class="rating-pager" aria-label="Страницы" data-i18n-aria="common.pagination">
+                <span class="pagination-info" data-i18n="rating.shown" data-i18n-args='{"from": {{ shown_from }}, "to": {{ shown_to }}, "total": {{ shown_total }}}'>Showing {{ shown_from }}–{{ shown_to }} of {{ shown_total }}</span>
+                {% if page_obj.paginator.num_pages > 1 %}
+                    <div class="rating-pager__links">
+                        {% if page_obj.has_previous %}<a class="button ghost" href="?page={{ page_obj.previous_page_number }}" data-i18n="pagination.prev">Previous</a>{% endif %}
+                        {% for number in page_range %}
+                            {% if number == page_obj.paginator.ELLIPSIS %}<span class="rating-pager__gap">…</span>
+                            {% elif number == page_obj.number %}<span class="rating-pager__num is-current" aria-current="page">{{ number }}</span>
+                            {% else %}<a class="rating-pager__num" href="?page={{ number }}">{{ number }}</a>{% endif %}
+                        {% endfor %}
+                        {% if page_obj.has_next %}<a class="button ghost" href="?page={{ page_obj.next_page_number }}" data-i18n="pagination.next">Next</a>{% endif %}
+                    </div>
+                {% endif %}
+            </nav>
+        {% elif not has_rows %}
+            <div class="empty-state"><p data-i18n="rating.empty">No volunteers in the rating yet.</p></div>
+        {% endif %}
+    </section>
 </section>
 {% endblock %}

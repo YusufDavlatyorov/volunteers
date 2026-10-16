@@ -5,7 +5,7 @@
 <section class="auth-shell">
     <div class="auth-card auth-card--wide reveal">
         <div class="auth-brand">
-            <span class="brand-mark">GC</span>
+            <span class="auth-logo" aria-hidden="true"><img class="brand-logo brand-logo--light" src="{% static 'img/logo-mark.svg' %}" alt="" width="44" height="44"><img class="brand-logo brand-logo--dark" src="{% static 'img/logo-mark-white.svg' %}" alt="" width="44" height="44"></span>
         </div>
         <span class="eyebrow" data-i18n="reg.eyebrow">Two ways to help</span>
         <h1 class="auth-title" data-i18n="reg.heading">Join KhayrKhoh</h1>
@@ -18,7 +18,8 @@
         <form method="post" class="auth-form" id="registerForm">
             {% csrf_token %}
 
-            <div class="role-picker">
+            <fieldset class="role-picker">
+                <legend class="visually-hidden" data-i18n="reg.role_legend">How do you want to use KhayrKhoh?</legend>
                 <label class="role-option">
                     <input type="radio" name="role" value="volunteer" data-role-input {% if form.role.value == "volunteer" %}checked{% endif %}>
                     <span class="role-option-card">
@@ -35,8 +36,8 @@
                         <span class="role-desc" data-i18n="reg.role_client_desc">Request assistance from a volunteer near you.</span>
                     </span>
                 </label>
-            </div>
-            <span class="field-error"{% error_i18n_attrs form.role.errors %}>{{ form.role.errors.0 }}</span>
+            </fieldset>
+            <span class="field-error"{% if form.role.errors %} role="alert"{% endif %}{% error_i18n_attrs form.role.errors %}>{{ form.role.errors.0 }}</span>
 
             <div class="field-group">
                 <label for="{{ form.username.id_for_label }}" data-i18n="field.username">Username</label>
@@ -89,14 +90,14 @@
             </div>
 
             <button class="primary auth-submit" type="submit" data-submit-btn>
-                <span class="btn-label" data-i18n="reg.btn">Submit Application</span>
+                <span class="btn-label" data-reg-btn data-i18n="{% if form.role.value == 'client' %}reg.btn_client{% else %}reg.btn{% endif %}">{% if form.role.value == 'client' %}Создать аккаунт{% else %}Отправить заявку{% endif %}</span>
                 <span class="btn-spinner" aria-hidden="true"></span>
             </button>
         </form>
 
         <p class="auth-footer-text">
             <span data-i18n="reg.has_account">Already have an account?</span>
-            <a href="{% url 'login' %}" data-i18n="login.btn">Login</a>
+            <a href="{% url 'login' %}{% if next %}?next={{ next|urlencode }}{% endif %}" data-i18n="login.btn">Login</a>
         </p>
     </div>
 </section>
@@ -122,10 +123,19 @@
 
     var motivationGroup = document.querySelector('[data-motivation-group]');
     var roleInputs = document.querySelectorAll('[data-role-input]');
+    var regBtn = document.querySelector('[data-reg-btn]');
     function syncMotivation() {
         var checked = document.querySelector('[data-role-input]:checked');
+        var isClient = !!(checked && checked.value === 'client');
+        // A client creates an account; only a volunteer submits an application.
+        if (regBtn) {
+            var key = isClient ? 'reg.btn_client' : 'reg.btn';
+            var table = (window.T && window.T[document.documentElement.lang]) || {};
+            regBtn.setAttribute('data-i18n', key);
+            if (table[key]) regBtn.textContent = table[key];
+        }
         if (!motivationGroup) return;
-        motivationGroup.style.display = (checked && checked.value === 'client') ? 'none' : 'block';
+        motivationGroup.style.display = isClient ? 'none' : 'block';
     }
     roleInputs.forEach(function(input) { input.addEventListener('change', syncMotivation); });
     syncMotivation();
@@ -136,6 +146,11 @@
         form.addEventListener('submit', function() {
             submitBtn.classList.add('is-loading');
             submitBtn.disabled = true;
+        });
+        // Back button (bfcache) must not leave a dead, spinning button.
+        window.addEventListener('pageshow', function() {
+            submitBtn.classList.remove('is-loading');
+            submitBtn.disabled = false;
         });
     }
 })();

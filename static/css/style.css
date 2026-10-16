@@ -213,7 +213,7 @@ body {
 }
 /* Flex / grid children may shrink below their content (the default
    min-width: auto pins them to their longest word). Media keep their size. */
-:where(.card, .grid, .two-col, .button-row, .page-header, .section-head, .profile-head, .row-rank, .mini-list-item, .opportunity-body, .dash-rail) > :where(:not(img, svg, picture, video, canvas, .avatar)) { min-width: 0; }
+:where(.card, .grid, .two-col, .button-row, .page-header, .section-head, .profile-head, .row-rank, .mini-list-item, .opportunity-body) > :where(:not(img, svg, picture, video, canvas, .avatar)) { min-width: 0; }
 /* Table cells: `anywhere` would shrink every column to one letter in the
    auto table layout ("Душанб|е", "09 Oct, 16:1|6"). break-word still breaks
    an over-long string, but only once the column can't grow any more. */
@@ -320,15 +320,6 @@ p { color: var(--muted); line-height: 1.65; transition: color 0.3s ease; }
     align-items: center;
     gap: var(--space-4);
     min-height: var(--nav-h);
-}
-/* While the playing hero video is under the sticky topbar (about.html toggles
-   this), skip the backdrop blur: re-blurring a video every frame is expensive
-   and made playback stutter on low-end devices. The slightly more opaque
-   background keeps it looking the same. */
-.topbar.topbar--over-video {
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-    background: var(--nav-bg-solid);
 }
 .brand {
     flex: 0 0 auto;
@@ -574,7 +565,8 @@ p { color: var(--muted); line-height: 1.65; transition: color 0.3s ease; }
     font-size: 0.75rem;
     cursor: pointer;
     transition: all 0.2s ease;
-    min-height: unset;
+    min-height: 24px; /* WCAG 2.5.8 target size, also on the narrowest phones */
+    min-width: 24px;
 }
 .lang-btn:hover { color: var(--primary); }
 .lang-btn.active { background: var(--primary); color: var(--on-primary); }
@@ -680,24 +672,6 @@ form.inline-form { display: inline-block; }
 .grid.grid-wide { grid-template-columns: repeat(auto-fill, minmax(min(100%, 28rem), 1fr)); }
 /* Panels that size to their own content instead of stretching to the tallest sibling. */
 .grid.grid-top { align-items: start; }
-/* Admin panel feeds: two independent columns, each stacking its own cards
-   top-down, so a short card never sits in a row stretched to a tall one's
-   height (no shared rows → no holes). One column below 768px. */
-.panel-columns {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--space-5);
-    align-items: start;
-}
-.panel-column { display: flex; flex-direction: column; gap: var(--space-5); min-width: 0; }
-/* Card head: title left, "View all" right, one row, centred vertically —
-   a long title wraps in its own box instead of pushing the button below it. */
-.panel-column .card > .section-head { flex-wrap: nowrap; align-items: center; }
-.panel-column .card > .section-head > h3 { margin: 0; min-width: 0; overflow-wrap: anywhere; }
-.panel-column .card > .section-head > .button { flex-shrink: 0; }
-@media (max-width: 767px) {
-    .panel-columns { grid-template-columns: 1fr; }
-}
 .two-col {
     display: grid;
     grid-template-columns: minmax(0, 1.15fr) minmax(300px, 0.85fr);
@@ -761,6 +735,9 @@ form.inline-form { display: inline-block; }
 .grid > .card > .button-row:last-child,
 .grid > .card > .card__foot,
 .card__foot { margin-top: auto; }
+/* …but a status pill at the top of such a card keeps its own width. */
+.grid > .card > .tag,
+.grid > .pet-card > .tag { align-self: flex-start; }
 
 /* Clamp overflowing copy to a fixed number of lines instead of letting the
    card grow; pair with a `.card__more` link to the full view. */
@@ -874,9 +851,18 @@ form.inline-form { display: inline-block; }
 .field-label-row label { margin-bottom: 0; }
 .field-hint-link { font-size: 0.82rem; font-weight: 600; color: var(--primary); }
 .field-hint-link:hover { text-decoration: underline; }
-.field-hint { display: block; margin-top: 0.35rem; color: var(--muted); font-size: 0.82rem; }
-.field-error { display: block; margin-top: 0.35rem; color: var(--danger); font-size: 0.82rem; font-weight: 600; }
+/* Hints and errors stay readable (≥ 14 px) — many clients are elderly. */
+.field-hint { display: block; margin-top: 0.35rem; color: var(--muted); font-size: 0.9rem; line-height: 1.45; }
+.field-error { display: block; margin-top: 0.35rem; color: var(--danger); font-size: 0.9rem; font-weight: 600; }
 .field-error:empty { margin-top: 0; }
+.field-error:not(:empty)::before { content: "⚠\FE0E"; margin-right: 0.35em; }
+.has-error .control, .control[aria-invalid="true"] { border-color: var(--danger); }
+/* A label + action button on one row that wraps instead of squeezing the button
+   into a multi-line pill on a phone (map picker's "Use my location"). */
+.field-label-row--wrap { flex-wrap: wrap; align-items: center; row-gap: var(--space-2); }
+.field-label-row--wrap .button { white-space: nowrap; }
+.form-note { display: flex; gap: 0.6rem; align-items: flex-start; margin: var(--space-4) 0 0; padding: 0.8rem 1rem; border-radius: 12px; background: var(--surface-2); color: var(--text-2); }
+.form-note svg { flex: none; width: 1.15rem; height: 1.15rem; margin-top: 0.15rem; color: var(--primary); }
 
 .auth-alert {
     margin-bottom: var(--space-4);
@@ -907,8 +893,8 @@ input:not([type="checkbox"]):not([type="radio"]), select, textarea, .control {
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 input[type="checkbox"], input[type="radio"] {
-    width: 1.05rem;
-    height: 1.05rem;
+    width: 1.25rem;
+    height: 1.25rem;
     min-height: unset;
     margin-right: 0.4rem;
     vertical-align: middle;
@@ -988,6 +974,15 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
 }
 .filter-bar .field-group:has(input[type="checkbox"]) { min-width: 0; }
 .filter-bar button, .filter-bar .button { flex: 0 0 auto; align-self: flex-end; }
+/* Phone collapse (base.html adds .is-collapsible + the toggle button). */
+.filter-toggle { display: none; }
+.filter-toggle__count { display: inline-flex; align-items: center; justify-content: center; min-width: 1.5rem; height: 1.5rem; margin-left: 0.5rem; padding: 0 0.4rem; border-radius: 999px; background: var(--primary); color: var(--on-primary); font-size: 0.8rem; }
+@media (max-width: 600px) {
+    .filter-bar.is-collapsible { padding: var(--space-3); }
+    .filter-bar.is-collapsible > .filter-toggle { display: inline-flex; width: 100%; justify-content: center; align-self: stretch; }
+    .filter-bar.is-collapsible:not(.is-open) > :not(.filter-toggle) { display: none; }
+    .filter-bar.is-collapsible.is-open > .filter-toggle { margin-bottom: var(--space-3); }
+}
 
 /* An applicant/person row: avatar + details + actions, wrapping on narrow
    screens instead of overflowing. Reuses .avatar-fallback for the initial. */
@@ -1110,6 +1105,22 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
     }
     .data-table td[data-label=""]::before { content: none; }
     .data-table td[data-label=""] { padding-top: 0.75rem; }
+    /* Label beside its value (not above it): about twice as many rows per
+       phone screen for staff working through a list. Tables with their own
+       phone layout (rating cards, preferences matrix, notification list) opt out. The label floats, so a
+       cell's inline content ("3 done · 0 active", tags) keeps flowing. */
+    .data-table:not(.prefs-matrix):not(.rating-table):not(.notifications-table) tbody td:not([data-label=""]):not(.col-actions) {
+        display: flow-root; /* a two-line label still makes the row taller */
+        padding: 0.45rem 0 0.45rem 7.4rem;
+    }
+    .data-table:not(.prefs-matrix):not(.rating-table):not(.notifications-table) tbody td:not([data-label=""]):not(.col-actions)::before {
+        float: left;
+        width: 6.6rem;
+        margin: 0.2rem 0 0 -7.4rem; /* sits in the padding: values keep their own column */
+        letter-spacing: 0.02em;
+        overflow-wrap: normal;
+        hyphens: auto;
+    }
     .data-table .col-actions { text-align: left; white-space: normal; }
     .data-table .col-actions.col-actions--stack {
         display: flex;
@@ -1259,7 +1270,7 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
 
 /* ===== PROFILE HEADER & AVATAR (shared) =====
    Used by the dashboard, the CRM volunteer detail page, the rating board, task
-   detail and the AI page. Dashboard-only chrome (greeting, sticky rail,
+   detail and the AI page. Dashboard-only chrome (hero, KPI strip, queue,
    quick-actions) lives in dashboard.css. */
 .profile-head { display: flex; gap: var(--space-4); align-items: center; }
 /* Let the text column shrink and wrap a long email instead of forcing the
@@ -1398,6 +1409,7 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
 .footer-contacts a, .footer-contacts span {
     display: flex;
     align-items: center;
+    min-height: 2.25rem; /* comfortable tap height for phone / e-mail */
     gap: var(--space-2);
     font-size: 0.9rem;
     color: var(--text-2);
@@ -1416,7 +1428,8 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
     color: var(--muted);
     font-size: 0.82rem;
 }
-.footer-bottom nav { display: flex; flex-wrap: wrap; gap: var(--space-4); }
+.footer-bottom nav { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); }
+.footer-bottom nav a { display: inline-flex; align-items: center; min-height: 2.25rem; font-size: 0.9rem; }
 .footer-bottom a:hover { color: var(--primary); }
 .footer-mark { display: flex; align-items: center; gap: var(--space-2); }
 .footer-mark .peaks-mark { width: 60px; }
@@ -1426,11 +1439,16 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
 
 /* ===== ANIMATIONS ===== */
 @keyframes fadeSlideUp { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: translateY(0); } }
-.reveal { opacity: 0; transform: translateY(16px); transition: opacity 0.5s ease, transform 0.5s ease; }
-.reveal.visible { opacity: 1; transform: translateY(0); }
-.reveal:nth-child(2) { transition-delay: 0.06s; }
-.reveal:nth-child(3) { transition-delay: 0.12s; }
-.reveal:nth-child(4) { transition-delay: 0.18s; }
+/* Scroll reveal is an enhancement: content is hidden only once base.html's
+   head script has marked JS as running (html.gc-reveal), and never for people
+   who asked for less motion — a failed script can't leave a page blank. */
+@media (prefers-reduced-motion: no-preference) {
+    .gc-reveal .reveal { opacity: 0; transform: translateY(16px); transition: opacity 0.5s ease, transform 0.5s ease; }
+    .gc-reveal .reveal.visible { opacity: 1; transform: translateY(0); }
+    .gc-reveal .reveal:nth-child(2) { transition-delay: 0.06s; }
+    .gc-reveal .reveal:nth-child(3) { transition-delay: 0.12s; }
+    .gc-reveal .reveal:nth-child(4) { transition-delay: 0.18s; }
+}
 
 /* ===== RESPONSIVE =====
    Desktop 1440px+, tablet 768px+, mobile 320px+.
@@ -1577,16 +1595,6 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
 }
 .kpi-row .stat-card { padding: var(--space-4); }
 .kpi-row .metric { font-size: 1.6rem; }
-.kpi-group-label { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: var(--space-6) 0 var(--space-2); }
-.activity-feed { display: flex; flex-direction: column; gap: var(--space-3); }
-.activity-item { display: flex; gap: var(--space-3); align-items: flex-start; padding: var(--space-3) 0; border-bottom: 1px solid var(--line); }
-.activity-item:last-child { border-bottom: none; }
-.activity-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--primary); margin-top: 0.4rem; flex-shrink: 0; }
-.activity-dot.is-urgent { background: var(--danger); }
-.activity-dot.is-success { background: var(--ok); }
-.activity-body { min-width: 0; }
-.activity-body p { margin: 0; overflow-wrap: anywhere; }
-.activity-time { color: var(--muted); font-size: 0.78rem; }
 
 /* ===== EMERGENCY / SOS =====
    The one area allowed a strong danger treatment. Still flat — a solid danger
@@ -1667,8 +1675,6 @@ input[type="file"]::file-selector-button:hover { border-color: var(--primary); b
 .emergency-banner svg { color: var(--danger); flex: 0 0 auto; margin-top: 0.1rem; }
 .emergency-banner p { margin: 0.2rem 0 0; font-size: 0.88rem; color: var(--muted); }
 .emergency-banner strong { font-size: 1rem; }
-a.emergency-banner--link { text-decoration: none; transition: background 0.18s ease; }
-a.emergency-banner--link:hover { background: var(--surface-2); }
 
 .emergency-closed { display: flex; align-items: center; gap: var(--space-2); color: var(--muted); margin-bottom: var(--space-4); }
 .emergency-actions { display: flex; flex-direction: column; gap: var(--space-4); }
@@ -1845,6 +1851,39 @@ a.emergency-banner--link:hover { background: var(--surface-2); }
 }
 .toast__close:hover { background: var(--surface-2); color: var(--text); transform: none; box-shadow: none; }
 
+/* Flash messages (base.html): the type is shown three ways — icon, coloured
+   edge and the wording itself — never by colour alone. Larger text than the
+   live toasts: this is often the only confirmation an elderly client gets. */
+.toast--flash {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.65rem;
+    padding: 0.85rem 2.6rem 0.85rem 0.9rem;
+    border-left: 4px solid var(--info);
+    font-size: 0.98rem;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+    transition: opacity 0.4s ease, transform 0.4s ease;
+}
+.toast__icon { flex: none; display: inline-flex; width: 1.6rem; height: 1.6rem; border-radius: 50%; align-items: center; justify-content: center; background: var(--info-glow); color: var(--info); }
+.toast__icon svg { width: 1rem; height: 1rem; }
+.toast__text { flex: 1; min-width: 0; padding-top: 0.1rem; }
+.toast--flash .toast__close { width: 2rem; height: 2rem; font-size: 1.35rem; line-height: 1; }
+.toast--success { border-left-color: var(--ok); }
+.toast--success .toast__icon { background: var(--ok-glow); color: var(--ok); }
+.toast--warning { border-left-color: var(--brand-orange); }
+.toast--warning .toast__icon { background: var(--accent-glow); color: var(--accent); }
+.toast--error { border-left-color: var(--danger); }
+.toast--error .toast__icon { background: var(--danger-glow); color: var(--danger); }
+.flash-stack { position: fixed; right: 1rem; top: 5rem; z-index: 200; display: grid; gap: var(--space-2); max-width: min(26rem, calc(100vw - 2rem)); }
+@media (max-width: 560px) {
+    /* Phone: in the page flow under the topbar — it pushes the content down
+       instead of covering the heading, and stays until closed. */
+    .flash-stack { position: static; max-width: none; margin: var(--space-3) 0.75rem 0; }
+    .flash-stack .toast { animation: none; box-shadow: none; }
+}
+
 /* "This request was updated" (task_detail live update) — sticks under the
    topbar so it's seen without covering the page. */
 .live-notice {
@@ -1907,8 +1946,8 @@ a.emergency-banner--link:hover { background: var(--surface-2); }
 /* Notification preferences: type × channel matrix. On phones (data-table
    stacked mode) each type becomes a card with one labelled row per channel. */
 .prefs-matrix th:not(:first-child), .prefs-matrix td:not(:first-child) { text-align: center; width: 8.5rem; }
-.prefs-matrix .pref-cell { display: inline-flex; align-items: center; gap: 0.4rem; justify-content: center; }
-.prefs-matrix .pref-cell input { width: 1.15rem; height: 1.15rem; accent-color: var(--primary); }
+.prefs-matrix .pref-cell { display: inline-flex; align-items: center; gap: 0.4rem; justify-content: center; min-height: 2.75rem; min-width: 2.75rem; cursor: pointer; }
+.prefs-matrix .pref-cell input { width: 1.5rem; height: 1.5rem; margin: 0; accent-color: var(--primary); }
 .prefs-matrix .pref-lock { display: inline-flex; align-items: center; gap: 0.25rem; color: var(--muted); font-size: 0.76rem; font-weight: 600; }
 .prefs-matrix .pref-required { display: block; margin-top: 0.15rem; font-size: 0.78rem; color: var(--danger); font-weight: 600; }
 @media (max-width: 860px) {
@@ -2255,17 +2294,10 @@ a.review-tile:hover { border-color: var(--primary); }
 }
 
 /* ===== DASHBOARD TREND (feature 10) =====
-   Server-rendered 14-day sparkline on the curator/admin dashboard
-   (myapp/dashboard/_sparkline.html) — no chart library on the dashboard. */
-.trend-spark { display: block; width: 100%; height: 4rem; margin: var(--space-2) 0; overflow: visible; }
-.trend-spark__base { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
-.trend-spark__line { fill: none; stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
-/* Colours = static/js/charts-theme.js ENTITY: created → primary, completed → teal
-   (light / dark), the same as on the analytics page (test-locked). */
-.trend-spark__line--created { stroke: #2A3BA5; }
-.trend-spark__line--completed { stroke: #24907F; }
-[data-theme="dark"] .trend-spark__line--created { stroke: #8796F2; }
-[data-theme="dark"] .trend-spark__line--completed { stroke: #4DC4B0; }
+   The 14-day "requests" card on the curator/admin dashboard is a Chart.js line
+   (static/js/dashboard.js + charts-theme.js); this is its HTML legend under the
+   chart (totals, readable without JS). Dot colours = charts-theme.js ENTITY:
+   created → primary, completed → teal (light / dark), test-locked. */
 .trend-legend { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); margin: 0; font-size: 0.85rem; color: var(--text-2); }
 .trend-legend__item { display: inline-flex; align-items: center; gap: 0.4rem; }
 .trend-legend__item::before { content: ""; width: 0.6rem; height: 0.6rem; border-radius: 50%; background: #2A3BA5; }

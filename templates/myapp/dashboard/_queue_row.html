@@ -1,0 +1,44 @@
+{% load i18n_plural %}{% comment %}
+One request row — the dashboard queue and the /panel/ table (one text line,
+~56px; every cell cut with "…", full text in its title; a two-line card below
+768px). `row` = {task, client, stale, [overdue], [volunteer]} from
+services.dashboard; `task.assignment_suggestion` = the top candidate.
+Params: [show_region] (the panel's region column), [open_only] (always the
+"Open" button, never "Assign").
+{% endcomment %}{% with task=row.task suggestion=row.task.assignment_suggestion %}
+<tr class="dash-table__row" data-category="{{ task.help_type }}">
+    <td class="dash-table__person" title="{{ row.client.name }} · #{{ task.id }} · {{ task.created_at|date:'d.m.Y H:i' }}">
+        <div class="dash-who">
+            <span class="dash-avatar dash-avatar--sm" aria-hidden="true">{{ row.client.initials }}</span>
+            <span class="dash-who__name">{{ row.client.name }}</span>
+            <span class="dash-who__meta">#{{ task.id }} · {% time_ago task.created_at %}</span>
+            {% if row.stale %}<span class="dash-pill dash-pill--stale" data-i18n="dash.waiting_long">Waiting long</span>{% elif row.overdue %}<span class="dash-pill dash-pill--stale" data-i18n="crm.overdue_badge">Overdue</span>{% endif %}
+        </div>
+    </td>
+    <td class="dash-table__cat" title="{{ task.get_help_type_display }}" data-i18n-title="help.{{ task.help_type }}">
+        <span class="dash-cat">{% include "partials/_about_icon.html" with name=task.help_type %}<span class="dash-cat__label" data-i18n="help.{{ task.help_type }}">{{ task.get_help_type_display }}</span></span>
+    </td>
+    <td class="dash-table__prio"><span class="dash-pill dash-pill--{{ task.priority }}" data-i18n="dash.prio.{{ task.priority }}">{{ task.get_priority_display }}</span></td>
+    {% if row.volunteer %}
+        <td class="dash-table__volunteer" title="{{ row.volunteer.name }}"><span class="dash-suggest dash-suggest--assigned">{{ row.volunteer.name }}</span></td>
+    {% else %}
+        <td class="dash-table__volunteer"{% if suggestion %} title="{{ suggestion.name }} · {{ suggestion.distance_km }} км"{% endif %}>
+            {% if suggestion %}
+                <span class="dash-suggest"><span class="visually-hidden" data-i18n="dash.suggested">Suggested</span> {{ suggestion.name }} <span class="dash-suggest__km">· {{ suggestion.distance_km }} <span data-i18n="unit.km">км</span></span></span>
+            {% else %}
+                <span class="dash-suggest dash-suggest--none" data-i18n="dash.no_suggestion">No candidate</span>
+            {% endif %}
+        </td>
+    {% endif %}
+    {% if show_region %}
+        <td class="dash-table__region" title="{{ task.get_region_display|default:'—' }}"{% if task.region %} data-i18n-title="region.{{ task.region }}"{% endif %}><span{% if task.region %} data-i18n="region.{{ task.region }}"{% endif %}>{{ task.get_region_display|default:"—" }}</span></td>
+    {% endif %}
+    <td class="dash-table__action">
+        {% if suggestion and not open_only %}
+            <a class="button primary dash-btn-xs" href="{% url 'task_detail' task.id %}#recommendCard" data-i18n="dash.assign">Assign</a>
+        {% else %}
+            <a class="button ghost dash-btn-xs" href="{% url 'task_detail' task.id %}" data-i18n="dash.open">Open</a>
+        {% endif %}
+    </td>
+</tr>
+{% endwith %}

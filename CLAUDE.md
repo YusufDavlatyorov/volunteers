@@ -99,6 +99,8 @@ Access control is two decorators, both used together where needed:
 - `@login_required` (Django's)
 - `@role_required(*roles)` — defined in `myapp/views.py`; superusers pass any check that includes
   `"admin"`. **It is not wrapped with `functools.wraps`**, so wrapped views lose `__name__`.
+  An anonymous **GET** is sent to `login?next=<this page>` (like `@login_required`, 2026-10-15 —
+  a visitor's "Request help" must land on the form after signing in); a POST goes to plain `login`.
 
 **Curators are national coordinators — no CRM view is scoped to a curator's own region.** The
 task/people/emergency/matching lists offer region as a *filter*, not a boundary; a curator in
@@ -307,7 +309,8 @@ Business logic that needs to be unit-testable without the ORM or network lives h
   "strict-origin-when-cross-origin"` (Django's default `same-origin` sent none). The maps are
   **MapLibre GL 5** (v6 is ESM-only — stay on the UMD 5.x line), loaded via
   `partials/_maplibre_css.html` / `_maplibre_js.html`: unpkg (SRI) first, then the identical
-  `static/vendor/maplibre-gl-5.24.0/` copy (sourceMappingURL stripped) only if unpkg fails.
+  `static/vendor/maplibre-gl-5.24.0/` copy (sourceMappingURL stripped) only if unpkg fails
+  (version + SRI: `myapp/templatetags/maplibre.py`, the one place to bump).
   3D buildings = the style's `building` fill-extrusion (OpenMapTiles `render_height`), 2D/3D
   toggle remembered in `localStorage['gc-map-3d']`. The route line is two GeoJSON line layers
   added with `beforeId` = the first building layer (never over a house), blue `#2A3BA5` + white
@@ -336,15 +339,49 @@ Business logic that needs to be unit-testable without the ORM or network lives h
   so the threshold comparison lives in exactly one place per side.
 - **`dashboard.py`** — `for_user(user)`: the one role-aware dashboard payload, dispatched on
   `user.role`, **every query scoped to the passed user**. Composes `analytics` / `emergency` /
-  `overdue` / `stale` / `matching` / `pets` — no aggregation is duplicated. Rendered by `accounts/profile.html`
-  (the single dashboard; `dashboard_view` at `/myapp/dashboard/` just `redirect`s there) via
-  `templates/myapp/dashboard/_<role>.html` partials. `admin_panel_view` stays the deep CRM
+  `overdue` / `stale` / `matching` / `pets` — no aggregation is duplicated. Rendered by `myapp/dashboard.html`
+  (`dashboard_view`, **`/dashboard/`**, "what do I do now" — `LOGIN_REDIRECT_URL`, `/` for a signed-in user,
+  every "no access" bounce; the old `/myapp/dashboard/` redirects there) via
+  `templates/myapp/dashboard/_<role>.html` partials + Quick Actions + the application-status card + a
+  stale-location banner. **Dashboard design (2026-10-16, `static/css/dashboard.css`, `dash-` classes,
+  tokens only — no hex/rgba, no inline styles; `myapp/tests_dashboard_design.py`)**: normal site navbar
+  (**no sidebar** — owner reversed it the same day), one `.section` container (1200px). Staff: hero
+  (greeting, SOS/overdue alert plate only when there is one, 6-column KPI strip from `dashboard_stats()` —
+  which gained `tasks_total` / `tasks_cancelled` / `tasks_created_week` / `events_upcoming`, same
+  aggregate) → readiness / donations / region doughnut (3→2→1 columns) → request queue 2/3 (one text line
+  per row, `table-layout: fixed`, cells cut with "…" + `title`; `DASH_QUEUE_LIMIT` = 11 rows cut in the
+  service, urgent then longest-waiting; category tabs count the WHOLE pending queue
+  (`_queue_categories`) and link to `crm/tasks/?status=pending&help_type=…`, which paginates by 20 and
+  keeps the filters; "shown X of N" only when N > 11) + activity feed & rating leader 1/3 → two rows of
+  three same-size compact cards (SOS, overdue, applications [admin]; offers, Lost & Found, 14-day
+  chart) built from one header + item component (`_card_head.html`, `_list_card.html`,
+  `_list_item.html`: two fixed lines, `CARD_LIST_LIMIT` = 4, centred empty state) → Quick Actions tiles
+  (incl. the CRM pages the navbar lacks). Other blocks: **real data only — nothing to show, not
+  rendered.** Doughnut + 14-day line are Chart.js + `GCChartTheme` in `static/js/dashboard.js` (no
+  colours in the page script; the old SVG sparkline is gone). Volunteer/client: same hero + 4-KPI strip + their lists. **`/profile/` is a separate "who I am" page** (2026-10-15, `accounts.views.profile_view`
+  → `accounts/profile.html`: user card, activity calendar, achievements, saved-location card, community
+  card, volunteer review summary) — it never calls `for_user()`; `myapp/tests_dashboard_split.py` locks the split.
+  Links: actions on tasks/applications/login → `dashboard`; profile edit / Telegram / language / location →
+  `profile`. `admin_panel_view` stays the deep CRM
   console; the curator/admin dashboard is the attention-triage summary that links into it.
   `_public_volunteer()` is the only volunteer data a client's dashboard may show (name + region,
   never contact details). The curator dashboard's stale/unassigned queues get a
-  `task.assignment_suggestion` attached — `_attach_assignment_suggestions()` is exactly
-  `matching.recommend_volunteers(task, limit=1)` per task, read-only, so a curator sees the top
-  pick inline without opening the dispatch shortlist.
+  `task.assignment_suggestion` attached — `attach_assignment_suggestions()` gives the same answer as
+  `matching.recommend_volunteers(task, limit=1)` per task, but from ONE candidate query for the whole list
+  (`matching.best_volunteer_per_task`: same filters, same `CANDIDATE_CAP` nearest, same `_rank`; above
+  `BULK_POOL_CAP` eligible volunteers it falls back to one call per task — equality test-locked in
+  `myapp/tests_admin_panel.py`), read-only, so a curator sees the top pick inline without opening the
+  dispatch shortlist.
+  **`/myapp/panel/` (`admin_panel_view`, 2026-10-16) is built from the same components** — loads
+  `dashboard.css` + `static/css/panel.css` (panel-only extras), reuses `_alert.html` / `_queue_row.html` /
+  `_feed.html` / `_list_card.html` (+ `event` / `broadcast` item kinds): hero (title, alert plate, primary
+  "Task management" + icon buttons in `_panel_links.html`, a `<details>` "More" menu below 768px; "Check
+  overdue" stays a POST form), three KPI bands (SOS / people / tasks, each number the old filter link,
+  red when open SOS / overdue / urgent > 0), cards (SOS, applications [superuser] or events [curator],
+  broadcasts; events + activity), then ONE request table: `?tab=free|busy`, the `HelpRequestFilterForm`
+  filters (finally rendered), `dashboard.panel_requests()` = both tab counts in one aggregate +
+  `PANEL_PAGE_SIZE` = 20 rows per page (Paginator, count reused from the aggregate) + batched candidates;
+  tab / page / "open in task management" links keep the filters. Constant query count (25 vs the old 29).
 - **`overdue.py`** — `sweep_overdue_tasks()`: the one overdue-detection + alerting path, shared
   by `check_overdue_view` (admin button) and the `check_overdue_tasks` cron command. Claims each
   task with a conditional `UPDATE ... WHERE alarm_sent=False` before notifying `staff_recipients()`,
@@ -403,6 +440,26 @@ Business logic that needs to be unit-testable without the ORM or network lives h
   `/status`), all `@login_required`; state-changing routes are `@require_POST`. Pet markers ride
   the shared `map_data_view` (`kind: "pet"`); `PetReportAdmin` keeps `status` read-only so the
   transition rules aren't bypassed.
+- **`rating.py`** — the public rating `/myapp/rating/` **with places** (owner 2026-10-14 — this
+  *reverses* the 2026-10-03/09 rule "one list by name, no places, no points"). ONE national,
+  **all-time** ranking (the Month/Year/All switch and the 4 summary cards were removed the same
+  day — an old `?period=` is simply ignored): completed requests ↓ → `Profile.review_avg` ↓ (visible
+  reviews, nulls last) → `review_count` ↓ → user id. Page header = breadcrumbs, "updated N min ago",
+  the title — then the **podium** (`rating.podium(rows)`: places 1–3 with ≥1 completed request; fewer →
+  as many as there are, none → no podium; #2 · #1 · #3 on desktop, a #1/#2/#3 column on phones;
+  first page only) and the table from the next place ("Показано 4–23 из 81" = overall places). No
+  search / region filter / sort (removed 2026-10-14) — old `?q=` / `?region=` / `?sort=` links are
+  ignored like `?period=`. Ranked = active `is_volunteer` whose `VolunteerApplication`, if any, is not
+  pending/rejected (admin/bootstrap volunteers without one count — unlike `network.py`'s strict
+  counts). One annotated query (`build`), cached under `RATING_CACHE_KEY` with `computed_at`
+  ("updated N min ago"). `accounts.models.clear_rating_cache()` drops it +
+  the About leaders — called by `Profile.add_points` (= task completion), review stats, application
+  approve/reject. "You" + "Кабинет" and the staff-only "Профиль"
+  (→ `crm_volunteer_detail`; there is no public volunteer page) are decided per viewer in
+  `rating_view`, never cached. No "kindness points" — `Profile.rating` isn't shown. Plurals
+  ("1 заявка / 3 заявки / 5 заявок") via `{% plural_i18n "<base>" n %}` (`myapp/templatetags/i18n_plural.py`:
+  Russian form server-side, `data-i18n-plural` → i18n.js re-picks with `Intl.PluralRules`;
+  every `<base>.one|few|many|other` key exists in all three languages). Tests: `myapp/tests_rating.py`.
 - **`activity.py`** — the GitHub-style activity calendar (own profile + CRM volunteer card;
   **volunteers and clients only**, `shows_calendar`). Counted from existing rows, no model:
   volunteer accepted / completed (status completed) / photo report / donation `received_at` and
@@ -427,12 +484,19 @@ Business logic that needs to be unit-testable without the ORM or network lives h
   "+∞%"; `availability` is live → "current state"; `UP_IS_BAD` charts turn red when they grow).
   How a card draws is `DISPLAY` in `views_analytics.py` (line / bars / rank = horizontal sorted /
   stack / "share" = doughnut ≤ 5 slices else rank); box heights + the empty state are server-rendered.
+  Layout (2026-10-16, `static/css/analytics.css`): KPI strip = 7 tiles in one row (`.analytics-kpis`, 4 + 3
+  below 1100px, 2-up below 768px; the shared `.kpi-row` is untouched). Chart grid = 2 equal columns (1 below
+  900px); every non-wide card (`.chart-card--half`) has the same structure — one-line title (ellipsis +
+  translated `title`), a 2-line note slot (empty when the chart has no note), ONE 18rem `.chart-box` for every
+  display, the table toggle at the bottom — so a row is one size by construction (`align-items: stretch`, no
+  `grid-auto-rows: 1fr`: it would size every row like the heatmap). A ranking longer than fits scrolls inside
+  the box (`--rows` × `--row-px` on `.chart-plot`); wide cards keep `--box-h`. Test-locked in `tests_charts.py`.
 - **Chart look = `static/js/charts-theme.js` (`GCChartTheme`)** — the one place for the palette
   (primary `#2A3BA5`, accent `#F2A23A`, teal/rose/slate, stepped in lightness; lighter in dark),
   `ENTITY` (one meaning = one colour on every chart: completed teal, emergency rose, …), fonts,
   horizontal-only grid, HTML tooltip, legend, number/date formatting (month names from i18n.js
   `act.m*`/`act.mg*`) and the doughnut-total / bar-value plugins. Page scripts never set colours
-  (test-locked in `myapp/tests_charts.py`); the dashboard sparkline CSS and the heatmap ramp
+  (test-locked in `myapp/tests_charts.py`); the dashboard trend legend dots and the heatmap ramp
   (= activity calendar scale) mirror it, also test-locked.
 - **`telegram_link.py`** — `redeem_link_code`, the verified-round-trip consumer for Telegram
   account binding (see **Telegram account linking**).
@@ -630,18 +694,14 @@ Production prep (2026-09) also added `STATIC_ROOT` (`server/settings.py`, requir
 sanctioned way to get accounts onto a production DB — `seed_demo` must never run there. This
 project has **no single `DATABASE_URL` variable** — PostgreSQL connection info stays as the
 discrete `DJANGO_DB_NAME` / `_USER` / `_PASSWORD` / `_HOST` / `_PORT` vars; don't introduce one
-without a concrete reason, it would duplicate the existing mechanism. The About Us hero video lives in
-`static/videos/` as four git-tracked, audio-less, seamless 4.3 s loops —
-`hero-loop-{mobile,desktop}.{webm,mp4}` (VP9 before H.264; mobile 480×264 via
-`<source media="(max-width: 768px)">`, desktop 640×352 = the native source resolution, **don't
-upscale**; MP4s faststart, keyframe every 2 s) — served via `{% asset %}` so nginx can cache
-`/static/videos/` as immutable. The `<video>` is `preload="metadata"` (only the few-KB header) with **no `autoplay` attribute**:
-the inline script after it enables preload + muted autoplay on `window` `load`, so the video never
-competes with the page's own resources on the slow uplink. The same script pauses it
-off-screen / in hidden tabs, honours `prefers-reduced-motion` (aborts the download, hides it) and
-toggles `.topbar--over-video` (no backdrop blur over a playing video). It used to be read from
-`media/videos/` via `default_storage.url()`, which is gitignored and would have been silently
-missing on a fresh production clone; don't move it back. See `DEPLOY.md` for the full command
+without a concrete reason, it would duplicate the existing mechanism. The About Us hero is a **photo**
+(the looping video was removed 2026-10-14): `static/images/about/about-hero-{768,1280,1672}.{webp,jpg}`
+in a `<picture>` (WebP `srcset` + JPEG fallback, `sizes="100vw"`; 1672 px is the original's width —
+**don't upscale**), `.hero-photo` = absolute + `object-fit: cover`, `object-position: right center` (70% ≤768px so the
+hand-over stays in a phone crop). The photo stays bright (owner 2026-10-14): faint brand scrim
+(`.hero::before`, opacity 0.15) + a light black gradient (`.hero::after`, ≤ 0.3 alpha) + a soft
+`text-shadow` on the hero copy — don't go back to a heavy overlay. It is the
+LCP element: eager, `fetchpriority="high"`, never `loading="lazy"` (`AboutHeroPhotoTests`). See `DEPLOY.md` for the full command
 sequence and README → **Initial production accounts** /
 **Demo data — NEVER in production** for the account-bootstrap rules.
 
@@ -663,10 +723,13 @@ sequence and README → **Initial production accounts** /
   Absolute URLs use `settings.SITE_URL` (`DJANGO_SITE_URL`, default `https://khayrkhoh.tj`),
   never the request Host. `CONTACT_PHONE` must match the footer phone in `base.html`.
 - **`/` is the landing page**: `home_view` renders the About content for anonymous visitors
-  and redirects signed-in users to `profile` (it used to be the login form, a duplicate of
+  and redirects signed-in users to `dashboard` (it used to be the login form, a duplicate of
   `/login/`). `/myapp/about/` renders the same content, so its canonical is
   `https://khayrkhoh.tj/` and it is **not** in the sitemap (no duplicate); it stays reachable
   (nav links) and explicitly `Allow`ed in robots.txt so Google can see that canonical.
+  The logo + brand name (navbar and footer, one `brand_url` in `base.html`) lead to About: a signed-in
+  user → `about` (never `home`, which would bounce them to the dashboard), a visitor → `home` (`/`, the
+  canonical) — `myapp/tests_ux_flows.py::BrandLinkTests`.
 - **Server-side i18n pre-render.** `ServerSideI18nMiddleware` fills every plain-text
   `data-i18n` element (and `data-i18n-ph` placeholder, with `data-i18n-args` interpolation)
   with the `SERVER_RENDER_LANGUAGE` (`ru`) string parsed from `static/js/i18n.js` itself — no
@@ -712,18 +775,47 @@ at `templates/{404,403,500,403_csrf}.html`. `task_detail.html`, `login.html`, `r
 and `ai_assistant.html` were left alone (test-coupled DOM ids / out of scope) — check
 `myapp/tests.py::TaskDetailCrmIntegrationTests` before touching `task_detail.html`.
 
+**Function-first UX pass (2026-10-15, `myapp/tests_ux_flows.py`)** — conventions to keep:
+- **Flash messages** (`messages.*`) render in `base.html` as typed toasts (icon + coloured edge +
+  text, `role=alert` for error/warning else `status`, close button). Errors/warnings stay until
+  closed; confirmations 10 s (paused on hover/focus); ≤560 px they sit in the page flow under the
+  topbar (`.flash-stack`, never over the heading) and stay. They're translated through
+  `myapp/templatetags/flash.py::FLASH_KEYS` (Russian text/regex → `flash.*` key, dynamic parts as
+  `data-i18n-args`): **a new `messages.*("…")` literal in a view needs an entry there** —
+  `FlashI18nTests` scans the views. Never claim a delivery that didn't happen: the request-created
+  message depends on `create_request(...).volunteers_notified` (`notify()`'s reached count).
+- **Relative times**: `{% time_ago dt %}` (`i18n_plural.py`) — never `|timesince` (Django renders
+  it in English, `LANGUAGE_CODE='en-us'`; test-locked).
+- **Irreversible actions ask first**: `<form data-confirm="i18n.key">` (handler in `base.html`) —
+  completing a request, rejecting an application, deleting a pet notice.
+- **GET `.filter-bar` forms collapse** behind a "Filters (n)" button below 600 px (base.html JS);
+  desktop unchanged. A regional volunteer's task feed has no region filter (it could only empty it).
+- **The client's own request** uses client wording: `_task_status_tag.html` with `for_client=True`
+  ("Looking for a volunteer" …) + a "what happens next" note on their pending task; staff and
+  volunteers keep the normal labels. Status values / colours are unchanged.
+- **Sign-up path**: `/register/?role=client|volunteer` pre-selects; `?next=` is honoured after
+  registration (same-site only, `accounts.views._safe_next`); the login page shows a "new here?"
+  box with a client sign-up link when `next` is the request form.
+- **Forms**: `_field.html` ties hints/errors to the widget (`described_widget`: aria-describedby +
+  aria-invalid). Hints/errors are ≥ 14 px. `.reveal` hides content only when JS runs
+  (`html.gc-reveal`, 3 s fail-safe) and never under `prefers-reduced-motion`.
+- Staff `.data-table`s on phones: label beside value (floated into the cell padding).
+- New TJ strings of this pass: `docs/TJ_REVIEW_UX_2026-10-15.md` (for a native speaker's check).
+
+**Template comments:** `{# … #}` is single-line in Django — a multi-line one is printed on the
+page as text (it leaked on About, 2026-10-14). Multi-line notes use `{% comment %}…{% endcomment %}`;
+`TemplateCommentLeakTests` (myapp/tests_about_sections.py) scans every template for it.
+
 Stage 9 polish conventions (in `style.css`):
 - **`--nav-h`** (3.85rem) is the sticky-topbar row height; anything else that sticks offsets
-  from it. `.dash-rail` (the right column of `accounts/profile.html`) is `position: sticky;
-  top: calc(var(--nav-h) + var(--space-4))` and drops back to static below 820px (the
-  `.two-col` collapse point) so it never covers content on a phone.
+  from it.
 - **Equal-height cards**: `.grid > .card` (and `.opportunity-card` / `.pet-card`) are
   `display: flex; flex-direction: column`; a trailing `.button-row`/`.card__foot` gets
   `margin-top: auto`. CSS-grid already stretches a row's cards to the tallest. Panels whose
   content length genuinely differs (admin-panel feed columns) opt out with `.grid.grid-top`
   (`align-items: start`) — don't force those equal.
 - **`<img width height>` needs `height: auto`** in its CSS class when the class sizes the image
-  with `width: 100%` + `aspect-ratio` (`.volunteers-photo`, `.regions-photo`, `.report-img`):
+  with `width: 100%` + `aspect-ratio` (`.volunteers-photo`, `.report-img`):
   the attributes otherwise act as a fixed pixel height and stretch the image (the 2026-09-30
   SEO regression). The landing `<h1>` starts with a `.visually-hidden` "KhayrKhoh — " (SEO) so the
   hero looks unchanged.
@@ -743,7 +835,25 @@ Stage 9 polish conventions (in `style.css`):
   WebP `srcset` + JPEG fallback resized to their display size (`picture { display: contents }`
   keeps the `<img>` laid out exactly as before).
 - **Landing-page aggregates are cached** (`about_view`: `ABOUT_STATS_CACHE_KEY`, 5 min, DB cache
-  in prod) — `/` and `/myapp/about/` run 1 query per hit.
+  in prod) — `/` and `/myapp/about/` run 1 query per hit. The About sections after the hero
+  (2026-10-14): how-it-works (static), help types (one card per `HELP_TYPE_CHOICES` →
+  `create_request?help_type=<key>`, visitors via `login?next=` — `login_view` follows only a
+  same-host `next`), **leaders** (`views._about_leaders` = `rating.top(4)` — the rating's
+  own all-time top with its places, see `rating.py` above; no second ranking) and **testimonials** (`feedback.landing_testimonials`: the one
+  exception to "review comments are never public" — staff opt-in `TaskReview.show_on_landing`,
+  default off, reset when the client edits the comment; 5★ + text + not hidden; client shown as
+  "First L."). Both under `ABOUT_COMMUNITY_CACHE_KEY` (`accounts/models.py`), cleared by
+  `clear_rating_cache()` / `set_landing`; sections with no rows aren't rendered.
+  **Volunteer network** (`#network`, replaced "Why we are stronger" 2026-10-14,
+  `services/network.py`): region list + map are public; the per-region **volunteer counts** reach the
+  context only when `network.access_level(user) == GRANTED` — curator/admin, or an active
+  `is_volunteer` whose `VolunteerApplication.status == approved` (**strictly** the application:
+  volunteers created by `seed_demo` / `create_initial_production_accounts` / the admin without one
+  don't count and don't see; clients never — anyone can register as one). Counts = one
+  `values("region").annotate(Count)` query, shared cache `ABOUT_NETWORK_CACHE_KEY` (cleared by
+  `approve()`/`reject()`), read only after the access check. The map loads **lazily**
+  (`static/js/about-network.js`, IntersectionObserver) from `partials/_maplibre_lazy.html`; MapLibre's
+  version / URLs / SRI live once in `myapp/templatetags/maplibre.py` (all three partials read them).
 - **`.clamp-text`** (line-clamp, `--clamp` default 3) + `.card__more` (a "View full →" link,
   i18n key `common.view_full`) replace `|truncatechars` so a long description can't stretch a
   card.

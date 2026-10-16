@@ -1,214 +1,137 @@
 {% extends "base.html" %}
+{% load assets i18n_plural %}
 {% block title %}Admin Panel - KhayrKhoh{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% asset 'css/dashboard.css' %}"><link rel="stylesheet" href="{% asset 'css/panel.css' %}">{% endblock %}
 {% block content %}
-<section class="section section-xl">
-    {% include "partials/_page_header.html" with title="Admin Panel" title_i18n="admin.title" lede="Free and busy requests, live stats, and recent activity across the platform." lede_i18n="admin.desc" %}
-
-    <div class="button-row">
-        <a class="button primary" href="{% url 'crm_tasks' %}" data-i18n="crm.tasks_title">Task Management</a>
-        <a class="button secondary" href="{% url 'broadcast' %}" data-i18n="admin.broadcast">Send Message to Volunteers</a>
-        <a class="button ghost" href="{% url 'create_event' %}" data-i18n="admin.create_event">Create Event</a>
-        <a class="button ghost" href="{% url 'photo_reports' %}" data-i18n="admin.photo_reports">Photo Reports</a>
-        <a class="button ghost" href="{% url 'rating' %}" data-i18n="admin.rating">Rating</a>
-        <a class="button ghost" href="{% url 'crm_reviews' %}" data-i18n="review.crm_title">Reviews</a>
-        <a class="button ghost" href="{% url 'crm_analytics' %}" data-i18n="an.open">Analytics</a>
-        <form method="post" action="{% url 'check_overdue' %}" class="inline-form">
-            {% csrf_token %}
-            <button type="submit" class="button ghost" data-i18n="admin.check">Check Overdue</button>
-        </form>
-    </div>
-
-    {% if stats.emergencies_active %}
-    <a class="emergency-banner emergency-banner--link" href="{% url 'emergency_list' %}?status=open">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"></path><path d="M12 9v4M12 17h.01"></path></svg>
-        <div>
-            <strong>{{ stats.emergencies_open }} <span data-i18n="emg.dash_open">open SOS report(s)</span></strong>
-            <p data-i18n="emg.dash_cta">A volunteer needs help — open the emergency queue.</p>
-        </div>
-    </a>
-    {% endif %}
-
-    <p class="kpi-group-label" data-i18n="emg.kpi_group">Emergencies</p>
-    <div class="kpi-row">
-        <a class="card stat-card reveal {% if stats.emergencies_open %}stat-card--alert{% endif %}" href="{% url 'emergency_list' %}?status=open">
-            <span class="metric">{{ stats.emergencies_open }}</span>
-            <p data-i18n="emg.kpi_open">Open</p>
-        </a>
-        <a class="card stat-card reveal" href="{% url 'emergency_list' %}?status=acknowledged">
-            <span class="metric">{{ stats.emergencies_acknowledged }}</span>
-            <p data-i18n="emg.kpi_acknowledged">Acknowledged</p>
-        </a>
-        <a class="card stat-card reveal" href="{% url 'emergency_list' %}">
-            <span class="metric" data-i18n="common.view_all">View all</span>
-            <p data-i18n="emg.list_title">Emergencies</p>
-        </a>
-    </div>
-
-    <p class="kpi-group-label" data-i18n="crm.kpi_volunteers">Volunteers &amp; clients</p>
-    <div class="kpi-row">
-        <a class="card stat-card reveal" href="{% url 'people_list' 'volunteer' %}">
-            <span class="metric">{{ total_volunteers }}</span>
-            <p data-i18n="admin.stat_volunteers">Volunteers</p>
-        </a>
-        <a class="card stat-card reveal" href="{% url 'people_list' 'volunteer' %}?availability=available">
-            <span class="metric">{{ stats.volunteers_available }}</span>
-            <p data-i18n="crm.kpi_available">Available</p>
-        </a>
-        <a class="card stat-card reveal" href="{% url 'people_list' 'volunteer' %}?availability=busy">
-            <span class="metric">{{ stats.volunteers_busy }}</span>
-            <p data-i18n="crm.kpi_busy">Busy</p>
-        </a>
-        <a class="card stat-card reveal" href="{% url 'people_list' 'volunteer' %}?availability=offline">
-            <span class="metric">{{ stats.volunteers_offline }}</span>
-            <p data-i18n="crm.kpi_offline">Offline</p>
-        </a>
-        <a class="card stat-card reveal" href="{% url 'people_list' 'volunteer' %}?availability=away">
-            <span class="metric">{{ stats.volunteers_away }}</span>
-            <p data-i18n="crm.kpi_away">Do not disturb</p>
-        </a>
-        <a class="card stat-card reveal" href="{% url 'people_list' 'client' %}">
-            <span class="metric">{{ total_clients }}</span>
-            <p data-i18n="admin.stat_clients">Clients</p>
-        </a>
-    </div>
-
-    <p class="kpi-group-label" data-i18n="crm.kpi_tasks">Tasks</p>
-    <div class="kpi-row">
-        <a class="card stat-card reveal" href="{% url 'crm_tasks' %}?status=pending">
-            <span class="metric">{{ stats.tasks_pending }}</span>
-            <p data-i18n="crm.kpi_pending">Pending</p>
-        </a>
-        <a class="card stat-card reveal" href="{% url 'crm_tasks' %}?status=active">
-            <span class="metric">{{ stats.tasks_active }}</span>
-            <p data-i18n="crm.kpi_active">Active</p>
-        </a>
-        <a class="card stat-card reveal" href="{% url 'crm_tasks' %}?overdue=1">
-            <span class="metric">{{ stats.tasks_overdue }}</span>
-            <p data-i18n="crm.kpi_overdue">Overdue</p>
-        </a>
-        <a class="card stat-card reveal" href="{% url 'crm_tasks' %}?is_urgent=on">
-            <span class="metric">{{ stats.tasks_urgent }}</span>
-            <p data-i18n="crm.kpi_urgent">Urgent</p>
-        </a>
-        <a class="card stat-card reveal" href="{% url 'completed_tasks' %}">
-            <span class="metric">{{ stats.tasks_completed_today }}</span>
-            <p data-i18n="crm.kpi_completed_today">Completed Today</p>
-        </a>
-        <a class="card stat-card reveal" href="{% url 'volunteer_applications' %}">
-            <span class="metric">{{ stats.pending_applications }}</span>
-            <p data-i18n="va.pending_count">Pending Applications</p>
-        </a>
-    </div>
-</section>
-
-<section class="section section-xl alt">
-    {% comment %}
-    Two independent columns, each stacking its own cards top-down: the long
-    activity feed alone on the right, the short feeds on the left — so a
-    short card never sits in a row stretched to the feed's height.
-    {% endcomment %}
-    <div class="panel-columns">
-        <div class="panel-column">
-            <div class="card reveal {% if open_emergencies %}card--alert{% endif %}">
-                <div class="section-head"><h3 data-i18n="emg.feed_title">Active emergencies</h3><a class="button ghost" href="{% url 'emergency_list' %}" data-i18n="common.view_all">View all</a></div>
-                {% if open_emergencies %}
-                    <div class="mini-list">
-                        {% for report in open_emergencies %}
-                            <a class="mini-list-item mini-list-item--link" href="{% url 'emergency_detail' report.id %}">
-                                <h4>{% include "myapp/_emergency_status_tag.html" with status=report.status status_display=report.get_status_display %} {{ report.volunteer.username }}</h4>
-                                <p data-i18n-skip>#{{ report.help_request_id }} · {{ report.get_region_display|default:"—" }} · {{ report.created_at|timesince }} <span data-i18n="va.ago_suffix">ago</span></p>
-                            </a>
-                        {% endfor %}
-                    </div>
-                {% else %}
-                    <p class="opportunity-desc" data-i18n="emg.feed_empty">No active emergencies.</p>
-                {% endif %}
-            </div>
-            {% if user.is_superuser %}
-                <div class="card reveal">
-                    <div class="section-head"><h3 data-i18n="admin.recent_applications">Recent Volunteer Applications</h3><a class="button ghost" href="{% url 'volunteer_applications' %}" data-i18n="common.view_all">View all</a></div>
-                    {% if recent_applications %}
-                        <div class="mini-list">
-                            {% for application in recent_applications %}
-                                <div class="mini-list-item">
-                                    <h4>{{ application.user.username }} <span class="tag {% if application.status == 'rejected' %}urgent{% elif application.status == 'approved' %}success{% else %}accent{% endif %}" data-i18n="va.status_{{ application.status }}">{{ application.get_status_display }}</span></h4>
-                                    <p>{{ application.get_region_display|default:"—" }} · {{ application.created_at|timesince }} <span data-i18n="va.ago_suffix">ago</span></p>
-                                </div>
-                            {% endfor %}
-                        </div>
-                    {% else %}
-                        <p class="opportunity-desc" data-i18n="va.no_pending">No pending applications</p>
-                    {% endif %}
+{% comment %}
+The staff control panel (admin_panel_view) in the dashboard's look and with
+its components (dashboard.css + the myapp/dashboard/ partials; panel.css only
+adds what the dashboard has no use for): hero with the alert plate and the
+actions, three KPI bands, compact cards, then one request table with
+free / busy tabs (?tab=), the filters and 20-row pages. Normal site navbar,
+one 1200px container (.section).
+{% endcomment %}
+<section class="section dash">
+    <div class="dash-main">
+        <section class="card dash-hero reveal" aria-labelledby="panelTitle">
+            <div class="dash-hero__top">
+                <div class="dash-hero__intro">
+                    <span class="tag muted dash-hero__role" data-i18n="dash.role.{% if user.is_superuser %}admin{% else %}curator{% endif %}">{{ user.role_display }}</span>
+                    <h1 class="dash-hero__title" id="panelTitle" data-i18n="panel.title">Control panel</h1>
+                    <p class="dash-hero__sub" data-i18n="admin.desc">Free and busy requests, live stats, and recent activity across the platform.</p>
                 </div>
-            {% endif %}
-            <div class="card reveal">
-                <div class="section-head"><h3 data-i18n="events.upcoming">Upcoming Events</h3><a class="button ghost" href="{% url 'event_list' %}" data-i18n="common.view_all">View all</a></div>
-                {% if upcoming_events %}
-                    <div class="mini-list">
-                        {% for event in upcoming_events %}
-                            <div class="mini-list-item">
-                                <h4>{{ event.title }}</h4>
-                                <p>{{ event.date|date:"d M, H:i" }} · {{ event.get_region_display }}</p>
-                            </div>
-                        {% endfor %}
-                    </div>
-                {% else %}
-                    <p class="opportunity-desc" data-i18n="events.no_upcoming">No upcoming events.</p>
-                {% endif %}
+                {% include "myapp/dashboard/_alert.html" with sos_count=stats.emergencies_open overdue_count=stats.tasks_overdue %}
             </div>
-            <div class="card reveal">
-                <div class="section-head"><h3 data-i18n="broadcasts.title">Broadcasts</h3><a class="button ghost" href="{% url 'broadcast_list' %}" data-i18n="common.view_all">View all</a></div>
-                {% if recent_broadcasts %}
-                    <div class="mini-list">
-                        {% for broadcast in recent_broadcasts %}
-                            <div class="mini-list-item">
-                                <h4>{{ broadcast.subject }}</h4>
-                                <p>{{ broadcast.created_at|date:"d M" }} · {{ broadcast.get_region_display }} · {{ broadcast.sent_count }} <span data-i18n="broadcasts.recipients">recipients</span></p>
-                            </div>
-                        {% endfor %}
-                    </div>
-                {% else %}
-                    <p class="opportunity-desc" data-i18n="broadcasts.empty">No broadcasts sent yet.</p>
-                {% endif %}
+            <div class="panel-actions">
+                <a class="button primary dash-btn-sm" href="{% url 'crm_tasks' %}">{% include "myapp/dashboard/_icon.html" with name="inbox" %}<span data-i18n="crm.tasks_title">Task Management</span></a>
+                <div class="panel-actions__icons">{% include "myapp/dashboard/_panel_links.html" with cls="panel-icon-btn" label_cls="visually-hidden" %}</div>
+                <details class="panel-more">
+                    <summary class="button ghost dash-btn-sm">{% include "myapp/dashboard/_icon.html" with name="more" %}<span data-i18n="panel.more">More</span></summary>
+                    <div class="panel-more__menu">{% include "myapp/dashboard/_panel_links.html" with cls="panel-more__item" label_cls="panel-more__label" %}</div>
+                </details>
             </div>
-        </div>
-        <div class="panel-column">
-            <div class="card reveal">
-                <div class="section-head"><h3 data-i18n="crm.activity_title">Recent Activity</h3></div>
-                {% include "myapp/_activity_feed.html" %}
-            </div>
-        </div>
-    </div>
-</section>
+        </section>
 
-<section class="section section-xl" id="requests">
-    <div class="section-head"><h2 data-i18n="admin.free">Free Requests</h2></div>
-    {% if free_requests %}
-        <div class="opportunity-grid">
-            {% for task in free_requests %}
-                {% include "myapp/_opportunity_card.html" with task=task mode="free" %}
-            {% endfor %}
+        {% comment %}KPI bands: each number links to the same filter as before; open SOS / overdue / urgent turn red when > 0.{% endcomment %}
+        <section class="card dash-card panel-band reveal" aria-labelledby="panelBandSos">
+            <h2 class="panel-band__title" id="panelBandSos" data-i18n="panel.band.sos">SOS</h2>
+            <div class="panel-band__grid panel-band__grid--3">
+                <a class="dash-kpi panel-kpi{% if stats.emergencies_open %} panel-kpi--alert{% endif %}" href="{% url 'emergency_list' %}?status=open"><span class="dash-kpi__label" data-i18n="emg.kpi_open">Open</span><span class="dash-kpi__value">{{ stats.emergencies_open }}</span></a>
+                <a class="dash-kpi panel-kpi" href="{% url 'emergency_list' %}?status=acknowledged"><span class="dash-kpi__label" data-i18n="emg.kpi_acknowledged">Acknowledged</span><span class="dash-kpi__value">{{ stats.emergencies_acknowledged }}</span></a>
+                <a class="dash-kpi panel-kpi" href="{% url 'emergency_list' %}"><span class="dash-kpi__label" data-i18n="panel.total">Total</span><span class="dash-kpi__value">{{ stats.emergencies_total }}</span></a>
+            </div>
+        </section>
+        <section class="card dash-card panel-band reveal" aria-labelledby="panelBandPeople">
+            <h2 class="panel-band__title" id="panelBandPeople" data-i18n="panel.band.people">People</h2>
+            <div class="panel-band__grid">
+                <a class="dash-kpi panel-kpi" href="{% url 'people_list' 'volunteer' %}"><span class="dash-kpi__label" data-i18n="admin.stat_volunteers">Volunteers</span><span class="dash-kpi__value">{{ stats.volunteers_total }}</span></a>
+                <a class="dash-kpi panel-kpi" href="{% url 'people_list' 'volunteer' %}?availability=available"><span class="dash-kpi__label" data-i18n="crm.kpi_available">Available</span><span class="dash-kpi__value">{{ stats.volunteers_available }}</span></a>
+                <a class="dash-kpi panel-kpi" href="{% url 'people_list' 'volunteer' %}?availability=busy"><span class="dash-kpi__label" data-i18n="crm.kpi_busy">Busy</span><span class="dash-kpi__value">{{ stats.volunteers_busy }}</span></a>
+                <a class="dash-kpi panel-kpi" href="{% url 'people_list' 'volunteer' %}?availability=offline"><span class="dash-kpi__label" data-i18n="crm.kpi_offline">Offline</span><span class="dash-kpi__value">{{ stats.volunteers_offline }}</span></a>
+                <a class="dash-kpi panel-kpi" href="{% url 'people_list' 'volunteer' %}?availability=away"><span class="dash-kpi__label" data-i18n="crm.kpi_away">Do not disturb</span><span class="dash-kpi__value">{{ stats.volunteers_away }}</span></a>
+                <a class="dash-kpi panel-kpi" href="{% url 'people_list' 'client' %}"><span class="dash-kpi__label" data-i18n="admin.stat_clients">Clients</span><span class="dash-kpi__value">{{ stats.clients_total }}</span></a>
+            </div>
+        </section>
+        <section class="card dash-card panel-band reveal" aria-labelledby="panelBandTasks">
+            <h2 class="panel-band__title" id="panelBandTasks" data-i18n="panel.band.tasks">Tasks</h2>
+            <div class="panel-band__grid">
+                <a class="dash-kpi panel-kpi" href="{% url 'crm_tasks' %}?status=pending"><span class="dash-kpi__label" data-i18n="crm.kpi_pending">Pending</span><span class="dash-kpi__value">{{ stats.tasks_pending }}</span></a>
+                <a class="dash-kpi panel-kpi" href="{% url 'crm_tasks' %}?status=active"><span class="dash-kpi__label" data-i18n="crm.kpi_active">Active</span><span class="dash-kpi__value">{{ stats.tasks_active }}</span></a>
+                <a class="dash-kpi panel-kpi{% if stats.tasks_overdue %} panel-kpi--alert{% endif %}" href="{% url 'crm_tasks' %}?overdue=1"><span class="dash-kpi__label" data-i18n="crm.kpi_overdue">Overdue</span><span class="dash-kpi__value">{{ stats.tasks_overdue }}</span></a>
+                <a class="dash-kpi panel-kpi{% if stats.tasks_urgent %} panel-kpi--alert{% endif %}" href="{% url 'crm_tasks' %}?is_urgent=on"><span class="dash-kpi__label" data-i18n="crm.kpi_urgent">Urgent</span><span class="dash-kpi__value">{{ stats.tasks_urgent }}</span></a>
+                <a class="dash-kpi panel-kpi" href="{% url 'completed_tasks' %}"><span class="dash-kpi__label" data-i18n="crm.kpi_completed_today">Completed Today</span><span class="dash-kpi__value">{{ stats.tasks_completed_today }}</span></a>
+                <a class="dash-kpi panel-kpi" href="{% url 'volunteer_applications' %}"><span class="dash-kpi__label" data-i18n="va.pending_count">Pending Applications</span><span class="dash-kpi__value">{{ stats.pending_applications }}</span></a>
+            </div>
+        </section>
+
+        {% url 'event_list' as events_url %}
+        <div class="dash-row dash-row--cards">
+            {% url 'emergency_list' as sos_url %}
+            {% include "myapp/dashboard/_list_card.html" with kind="sos" items=open_emergencies head_id="panelSosTitle" title_key="emg.feed_title" title_text="Активные сигналы" link_url=sos_url link_key="common.view_all" link_text="Смотреть все" empty_key="emg.feed_empty" empty_text="Нет активных сигналов." alert=True %}
+            {% if user.is_superuser %}
+                {% url 'volunteer_applications' as apps_url %}
+                {% include "myapp/dashboard/_list_card.html" with kind="application" items=recent_applications head_id="panelAppsTitle" title_key="va.list_title" title_text="Заявки на волонтёрство" link_url=apps_url link_key="common.view_all" link_text="Смотреть все" empty_key="va.no_pending" empty_text="Нет заявок на рассмотрении" %}
+            {% else %}
+                {% include "myapp/dashboard/_list_card.html" with kind="event" items=upcoming_events head_id="panelEventsTitle" title_key="events.upcoming" title_text="Предстоящие акции" link_url=events_url link_key="common.view_all" link_text="Смотреть все" empty_key="events.no_upcoming" empty_text="Нет предстоящих акций." %}
+            {% endif %}
+            {% url 'broadcast_list' as broadcasts_url %}
+            {% include "myapp/dashboard/_list_card.html" with kind="broadcast" items=recent_broadcasts head_id="panelBroadcastsTitle" title_key="broadcasts.title" title_text="Рассылки" link_url=broadcasts_url link_key="common.view_all" link_text="Смотреть все" empty_key="broadcasts.empty" empty_text="Рассылок пока нет." %}
         </div>
-    {% else %}
-        <div class="empty-state">
-            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16l3 8v8H1v-8Z"></path><path d="M1 12h6l2 3h6l2-3h6"></path></svg>
-            <p data-i18n="admin.no_free">No free requests.</p>
+
+        <div class="dash-row{% if user.is_superuser %} dash-row--2{% endif %}">
+            {% if user.is_superuser %}
+                {% include "myapp/dashboard/_list_card.html" with kind="event" items=upcoming_events head_id="panelEventsTitle" title_key="events.upcoming" title_text="Предстоящие акции" link_url=events_url link_key="common.view_all" link_text="Смотреть все" empty_key="events.no_upcoming" empty_text="Нет предстоящих акций." %}
+            {% endif %}
+            <section class="card dash-card reveal" aria-labelledby="panelFeedTitle">
+                <div class="dash-card__head"><h2 class="dash-card__title" id="panelFeedTitle" data-i18n="crm.activity_title">Recent Activity</h2></div>
+                {% include "myapp/dashboard/_feed.html" %}
+            </section>
         </div>
-    {% endif %}
-</section>
-<section class="section section-xl alt">
-    <div class="section-head"><h2 data-i18n="admin.busy">Busy Requests</h2></div>
-    {% if busy_requests %}
-        <div class="opportunity-grid">
-            {% for task in busy_requests %}
-                {% include "myapp/_opportunity_card.html" with task=task mode="busy" %}
-            {% endfor %}
-        </div>
-    {% else %}
-        <div class="empty-state">
-            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16l3 8v8H1v-8Z"></path><path d="M1 12h6l2 3h6l2-3h6"></path></svg>
-            <p data-i18n="admin.no_busy">No busy requests.</p>
-        </div>
-    {% endif %}
+
+        <section class="card dash-card dash-queue panel-requests reveal" id="requests" aria-labelledby="panelRequestsTitle">
+            <div class="dash-card__head dash-card__head--line">
+                <h2 class="dash-card__title dash-card__title--clip" id="panelRequestsTitle" data-i18n="panel.requests_title">Requests</h2>
+            </div>
+            <nav class="dash-filter" aria-labelledby="panelRequestsTitle">
+                <a class="dash-filter__tab{% if tab == 'free' %} is-active{% endif %}" href="?tab=free{% if filter_query %}&amp;{{ filter_query }}{% endif %}#requests"{% if tab == 'free' %} aria-current="page"{% endif %}><span data-i18n="panel.tab.free">Free</span><span class="dash-filter__count">{{ tab_counts.free }}</span></a>
+                <a class="dash-filter__tab{% if tab == 'busy' %} is-active{% endif %}" href="?tab=busy{% if filter_query %}&amp;{{ filter_query }}{% endif %}#requests"{% if tab == 'busy' %} aria-current="page"{% endif %}><span data-i18n="panel.tab.busy">Busy</span><span class="dash-filter__count">{{ tab_counts.busy }}</span></a>
+            </nav>
+            <form method="get" action="#requests" class="filter-bar panel-filters">
+                <input type="hidden" name="tab" value="{{ tab }}">
+                {% include "partials/_form.html" with form=filter_form %}
+                <button class="button primary dash-btn-sm" type="submit" data-i18n="task.filter">Filter</button>
+                {% if filters_active %}<a class="button ghost dash-btn-sm" href="?tab={{ tab }}#requests" data-i18n="crm.clear_filters">Clear</a>{% endif %}
+            </form>
+            {% if rows %}
+                <table class="dash-table dash-table--region">
+                    <colgroup><col class="dash-col-client"><col class="dash-col-cat"><col class="dash-col-prio"><col class="dash-col-vol"><col class="dash-col-region"><col class="dash-col-act"></colgroup>
+                    <thead>
+                        <tr>
+                            <th scope="col" data-i18n="dash.col.client">Client</th>
+                            <th scope="col" class="dash-th-cat"><span data-i18n="dash.col.category">Category</span></th>
+                            <th scope="col" data-i18n="dash.col.priority">Priority</th>
+                            {% if tab == "busy" %}<th scope="col" data-i18n="dash.col.volunteer">Volunteer</th>{% else %}<th scope="col" data-i18n="panel.col.candidate">Candidate</th>{% endif %}
+                            <th scope="col" data-i18n="tbl.region">Region</th>
+                            <th scope="col"><span class="visually-hidden" data-i18n="dash.col.action">Action</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in rows %}{% include "myapp/dashboard/_queue_row.html" with show_region=True open_only=True %}{% endfor %}
+                    </tbody>
+                </table>
+            {% elif filters_active %}
+                <p class="dash-empty" data-i18n="crm.no_tasks">No tasks match these filters.</p>
+            {% elif tab == "busy" %}
+                <p class="dash-empty" data-i18n="admin.no_busy">No busy requests.</p>
+            {% else %}
+                <p class="dash-empty" data-i18n="admin.no_free">No free requests.</p>
+            {% endif %}
+            <div class="dash-queue__foot">
+                {% if rows %}<p data-i18n="panel.shown_range" data-i18n-args='{"from": {{ page_obj.start_index }}, "to": {{ page_obj.end_index }}, "total": {{ page_obj.paginator.count }}}'>Shown {{ page_obj.start_index }}–{{ page_obj.end_index }} of {{ page_obj.paginator.count }}</p>{% endif %}
+                {% include "myapp/_pagination.html" with page_obj=page_obj querystring=page_query anchor="requests" %}
+                <a class="button ghost dash-btn-xs" href="{% url 'crm_tasks' %}?status={% if tab == 'busy' %}active{% else %}pending{% endif %}{% if filter_query %}&amp;{{ filter_query }}{% endif %}"><span data-i18n="panel.open_in_tasks">Open in task management</span>{% include "myapp/dashboard/_icon.html" with name="arrow" %}</a>
+            </div>
+        </section>
+    </div>
 </section>
 {% endblock %}

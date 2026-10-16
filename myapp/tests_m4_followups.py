@@ -20,9 +20,9 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
-from accounts.models import Profile, Users
+from accounts.models import Users
 from myapp.testing import TempMediaRoot
-from myapp.models import ChatMessage, ChatReadState, ChatReport, HelpRequest, TaskReview
+from myapp.models import ChatMessage, ChatReadState, ChatReport, HelpRequest
 from myapp.services import analytics_v2, chat, chat_retention
 
 LOCMEM = "django.core.mail.backends.locmem.EmailBackend"
@@ -195,8 +195,9 @@ class RetentionTests(RetentionBase):
         response = self.client.get(reverse("task_chat", args=[task.pk]))
         self.assertContains(response, 'data-i18n="chat.photo_expired"')
 
-    def test_about_page_states_the_retention(self):
-        self.assertContains(self.client.get(reverse("about")), 'data-i18n="about.privacy_chat"')
+    def test_about_page_no_longer_shows_the_retention_note(self):
+        # The note was removed from the landing page (2026-10-14); purge() above still enforces it.
+        self.assertNotContains(self.client.get(reverse("about")), 'data-i18n="about.privacy_chat"')
 
 
 class ReviewActionTests(RetentionBase):
@@ -262,72 +263,8 @@ class ReviewActionTests(RetentionBase):
         self.assertEqual(msg.reviewed_by, self.curator)
 
 
-@override_settings(TELEGRAM_BOT_TOKEN="", EMAIL_BACKEND=LOCMEM)
-class RatingPageTests(TestCase):
-    def setUp(self):
-        cache.clear()
-        self.people = {}
-        for username, region, name, points in (
-            ("rp_b", "sogd", "Бахтиёр", 900), ("rp_a", "sogd", "азиза", 5),
-            ("rp_c", "dushanbe", "Шамсия", 10), ("rp_d", "", "Ёдгор", 50), ("rp_e", "dushanbe", "Алишер", 1),
-        ):
-            user = _make(username, is_volunteer=True, region=region)
-            Profile.objects.filter(user=user).update(full_name=name, rating=points)
-            self.people[username] = user
-        _make("rp_client", is_client=True)
-
-    def _names(self, response):
-        return [p.full_name for p in response.context["page_obj"]]
-
-    def test_one_list_sorted_by_name_not_points_or_region(self):
-        response = self.client.get(reverse("rating"))
-        # Alphabet order, not code points: Ё sits between Е and Ж, not after Ш.
-        self.assertEqual(self._names(response), ["азиза", "Алишер", "Бахтиёр", "Ёдгор", "Шамсия"])
-
-    def test_tajik_letters_sort_in_alphabet_order(self):
-        for username, name in (("rp_tj1", "Ҳусейн"), ("rp_tj2", "Яхё"), ("rp_tj3", "Хуршед"), ("rp_lat", "Daler")):
-            user = _make(username, is_volunteer=True)
-            Profile.objects.filter(user=user).update(full_name=name)
-        cache.clear()
-        names = self._names(self.client.get(reverse("rating")))
-        self.assertEqual(names[0], "Daler")
-        self.assertLess(names.index("Хуршед"), names.index("Ҳусейн"))
-        self.assertLess(names.index("Ҳусейн"), names.index("Шамсия"))
-        self.assertEqual(names[-1], "Яхё")
-
-    def test_no_places_and_no_points(self):
-        content = self.client.get(reverse("rating")).content.decode()
-        for marker in ("rank-num", "request-row--first", "rank-1", '<div class="metric">', "900"):
-            self.assertNotIn(marker, content)
-        # No region headings or tabs — the region is a small label on each row.
-        self.assertNotIn('class="rating-region"', content)
-        self.assertIn('class="row-region" data-i18n="region.sogd"', content)
-
-    def test_shows_average_and_badges(self):
-        from myapp.models import Achievement, UserAchievement
-
-        Profile.objects.filter(user=self.people["rp_a"]).update(review_avg=4.5, review_count=2)
-        UserAchievement.objects.create(user=self.people["rp_a"], achievement=Achievement.objects.get(code="first_help"))
-        cache.clear()
-        response = self.client.get(reverse("rating"))
-        self.assertContains(response, "4.5")
-        self.assertContains(response, "images/badges/first_help")
-
-    def test_paginated_and_cached(self):
-        for i in range(35):
-            _make(f"rp_more{i}", is_volunteer=True)
-        cache.clear()
-        first = self.client.get(reverse("rating"))
-        self.assertEqual(len(first.context["page_obj"]), 30)
-        self.assertEqual(len(self.client.get(reverse("rating") + "?page=2").context["page_obj"]), 10)
-        with CaptureQueriesContext(connection) as ctx:
-            self.client.get(reverse("rating") + "?page=2")
-        self.assertLessEqual(len(ctx.captured_queries), 3)
-
-    def test_only_active_volunteers(self):
-        Users.objects.filter(pk=self.people["rp_e"].pk).update(is_active=False)
-        cache.clear()
-        self.assertNotIn("Алишер", self._names(self.client.get(reverse("rating"))))
+# The rating's places / order / filters are locked in myapp/tests_rating.py
+# (2026-10-14: places again — the old "by name, no places" tests are gone).
 
 
 @override_settings(TELEGRAM_BOT_TOKEN="", EMAIL_BACKEND=LOCMEM)

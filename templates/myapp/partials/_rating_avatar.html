@@ -1,0 +1,9 @@
+{% load responsive form_i18n %}{# Rating avatar: the profile photo's WebP thumb, or initials; a tick = a confirmed volunteer (everyone in the ranking is). size = "sm" (table rows). #}
+<span class="rating-avatar rating-avatar--{{ size }}">
+    {% if row.profile.image %}
+        {% responsive_image row.profile.image row.profile.image_variants variant="thumb" class="avatar" alt="Фото волонтёра "|add:row.name data_i18n_alt="rating.photo_alt" data_i18n_args=row.name|i18n_args:"name" width=76 height=76 loading="lazy" decoding="async" %}
+    {% else %}
+        <span class="avatar avatar-fallback" aria-hidden="true">{{ row.initials|default:"?" }}</span>
+    {% endif %}
+    <span class="rating-avatar__tick">{% include "partials/_about_icon.html" with name="check" %}<span class="visually-hidden" data-i18n="about.leaders_verified">Verified volunteer</span></span>
+</span>

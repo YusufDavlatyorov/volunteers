@@ -79,7 +79,8 @@ Baseline: 657 tests green at `2467bc5` (main).
   ended; flagged / reported kept until reviewed + 180 d; settings `CHAT_*_DAYS`; About privacy line);
   curator "Проверено" on flagged/reported messages (`ChatMessage.reviewed_at/by`, myapp 0022,
   `chat.review`, also closes open reports); public rating without places/points (region → name,
-  avg + badges, paginated, cache key v2); chat-flag stats in CRM analytics (by topic with share +
+  avg + badges, paginated, cache key v2 — **superseded 2026-10-14**: places again, ranked by
+  completed requests (all time), `myapp/services/rating.py`, cache key v5); chat-flag stats in CRM analytics (by topic with share +
   unreviewed, by help type); compression verified from outside (br + gzip on for static and HTML);
   deploy runbook + rollback plan `docs/DEPLOY_FEATURE_PACK_V2.md`, rollback rehearsed on
   postgres:16 — found and fixed: 0021 reverse failed on PostgreSQL (pending trigger events).

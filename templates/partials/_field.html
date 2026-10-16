@@ -10,14 +10,14 @@ Usage: {% include "partials/_field.html" with field=field %}
 <div class="field-group{% if field.errors %} has-error{% endif %}{% if field.widget_type == 'checkboxselectmultiple' or field.widget_type == 'radioselect' %} checkbox-group{% endif %}">
     {% if field.widget_type == "checkbox" %}
         <label class="checkbox-row" for="{{ field.id_for_label }}">
-            {{ field }}
+            {{ field|described_widget }}
             <span{% if field.field.i18n_label %} data-i18n="{{ field.field.i18n_label }}"{% endif %}>{{ field.label }}</span>
         </label>
     {% else %}
         <label for="{{ field.id_for_label }}"{% if field.field.i18n_label %} data-i18n="{{ field.field.i18n_label }}"{% endif %}>{{ field.label }}</label>
-        {{ field }}
+        {{ field|described_widget }}
     {% endif %}
-    {% if field.help_text %}<span class="field-hint"{% if field.field.i18n_help %} data-i18n="{{ field.field.i18n_help }}"{% endif %}>{{ field.help_text }}</span>{% endif %}
-    {% if field.errors %}<span class="field-error" role="alert"{% error_i18n_attrs field.errors %}>{{ field.errors.0 }}</span>{% endif %}
+    {% if field.help_text %}<span class="field-hint" id="{{ field.auto_id }}_hint"{% if field.field.i18n_help %} data-i18n="{{ field.field.i18n_help }}"{% endif %}>{{ field.help_text }}</span>{% endif %}
+    {% if field.errors %}<span class="field-error" id="{{ field.auto_id }}_error" role="alert"{% error_i18n_attrs field.errors %}>{{ field.errors.0 }}</span>{% endif %}
 </div>
 {% endif %}

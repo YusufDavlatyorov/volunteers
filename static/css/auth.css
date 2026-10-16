@@ -31,6 +31,20 @@
 .auth-card.auth-card--wide .auth-subtitle { text-align: center; }
 .auth-brand { display: flex; justify-content: center; margin-bottom: 1rem; }
 .auth-brand .brand-mark { width: 2.7rem; height: 2.7rem; font-size: 1.05rem; }
+.auth-logo { display: inline-flex; }
+.auth-logo img { width: 2.75rem; height: 2.75rem; }
+/* "Request help" → login: a plain next step for visitors without an account. */
+.auth-context {
+    margin: 0 0 1.25rem;
+    padding: 1rem 1.1rem;
+    border-radius: 12px;
+    border: 1px solid var(--line);
+    background: var(--surface-2);
+    text-align: left;
+}
+.auth-context strong { display: block; color: var(--text); font-size: 1rem; }
+.auth-context p { margin: 0.35rem 0 0.8rem; color: var(--text-2); font-size: 0.95rem; line-height: 1.5; }
+.auth-context__cta { width: 100%; justify-content: center; }
 .auth-title { margin: 0.4rem 0 0.5rem; font-size: clamp(1.5rem, 3vw, 1.9rem); font-weight: 700; line-height: 1.2; }
 .auth-subtitle { margin: 0 auto 1.75rem; max-width: 34rem; font-size: 0.94rem; }
 .auth-form { text-align: left; }
@@ -75,7 +89,8 @@
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .auth-footer-text { margin-top: var(--space-5); font-size: 0.9rem; text-align: center; }
-.auth-footer-text a { color: var(--primary); font-weight: 700; }
+.auth-footer-text a { display: inline-block; padding: 0.45rem 0.15rem; color: var(--primary); font-weight: 700; }
+.field-hint-link { display: inline-block; padding: 0.3rem 0; }
 .auth-footer-text a:hover { text-decoration: underline; }
 
 /* Role picker (registration) */
@@ -83,6 +98,7 @@
 .role-option { display: block; cursor: pointer; }
 .role-option input { position: absolute; opacity: 0; pointer-events: none; }
 .role-option-card {
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
@@ -95,12 +111,34 @@
 }
 .role-option-card svg { color: var(--primary-2); }
 .role-option-card strong { font-size: 0.98rem; color: var(--text); }
-.role-option-card span.role-desc { font-size: 0.82rem; color: var(--muted); line-height: 1.45; }
+.role-option-card span.role-desc { font-size: 0.9rem; color: var(--muted); line-height: 1.45; }
+.role-option-card strong { padding-right: 2rem; }
+/* The choice is shown by a radio mark too, not by colour alone (WCAG 1.4.1). */
+.role-option-card::after {
+    content: "";
+    position: absolute;
+    top: var(--space-4);
+    right: var(--space-4);
+    width: 1.35rem;
+    height: 1.35rem;
+    border-radius: 50%;
+    border: 2px solid var(--line);
+    background: var(--surface);
+}
 .role-option input:checked + .role-option-card {
     border-color: var(--primary);
     background: var(--primary-glow);
     transform: translateY(-1px);
 }
+.role-option input:checked + .role-option-card::after {
+    border-color: var(--primary);
+    background: var(--primary) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / 0.8rem no-repeat;
+}
+[data-theme="dark"] .role-option input:checked + .role-option-card::after {
+    /* --on-primary: dark ink on the light dark-theme fill */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230b1220' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
+}
+fieldset.role-picker { border: 0; padding: 0; min-width: 0; margin-inline: 0; }
 .role-option input:focus-visible + .role-option-card { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* ===== RESPONSIVE ===== */

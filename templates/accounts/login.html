@@ -5,12 +5,20 @@
 <section class="auth-shell">
     <div class="auth-card reveal">
         <div class="auth-brand">
-            <span class="brand-mark">GC</span>
+            <span class="auth-logo" aria-hidden="true"><img class="brand-logo brand-logo--light" src="{% static 'img/logo-mark.svg' %}" alt="" width="44" height="44"><img class="brand-logo brand-logo--dark" src="{% static 'img/logo-mark-white.svg' %}" alt="" width="44" height="44"></span>
         </div>
         <span class="eyebrow" data-i18n="login.eyebrow">Volunteer Platform</span>
         <h1 class="auth-title" data-i18n="login.heading">Sign In</h1>
         <p class="auth-subtitle" data-i18n="login.desc">Log into your profile to accept a request, create help, open AI assistant or view admin panel.</p>
 
+        {% if wants_help %}
+        {# Sent here by "Request help": most such visitors have no account yet — say so plainly. #}
+        <div class="auth-context" role="note">
+            <strong data-i18n="login.help_title">To ask for help, sign in or create an account</strong>
+            <p data-i18n="login.help_text">It is free and takes a couple of minutes. After that you will go straight to the request form.</p>
+            <a class="button secondary auth-context__cta" href="{{ register_url }}" data-i18n="login.help_register">I'm new — create an account</a>
+        </div>
+        {% endif %}
         <form method="post" class="auth-form">
             {% csrf_token %}
             {% if form.non_field_errors %}
@@ -53,7 +61,7 @@
 
         <p class="auth-footer-text">
             <span data-i18n="login.no_account">Don't have an account?</span>
-            <a href="{% url 'register' %}" data-i18n="login.register">Register</a>
+            <a href="{{ register_url }}" data-i18n="login.register">Register</a>
         </p>
     </div>
 </section>
@@ -85,6 +93,11 @@
         form.addEventListener('submit', function() {
             submitBtn.classList.add('is-loading');
             submitBtn.disabled = true;
+        });
+        // Back button (bfcache) must not leave a dead, spinning button.
+        window.addEventListener('pageshow', function() {
+            submitBtn.classList.remove('is-loading');
+            submitBtn.disabled = false;
         });
     }
 })();

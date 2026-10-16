@@ -1,8 +1,10 @@
 import json
 import logging
+from urllib.parse import urlencode
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.views import redirect_to_login
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
@@ -13,7 +15,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
-from accounts.models import RATING_CACHE_KEY, Profile, REGION_CHOICES, Users
+from accounts.models import ABOUT_COMMUNITY_CACHE_KEY, Profile, REGION_CHOICES, Users
 from .forms import (
     BroadcastForm,
     DonationForm,
@@ -44,9 +46,9 @@ from .models import (
 from .models.emergency import STATUS_CHOICES as EMERGENCY_STATUS_CHOICES
 from .notifications import staff_recipients, volunteer_queryset_for_region
 from .realtime import publish
-from .services import achievements, activity, cancellation, chat, community, feedback, presence, task_actions, tracking
+from .services import achievements, activity, cancellation, chat, community, feedback, network, presence, rating, task_actions, tracking
 from .services.notify import notify
-from .services import access, analytics, dispatch, donations, emergency, images, maps, overdue, pets, stale
+from .services import access, analytics, dashboard, dispatch, donations, emergency, images, maps, overdue, pets, profile_location, stale
 from .services.ai import build_user_context, confirm_action, run_conversation
 from .services.ai import actions as ai_actions
 from .services.ai.prompts import detect_lang
@@ -68,12 +70,17 @@ def role_required(*roles):
     def decorator(view_func):
         def wrapper(request, *args, **kwargs):
             if not request.user.is_authenticated:
+                # Like @login_required: come back here after signing in (a
+                # visitor's "Request help" must land on the form, not the
+                # dashboard). Only for GET — a POST URL can't be re-opened.
+                if request.method == "GET":
+                    return redirect_to_login(request.get_full_path())
                 return redirect("login")
             if request.user.is_superuser and "admin" in roles:
                 return view_func(request, *args, **kwargs)
             if request.user.role not in roles:
                 messages.error(request, "У вас нет доступа к этой странице")
-                return redirect("profile")
+                return redirect("dashboard")
             return view_func(request, *args, **kwargs)
 
         return wrapper
@@ -86,7 +93,7 @@ def home_view(request):
     # About content at "/"; signed-in users go straight to their dashboard,
     # as "/" (then the login form) always did.
     if request.user.is_authenticated:
-        return redirect("profile")
+        return redirect("dashboard")
     return about_view(request)
 
 
@@ -106,31 +113,93 @@ def _about_stats():
     }
 
 
+ABOUT_LEADERS = 4
+
+
+def _about_leaders():
+    """The rating's own top ``ABOUT_LEADERS`` (services/rating.py — the same
+    ranking and places as /rating/, no second calculation): volunteers with at
+    least one completed request."""
+    return rating.top(ABOUT_LEADERS)
+
+
+def _about_community():
+    # Leaders + featured testimonials: 1 query (2 when the "all" ranking is
+    # cold too). Cleared with the rating (clear_rating_cache) and by a
+    # review's landing flag; otherwise as fresh as the stats.
+    return {"leaders": _about_leaders(), "testimonials": feedback.landing_testimonials()}
+
+
+def _request_help_url(request, help_type=""):
+    """The request form (pre-selected help type); anonymous visitors go
+    through the login page and come back to it (``?next=``)."""
+    url = reverse("create_request")
+    if help_type:
+        url += "?" + urlencode({"help_type": help_type})
+    if request.user.is_authenticated:
+        return url
+    return reverse("login") + "?" + urlencode({"next": url})
+
+
 def about_view(request):
     # The most-visited page (also "/"): its aggregates come from the shared
     # cache (DB cache in production) instead of four COUNTs per hit.
     stats = cache.get_or_set(ABOUT_STATS_CACHE_KEY, _about_stats, ABOUT_STATS_TTL)
+    community = cache.get_or_set(ABOUT_COMMUNITY_CACHE_KEY, _about_community, ABOUT_STATS_TTL)
     reports = PhotoReport.objects.select_related("author").all()[:6]
+    # Every real help type (HELP_TYPE_CHOICES), so a new one shows up here too.
+    help_types = [
+        {"key": key, "label": label, "url": _request_help_url(request, key)}
+        for key, label in HELP_TYPE_CHOICES
+    ]
     return render(
         request,
         "myapp/about.html",
-        {"stats": stats, "reports": reports},
+        {
+            "stats": stats,
+            "reports": reports,
+            "leaders": community["leaders"],
+            "testimonials": community["testimonials"],
+            "help_types": help_types,
+            "request_help_url": _request_help_url(request),
+            # Per-region volunteer counts only for approved volunteers / staff
+            # (services/network.py decides; nobody else's context has them).
+            "network": network.for_user(request.user),
+            "network_login_url": reverse("login") + "?" + urlencode({"next": reverse("about") + "#network"}),
+        },
     )
 
 
 @login_required
 def dashboard_view(request):
-    # There is one canonical dashboard now (the role-aware profile view, Stage 5).
-    # This route is kept for backwards compatibility with any bookmarked link.
-    return redirect("profile")
-
-
-ADMIN_PANEL_TASK_LIMIT = 100
+    """"What do I do now": the one role-aware dashboard at /dashboard/. All
+    per-role aggregation lives in services.dashboard (scoped to request.user);
+    this view stays thin. "Who I am" (card, calendar, badges, saved location)
+    is the profile page, accounts.views.profile_view."""
+    user = request.user
+    profile, _ = Profile.objects.get_or_create(user=user)
+    # Prime the reverse one-to-one cache so user.profile (dashboard services,
+    # templates) reuses this row instead of querying it again.
+    user.profile = profile
+    hour = timezone.localtime().hour
+    context = {
+        "profile": profile,
+        "greeting": "morning" if hour < 12 else "afternoon" if hour < 18 else "evening",
+        "volunteer_application": VolunteerApplication.objects.filter(user=user).first(),
+        # Only a reminder banner here; the location card itself is on the profile.
+        "location_stale": user.is_volunteer and profile_location.is_stale(profile),
+        **dashboard.for_user(user),
+    }
+    return render(request, "myapp/dashboard.html", context)
 
 
 @role_required("admin", "curator")
 def admin_panel_view(request):
-    requests_qs = HelpRequest.objects.select_related("client", "volunteer")
+    """The staff control panel (/myapp/panel/): KPI bands, compact cards and
+    one request table with free/busy tabs (?tab=), the HelpRequestFilterForm
+    filters and 20-row pages — rows, counters and candidates come from
+    services.dashboard.panel_requests. Every link keeps tab + filters."""
+    requests_qs = HelpRequest.objects.all()
     filter_form = HelpRequestFilterForm(request.GET)
     if filter_form.is_valid():
         if filter_form.cleaned_data.get("help_type"):
@@ -141,33 +210,31 @@ def admin_panel_view(request):
             requests_qs = requests_qs.filter(priority=filter_form.cleaned_data["priority"])
         if filter_form.cleaned_data.get("is_urgent"):
             requests_qs = requests_qs.filter(is_urgent=True)
-
-    now = timezone.now()
-    people_counts = Users.objects.filter(is_active=True).aggregate(
-        total_volunteers=Count("id", filter=Q(is_volunteer=True)),
-        total_clients=Count("id", filter=Q(is_client=True)),
-    )
-    # Bound the two grids — the full, paginated list is one click away at
-    # crm/tasks/. Without a cap this page renders every pending+active row.
+    table = dashboard.panel_requests(requests_qs, request.GET.get("tab"), request.GET.get("page"))
+    # The active filters alone (no tab / page), for tab links, page links and
+    # the "open in task management" link.
+    filters = request.GET.copy()
+    for key in list(filters):
+        if key not in filter_form.fields or not filters.get(key):
+            filters.pop(key)
+    filter_query = filters.urlencode()
+    limit = dashboard.CARD_LIST_LIMIT
     context = {
         "filter_form": filter_form,
-        "free_requests": requests_qs.filter(status="pending")[:ADMIN_PANEL_TASK_LIMIT],
-        "busy_requests": requests_qs.filter(status="active")[:ADMIN_PANEL_TASK_LIMIT],
-        "archive_count": HelpRequest.objects.filter(status="completed").count(),
-        "upcoming_events": Event.objects.select_related("curator").filter(date__gte=now).order_by("date")[:5],
-        "recent_broadcasts": Broadcast.objects.select_related("sender")[:5],
-        "pending_volunteer_applications": VolunteerApplication.objects.filter(status=VolunteerApplication.STATUS_PENDING).count(),
-        "total_requests": HelpRequest.objects.filter(status__in=["pending", "active"]).count(),
-        **people_counts,
-        "total_events": Event.objects.count(),
+        "filter_query": filter_query,
+        "filters_active": bool(filter_query),
+        "page_query": f"tab={table['tab']}" + (f"&{filter_query}" if filter_query else ""),
+        **table,
+        "upcoming_events": Event.objects.filter(date__gte=timezone.now()).order_by("date")[:limit],
+        "recent_broadcasts": Broadcast.objects.all()[:limit],
         # CRM dashboard: real aggregate stats + a unified recent-activity feed,
         # both computed in myapp.services.analytics so this view stays thin.
         "stats": analytics.dashboard_stats(),
         "recent_activity": analytics.recent_activity(limit=8),
-        "open_emergencies": emergency.open_reports()[:5],
+        "open_emergencies": emergency.open_reports()[:limit],
     }
     if request.user.is_superuser:
-        context["recent_applications"] = VolunteerApplication.objects.select_related("user").order_by("-created_at")[:5]
+        context["recent_applications"] = VolunteerApplication.objects.select_related("user").order_by("-created_at")[:limit]
     return render(request, "myapp/admin_panel.html", context)
 
 
@@ -367,6 +434,10 @@ def task_list_view(request):
         tasks = tasks.filter(Q(region=user.region) | Q(region=""))
 
     filter_form = HelpRequestFilterForm(request.GET)
+    if user.is_volunteer and user.region:
+        # The feed is already this volunteer's region (above) — a region
+        # filter could only empty it, so it isn't offered.
+        filter_form.fields.pop("region")
     if filter_form.is_valid():
         if filter_form.cleaned_data.get("help_type"):
             tasks = tasks.filter(help_type=filter_form.cleaned_data["help_type"])
@@ -406,7 +477,7 @@ def task_detail_view(request, pk):
     user = request.user
     if not _can_view_task(user, task):
         messages.error(request, "У вас нет доступа к этой странице")
-        return redirect("profile")
+        return redirect("dashboard")
     show_route = task.status == "active" and bool(task.volunteer_id) and _route_permission(user, task)
     is_crm_staff = user.is_superuser or user.is_curator
     show_recommendations = task.status == "pending" and is_crm_staff
@@ -483,12 +554,23 @@ def task_cancel_view(request, pk):
         raise Http404
     outcome = cancellation.cancel_request(task, request.user, request.POST.get("reason", ""))
     if outcome.ok:
-        messages.success(request, "Запрос отменён. Участники получили уведомление.")
+        messages.success(request, "Запрос отменён. Участникам отправлено уведомление.")
     else:
         messages.error(request, CANCEL_MESSAGES[outcome.code])
     return redirect("task_detail", pk=task.pk)
 
 
+# After a client creates a request. The first only when the region ping
+# actually queued a delivery; otherwise say what really happens next (the
+# request waits in the open list / curator dashboard).
+REQUEST_CREATED_NOTIFIED = (
+    "Запрос отправлен. Мы сообщили о нём волонтёрам вашего региона. "
+    "Когда волонтёр примет запрос, вы получите уведомление."
+)
+REQUEST_CREATED_NOBODY = (
+    "Запрос отправлен. Сейчас никого из волонтёров региона не удалось оповестить — "
+    "запрос виден волонтёрам и координаторам, мы сообщим, когда его примут."
+)
 _ACCEPT_BUSY_MESSAGE = "Сначала завершите текущий запрос. Один волонтер работает с одним запросом."
 
 
@@ -504,7 +586,7 @@ def accept_task_view(request, pk):
     elif outcome.code == task_actions.TAKEN:
         messages.warning(request, "Этот запрос уже принят другим волонтером.")
     else:
-        messages.success(request, "Вы приняли запрос. Клиент получил уведомление на email/Telegram.")
+        messages.success(request, "Вы приняли запрос. Клиенту отправлено уведомление.")
     return redirect("task_list")
 
 
@@ -533,7 +615,7 @@ def task_advance_stage_view(request, pk):
     user = request.user
     if not (user == task.volunteer or user.is_superuser or user.is_curator):
         messages.error(request, "У вас нет доступа к этой странице")
-        return redirect("profile")
+        return redirect("dashboard")
 
     try:
         ai_actions.advance_work_stage_for(user, task, request.POST.get("stage", ""))
@@ -552,12 +634,23 @@ def create_request_view(request):
         if form.is_valid():
             # Region = client's, best-effort geocode, volunteer ping (DND
             # excluded) — services/task_actions.create_request, shared with the bot.
-            task_actions.create_request(request.user, form)
-            messages.success(request, "Запрос создан. Волонтеры вашего региона получили уведомление.")
-            return redirect("profile")
+            created = task_actions.create_request(request.user, form)
+            if created.volunteers_notified:
+                messages.success(request, REQUEST_CREATED_NOTIFIED)
+            else:
+                messages.success(request, REQUEST_CREATED_NOBODY)
+            return redirect("dashboard")
     else:
-        form = HelpRequestForm()
-    return render(request, "myapp/task_form.html", {"form": form, "title": "Создать запрос", "title_i18n": "form.title_create_request"})
+        # ?help_type=<key> pre-selects the type (the About page's category cards).
+        help_type = request.GET.get("help_type")
+        form = HelpRequestForm(initial={"help_type": help_type} if help_type in dict(HELP_TYPE_CHOICES) else None)
+    return render(request, "myapp/task_form.html", {
+        "form": form, "title": "Создать запрос", "title_i18n": "form.title_create_request",
+        "submit_label": "Отправить запрос", "submit_i18n": "form.send_request",
+        # The request takes the client's own region (task_actions.create_request).
+        "request_region": request.user.get_region_display() if request.user.region else "",
+        "request_region_key": request.user.region,
+    })
 
 
 @role_required("admin", "curator")
@@ -569,44 +662,41 @@ def completed_tasks_view(request):
     return render(request, "myapp/completed_tasks.html", {"page_obj": page_obj})
 
 
-RATING_TTL = 300  # seconds; Profile.add_points() / review stats clear it at once
-RATING_PAGE_SIZE = 30
-RATING_MAX_ROWS = 2000  # response-size bound, like the map caps
-# Russian + Tajik Cyrillic in alphabet order (ё after е, ғ after г, ӣ after и,
-# қ after к, ӯ after у, ҳ after х, ҷ after ч). Code-point order would put ё and
-# every Tajik letter after я.
-_CYRILLIC_ALPHABET = {ch: i for i, ch in enumerate("абвгғдеёжзиӣйкқлмнопрстуӯфхҳчҷшщъыьэюя")}
-
-
-def _name_sort_key(name):
-    # Latin (and digits) first in code-point order, then Cyrillic by alphabet.
-    return tuple(
-        (1, _CYRILLIC_ALPHABET[ch]) if ch in _CYRILLIC_ALPHABET else (0, ord(ch))
-        for ch in name.casefold()
-    )
-
-
-def _rating_volunteers():
-    """Every active volunteer in one shared list (no grouping by region — the
-    region is shown as small text on each row), by name — no places, no points
-    (owner decision 2026-10-03: helping is not a contest; reconfirmed
-    2026-10-09). Names are sorted in Python: SQLite's lower() is ASCII-only, so
-    a DB-side sort would misplace Cyrillic / Tajik names."""
-    profiles = list(
-        Profile.objects.filter(user__is_volunteer=True, user__is_active=True)
-        .select_related("user")[:RATING_MAX_ROWS]
-    )
-    profiles.sort(key=lambda p: (_name_sort_key(p.full_name or p.user.username), p.user_id))
-    return profiles
-
-
 def rating_view(request):
-    # Public page: the list comes from the shared cache (Redis in prod).
-    volunteers = cache.get_or_set(RATING_CACHE_KEY, _rating_volunteers, RATING_TTL)
-    page_obj = Paginator(volunteers, RATING_PAGE_SIZE).get_page(request.GET.get("page"))
-    # Up to 3 earned badges per card (one query) — the badge only, no counts.
-    badges = achievements.top_badges([p.user_id for p in page_obj])
-    return render(request, "myapp/rating.html", {"page_obj": page_obj, "badges": badges})
+    """Public volunteer rating with places, all time (owner 2026-10-14; the
+    ranking, its cache and the rules live in services/rating.py): the podium
+    (places 1–3) on the first page, then the table from the next place, paged.
+    No search / filter / sort any more — old ``?q=`` / ``?region=`` /
+    ``?sort=`` / ``?period=`` links are simply ignored. Viewer-specific bits
+    ("You", the profile button) are decided here, never cached."""
+    data = rating.cached()
+    rows = data["rows"]
+    podium = rating.podium(rows)
+    # The table continues after the podium, so its paging starts at place 4.
+    page_obj = Paginator(rows[len(podium):], rating.PAGE_SIZE).get_page(request.GET.get("page"))
+    leader = rows[0]["completed"] if rows else 0
+    page_rows = [
+        dict(row, progress=round(100 * row["completed"] / leader) if leader else 0) for row in page_obj
+    ]
+    shown_podium = podium if page_obj.number == 1 else []
+    # Up to 3 earned badges per person (one query) — the badge only, no counts.
+    badges = achievements.top_badges([row["user_id"] for row in [*shown_podium, *page_rows]])
+    age = timezone.now() - data["computed_at"]
+    return render(request, "myapp/rating.html", {
+        "updated_minutes": max(0, int(age.total_seconds() // 60)),
+        "podium": shown_podium,
+        "has_rows": bool(rows),
+        "page_obj": page_obj,
+        "page_rows": page_rows,
+        # "Showing 4–23 of 81": overall places, not positions within the table.
+        "shown_from": page_rows[0]["rank"] if page_rows else 0,
+        "shown_to": page_rows[-1]["rank"] if page_rows else 0,
+        "shown_total": len(rows),
+        "page_range": page_obj.paginator.get_elided_page_range(page_obj.number, on_each_side=1, on_ends=1),
+        "badges": badges,
+        "viewer_id": request.user.pk if request.user.is_authenticated else None,
+        "staff_viewer": access.is_staff_user(request.user),
+    })
 
 
 # Role-aware starter prompts shown on the empty chat screen. Kept server-side so
@@ -1358,7 +1448,7 @@ def emergency_detail_view(request, pk):
     )
     if not _can_view_emergency(request.user, report):
         messages.error(request, "У вас нет доступа к этой странице")
-        return redirect("profile")
+        return redirect("dashboard")
 
     is_staff = request.user.is_superuser or request.user.is_curator
     return render(request, "myapp/emergency_detail.html", {
@@ -1502,7 +1592,7 @@ def donation_detail_view(request, pk):
     )
     if not _can_view_donation(offer, request.user):
         messages.error(request, "У вас нет доступа к этой странице")
-        return redirect("profile")
+        return redirect("dashboard")
     is_staff = _is_donation_staff(request.user)
     # A curator is a national coordinator — the assign list is every active
     # volunteer, not the offer's region (region is shown in the option label so
@@ -1749,7 +1839,7 @@ def pet_report_edit_view(request, pk):
     report = get_object_or_404(PetReport, pk=pk)
     if report.reporter_id != request.user.id:
         messages.error(request, "У вас нет доступа к этой странице")
-        return redirect("profile")
+        return redirect("dashboard")
     if not report.is_open:
         messages.warning(request, "Закрытое объявление изменить нельзя.")
         return redirect("pet_report_detail", pk=pk)
@@ -1782,7 +1872,7 @@ def pet_report_delete_view(request, pk):
     # via status changes, not deletion.
     if report.reporter_id != request.user.id and not request.user.is_superuser:
         messages.error(request, "У вас нет доступа к этой странице")
-        return redirect("profile")
+        return redirect("dashboard")
     report.delete()
     messages.success(request, "Объявление удалено.")
     return redirect("my_pet_reports")
@@ -1798,7 +1888,7 @@ def pet_report_status_view(request, pk):
     is_staff = _is_pet_staff(request.user)
     if not (is_staff or report.reporter_id == request.user.id):
         messages.error(request, "У вас нет доступа к этой странице")
-        return redirect("profile")
+        return redirect("dashboard")
 
     action = request.POST.get("action", "")
     if action not in pets.ACTIONS:

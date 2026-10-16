@@ -1,15 +1,17 @@
 /* ===== home.css — landing / about page (myapp/about.html) =====
-   Page-specific styles for the marketing landing page: the video hero
-   and the "five regions" panel. Loaded after style.css via {% block extra_css %}.
+   Page-specific styles for the marketing landing page: the photo hero,
+   the About sections and the volunteer-network map. Loaded after style.css via {% block extra_css %}.
    Design tokens, buttons, cards, grid and typography stay in style.css. */
 
 /* ===== HERO =====
-   A looping background video (static/videos/hero-loop-{desktop,mobile}.{webm,mp4}
-   — no poster image, by design; playback logic is inline in about.html) grounds the platform in the actual work volunteers do. Until its first
-   frame paints, the hero is a plain solid brand navy (--hero-from, theme-aware)
-   rather than a photo, so nothing flashes before the video. A gradient scrim in
-   the brand colors sits over it so the headline stays legible in both themes;
-   the "five peaks" mark lives in the footer and the regions panel. */
+   A full-bleed photo (static/images/about/about-hero-{768,1280,1672}.{webp,jpg},
+   a <picture> in about.html) grounds the platform in the actual work volunteers
+   do. Until it paints, the hero is the solid brand navy (--hero-from,
+   theme-aware). The photo stays bright (owner 2026-10-14): a faint brand
+   scrim (::before) and a light dark gradient (::after, ≤ 0.3 alpha; flat on
+   narrow screens where the text spans the full width), plus a soft
+   text-shadow on the hero copy, keep the white headline legible without
+   darkening the whole photo. */
 .hero {
     position: relative;
     overflow: hidden;
@@ -20,6 +22,9 @@
     background: var(--hero-from);
     color: var(--hero-ink);
 }
+/* Anchored to the right (owner 2026-10-14). On a phone the crop is ~1/3 of
+   the photo's width, and flush right would lose the hand-over at the door, so
+   ≤768px it moves to 70%: the boy, the box and the two girls stay in frame. */
 .hero-photo {
     position: absolute;
     inset: 0;
@@ -27,16 +32,12 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
-    object-position: center 30%;
+    object-position: right center;
     z-index: 0;
-}
-/* No-JS fallback for reduced motion (the inline script also stops the download). */
-@media (prefers-reduced-motion: reduce) {
-    .hero-photo { display: none; }
 }
 .hero::before {
     content: '';
-    opacity: 0.3;
+    opacity: 0.15;
     position: absolute;
     inset: 0;
     z-index: 1;
@@ -46,7 +47,22 @@
     background-size: cover, 22px 22px;
     pointer-events: none;
 }
-/* Video and scrim span the screen; the text, buttons and region strip sit in
+.hero::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    background: linear-gradient(90deg, rgba(0,0,0,0.3) 0%, rgba(0,0,0,0.25) 45%, rgba(0,0,0,0.1) 100%);
+    pointer-events: none;
+}
+.hero .eyebrow, .hero h1, .hero p, .hero-strip-label {
+    text-shadow: 0 1px 2px rgba(0,0,0,0.45), 0 2px 14px rgba(0,0,0,0.35);
+}
+@media (max-width: 768px) {
+    .hero-photo { object-position: 70% center; }
+    .hero::after { background: linear-gradient(180deg, rgba(0,0,0,0.3) 0%, rgba(0,0,0,0.25) 100%); }
+}
+/* Photo and scrim span the screen; the text, buttons and region strip sit in
    a .container (1200px, centred, its padding is the side gutter — the same
    edge as the header and every section). It fills the hero's height and is
    itself a two-row grid, so the headline and the strip keep the vertical
@@ -68,6 +84,41 @@
     width: 100%;
 }
 .hero-content { max-width: 640px; }
+/* Desktop: the copy stays inside the 1200px container (owner 2026-10-14) and
+   is kept narrow so it ends before the woman's face. Where the photo fills
+   the hero's width (any hero wider than 16:9 — 1280×800, 1920×1080, …) her
+   face starts at ~36% of it; the column stops at 35% of the hero, but is
+   never narrower than 25rem — the unbreakable "Измени жизнь." at 3.3rem. The headline is 20%
+   smaller so it wraps sensibly in that width. cqw = % of the .hero's width;
+   --hero-l0 = where the container's content starts (margin + gutter). */
+@media (min-width: 1100px) {
+    .hero {
+        container-type: inline-size;
+        --hero-l0: calc(max(0px, (100cqw - var(--container-lg)) / 2) + var(--gutter));
+        /* The narrow column wraps into more lines; a slimmer vertical padding
+           keeps the hero within 16:9 so the photo still fills its width and
+           the face stays where the max-width above expects it. */
+        padding-block: 3rem;
+    }
+    .hero-content { max-width: max(calc(35cqw - var(--hero-l0)), 25rem); }
+    .hero h1 { font-size: 3.3rem; }
+}
+/* The headline's third phrase ("Change lives." / "Измени жизнь." / "Ҳаётро
+   тағйир деҳ.") never breaks — except on phones, where it could not fit. */
+.hero h1 .nowrap { white-space: nowrap; }
+@media (max-width: 767.98px) {
+    .hero h1 .nowrap { white-space: normal; }
+}
+/* Tajik headline ("Пайваст шав. Кӯмак кун. Ҳаётро тағйир деҳ.") is longer:
+   10% smaller in Tajik only (owner 2026-10-14). i18n.js sets <html lang="tj">.
+   On desktop 2.6rem, so the unbreakable "Ҳаётро тағйир деҳ." fits the 25rem
+   column. */
+html[lang="tj"] .hero h1 { font-size: clamp(1.89rem, 5.04vw, 3.69rem); }
+/* "Кӯмак кун." is two words: keep them on one line so the underline is one piece. */
+html[lang="tj"] .hero h1 .h-accent { white-space: nowrap; }
+@media (min-width: 1100px) {
+    html[lang="tj"] .hero h1 { font-size: 2.6rem; }
+}
 .hero .eyebrow { color: #c3d3ff; }
 .hero h1 { color: white; }
 /* The brand name opens the page's single <h1> (SEO: the name people search
@@ -109,25 +160,27 @@
     font-size: 0.8rem;
 }
 
-/* ===== REGIONS PANEL (about page) ===== */
-.regions-panel {
-    background: var(--card-bg);
-    border: 1px solid var(--card-border);
-    border-radius: 16px;
-    padding: var(--space-5);
-    box-shadow: var(--shadow);
+/* Phones (< 768px, owner 2026-10-14): full-width copy with a 20px gutter,
+   words never split letter by letter (the global overflow-wrap: anywhere is
+   off here — the sizes below keep every word inside 320px), smaller type, and
+   a content-height hero. Kept after every other
+   hero rule so it wins at equal specificity. The Tajik headline uses the same size as the others. */
+@media (max-width: 767.98px) {
+    .hero { min-height: auto; }
+    .hero > .container { padding-inline: 20px; }
+    .hero-content { width: 100%; max-width: 100%; }
+    .hero .eyebrow, .hero h1, .hero p, .hero-actions .button {
+        word-break: normal;
+        overflow-wrap: normal;
+        hyphens: none;
+    }
+    .hero .eyebrow { font-size: 11.5px; }
+    .hero h1, html[lang="tj"] .hero h1 { font-size: clamp(28px, 8vw, 40px); }
+    .hero p { font-size: 15.5px; }
+    .hero-actions .button { width: auto; white-space: nowrap; padding-inline: 24px; }
 }
-.regions-photo {
-    width: 100%;
-    /* height:auto — the <img> width/height attributes (kept for layout-shift
-       hints) would otherwise act as a fixed pixel height and override aspect-ratio. */
-    height: auto;
-    aspect-ratio: 16 / 10;
-    object-fit: cover;
-    border-radius: 12px;
-    margin-bottom: var(--space-4);
-}
-.regions-panel .peaks-mark { width: 96px; margin-bottom: var(--space-4); }
+
+/* ===== "OUR PEOPLE" PHOTO (about page) ===== */
 .volunteers-photo {
     width: 100%;
     /* height:auto — the <img> width/height attributes (kept for layout-shift
@@ -139,28 +192,6 @@
     border-radius: 16px;
     box-shadow: var(--shadow);
 }
-/* Five equal region cards. grid-auto-rows: 1fr + auto-fit means every card is
-   exactly the same size regardless of the label length or how many fit per row. */
-.region-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
-    grid-auto-rows: 1fr;
-    gap: var(--space-3);
-}
-.region-card {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    gap: var(--space-2);
-    padding: var(--space-4);
-    border: 1px solid var(--card-border);
-    border-radius: 10px;
-    background: var(--surface);
-    font-weight: 600;
-    font-size: 0.92rem;
-}
-.region-card .peak-dot { width: 0.6rem; height: 0.6rem; border-radius: 2px; flex-shrink: 0; }
-
 /* ===== STATS BAND (about page) =====
    The gradient-blue block: full container width, rounded-2xl, a white serif
    heading over four number plates on a translucent overlay. */
@@ -211,30 +242,252 @@
 .cta-actions .card .button { margin-top: auto; align-self: flex-start; }
 
 /* ===== RESPONSIVE ===== */
-@media (max-width: 1080px) {
-    .hero-photo { object-position: center 20%; }
-}
 @media (max-width: 480px) {
     .hero-strip { flex-direction: column; align-items: flex-start; }
 }
 
-/* ===== LOCATION PRIVACY NOTE (about page, feature 7) =====
-   One quiet card: icon + short list. Sits between the stats band and the CTA. */
-.privacy-note {
+/* ===== HOW IT WORKS · HELP TYPES · LEADERS · TESTIMONIALS (about page) =====
+   Four bands after the hero, built from the site's own .section / .card /
+   .icon-tile pieces. One grid for all of them: 1 column on phones, 2 on
+   tablets, 3 (leaders: 4) on desktop. A card left alone on the last row
+   spans it (7 help types = 3 + 3 + 1, 3 steps on a tablet = 2 + 1) — except
+   leader cards, which keep their width when there are fewer than four. */
+.about-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
+.about-grid > .card { display: flex; flex-direction: column; }
+@media (min-width: 768px) {
+    .about-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (min-width: 768px) and (max-width: 1023.98px) {
+    .about-grid:not(.about-grid--4) > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+}
+@media (min-width: 1024px) {
+    .about-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .about-grid.about-grid--4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .about-grid:not(.about-grid--4) > :last-child:nth-child(3n+1) { grid-column: 1 / -1; }
+}
+.section-head .lede { margin: var(--space-2) 0 0; }
+.section-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--primary);
+    font-weight: 600;
+    text-decoration: none;
+}
+.section-link:hover { text-decoration: underline; }
+.section-link svg, .help-card__cta svg, .section-head .button svg { width: 1.1em; height: 1.1em; flex-shrink: 0; }
+.section-head .button { gap: 0.4rem; }
+
+/* Steps: "Step N" pill + duration above the heading. Badge text is always
+   --text on a pale tint (amber/teal ink on their tints is below 4.5:1). */
+.step-card__meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); }
+.step-badge {
+    display: inline-block;
+    padding: 0.15rem 0.6rem;
+    border-radius: 999px;
+    background: var(--primary-glow);
+    color: var(--text);
+    font-size: 0.78rem;
+    font-weight: 600;
+}
+.step-badge--teal { background: var(--ok-glow); }
+.step-badge--amber { background: var(--accent-glow); }
+.step-card__time { color: var(--muted); font-size: 0.82rem; font-weight: 500; }
+.step-card p { margin-bottom: 0; }
+
+/* Help types: the whole card is the link to the pre-filled request form. */
+.help-card { color: inherit; text-decoration: none; }
+.help-card p { margin-bottom: var(--space-4); }
+.help-card__cta {
+    margin-top: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--primary);
+    font-weight: 600;
+}
+.help-card__cta svg { transition: transform 0.2s ease; }
+.help-card:hover .help-card__cta svg, .help-card:focus-visible .help-card__cta svg { transform: translateX(3px); }
+
+/* Leaders: centred card, place badge in the corner, verified tick on the avatar. */
+.leader-card { position: relative; align-items: center; text-align: center; }
+.leader-card__rank {
+    position: absolute;
+    top: var(--space-3);
+    left: var(--space-3);
+    padding: 0.15rem 0.55rem;
+    border-radius: 999px;
+    background: var(--primary);
+    color: var(--on-primary);
+    font-size: 0.8rem;
+    font-weight: 700;
+}
+.leader-card__avatar { position: relative; margin: var(--space-3) auto var(--space-3); }
+.leader-card__avatar .avatar-fallback { font-size: 1.7rem; }
+.leader-card__verified {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    display: grid;
+    place-items: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 50%;
+    background: var(--primary-2);
+    color: var(--on-primary);
+    border: 2px solid var(--card-bg);
+}
+.leader-card__verified svg { width: 0.85rem; height: 0.85rem; stroke-width: 3; }
+.leader-card h3 { width: 100%; margin: 0 0 0.15rem; }
+.leader-card__region { margin: 0 0 var(--space-2); font-size: 0.88rem; }
+.leader-card .review-summary { justify-content: center; margin-bottom: var(--space-3); }
+.leader-card__done {
+    width: 100%;
     display: flex;
+    justify-content: space-between;
+    gap: var(--space-2);
+    margin-top: auto;
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--line);
+    font-size: 0.88rem;
+    color: var(--muted);
+}
+.leader-card__done strong { color: var(--text); }
+
+/* Testimonials: stars, the client's words in italics, a quiet quote mark. */
+.testimonial-card { position: relative; margin: 0; }
+.testimonial-card__quote { position: absolute; top: var(--space-4); right: var(--space-4); color: var(--line); }
+.testimonial-card__quote svg { width: 2.4rem; height: 2.4rem; }
+.testimonial-card .review-stars { margin-bottom: var(--space-3); font-size: 1.1rem; }
+.testimonial-card__text {
+    --clamp: 8;
+    margin: 0 0 var(--space-4);
+    font-style: italic;
+    color: var(--text);
+    line-height: 1.6;
+}
+.testimonial-card__author { display: flex; align-items: center; gap: var(--space-3); }
+.testimonial-card__who { display: flex; flex-direction: column; min-width: 0; }
+.testimonial-card__meta { color: var(--muted); font-size: 0.85rem; }
+
+/* ===== VOLUNTEER NETWORK (about page, #network) =====
+   Region list (left) + a lazily loaded MapLibre map (right, about-network.js);
+   below 820px the list sits above the map. Numbers appear only when the server
+   rendered them (services/network.py). Map marker roots (.network-dot,
+   .network-pin) never get a CSS position — MapLibre positions them. */
+.network-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
     gap: var(--space-5);
-    align-items: flex-start;
-    padding: clamp(1.25rem, 4vw, 2.2rem);
+    align-items: stretch;
+}
+@media (max-width: 820px) {
+    .network-grid { grid-template-columns: minmax(0, 1fr); }
+}
+.network-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+.network-region {
+    width: 100%;
+    max-width: none;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
     border: 1px solid var(--card-border);
-    border-radius: 18px;
+    border-radius: 14px;
     background: var(--card-bg);
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    box-shadow: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+.network-region:hover { border-color: var(--primary); transform: none; box-shadow: var(--shadow); }
+.network-region.is-active { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-glow); }
+.network-region .icon-tile { margin: 0; flex-shrink: 0; width: 2.5rem; height: 2.5rem; }
+.network-region .icon-tile svg { width: 1.2rem; height: 1.2rem; }
+.network-region__text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.network-region__name { font-weight: 600; }
+.network-region__cities { color: var(--muted); font-size: 0.85rem; line-height: 1.4; }
+.network-region__count { display: flex; flex-direction: column; align-items: flex-end; flex-shrink: 0; text-align: right; }
+.network-region__count strong { font-size: 1.35rem; line-height: 1.1; color: var(--primary); }
+.network-region__count span { color: var(--muted); font-size: 0.75rem; }
+.network-region__lock { color: var(--muted); flex-shrink: 0; }
+.network-region__lock svg { width: 1.1rem; height: 1.1rem; }
+.network-note {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin: var(--space-4) 0 0;
+    color: var(--muted);
+    font-size: 0.9rem;
+}
+.network-note svg { width: 1rem; height: 1rem; flex-shrink: 0; }
+.network-note a { color: var(--primary); font-weight: 600; }
+
+.network-map {
+    display: flex;
+    flex-direction: column;
+    min-height: 420px;
+    border: 1px solid var(--card-border);
+    border-radius: 16px;
+    overflow: hidden;
+    background: var(--surface-2);
     box-shadow: var(--shadow);
 }
-.privacy-note__icon { flex: 0 0 auto; }
-.privacy-note__body { min-width: 0; }
-.privacy-note__body h2 { margin: 0.2rem 0 var(--space-3); }
-.privacy-note__list { margin: 0; padding-left: 1.15rem; display: grid; gap: var(--space-2); color: var(--text-2); line-height: 1.55; }
-.privacy-note__list li::marker { color: var(--primary-2); }
-@media (max-width: 560px) {
-    .privacy-note { flex-direction: column; gap: var(--space-3); }
+/* .gc-map (added by GCMap.createMap) keeps it under the sticky topbar. */
+.network-map__canvas { flex: 1; min-height: 360px; }
+@media (max-width: 820px) {
+    .network-map { min-height: 0; }
+    .network-map__canvas { min-height: 320px; }
 }
+.network-hud {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-4);
+    border-top: 1px solid var(--card-border);
+    flex-wrap: nowrap;
+    background: var(--card-bg);
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text);
+}
+.network-hud > span { min-width: 0; }
+.network-hud > svg { width: 1.1rem; height: 1.1rem; color: var(--primary-2); flex-shrink: 0; }
+.network-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--primary);
+    border: 2px solid #fff;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+/* The global button rule animates `transform` — MapLibre moves markers with
+   it, so a transition would make the labels trail the map while panning. */
+.network-pin {
+    gap: 0;
+    min-height: 0;
+    transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+    padding: 0.25rem 0.6rem;
+    border: 1px solid var(--card-border);
+    border-radius: 999px;
+    background: var(--card-bg);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.8rem;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+.network-pin:hover { border-color: var(--primary); }
+.network-pin.is-active {
+    z-index: 2;
+    background: var(--primary);
+    border-color: var(--primary);
+    color: var(--on-primary);
+}
+.network-pin__count { margin-left: 0.3em; font-weight: 700; }

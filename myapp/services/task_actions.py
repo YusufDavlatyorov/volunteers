@@ -86,7 +86,9 @@ def create_request(client, form) -> HelpRequest:
             help_request.latitude, help_request.longitude = coords
     help_request.save()
     logger.info("help request #%s created by client #%s", help_request.id, client.pk)
-    _ping_region(help_request)
+    # Deliveries queued (0 = nobody reachable) — the website's confirmation
+    # must not claim volunteers were told when none were.
+    help_request.volunteers_notified = _ping_region(help_request)
     return help_request
 
 

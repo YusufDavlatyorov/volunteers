@@ -1,4 +1,5 @@
 from django.urls import path
+from django.views.generic import RedirectView
 from .views_notifications import (
     notification_preferences_view,
     notification_read_view,
@@ -51,7 +52,6 @@ from .views import (
     ai_chat_view,
     check_overdue_view,
     create_event_view,
-    dashboard_view,
     photo_reports_view,
     task_advance_stage_view,
     task_assign_volunteer_view,
@@ -68,7 +68,8 @@ from .views import (
 )
 
 urlpatterns = [
-    path('dashboard/', dashboard_view, name='dashboard'),
+    # The dashboard lives at /dashboard/ (server/urls.py); old bookmarks still land there.
+    path('dashboard/', RedirectView.as_view(pattern_name='dashboard', query_string=True), name='dashboard_legacy'),
     path('panel/', admin_panel_view, name='admin_panel'),
     # Tasks
     path('tasks/', task_list_view, name='task_list'),

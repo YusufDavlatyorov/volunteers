@@ -81,16 +81,30 @@ class HelpRequestForm(forms.ModelForm):
             "longitude": forms.HiddenInput(),
         }
 
+    # Short hints for the client (often an elderly person filling it in alone).
+    # The phone hint states the real rule (access.can_see_client_phone).
+    HELP_TEXTS = {
+        "priority": "«Высокий» — если помощь нужна сегодня. «Экстренный» — только при угрозе здоровью.",
+        "description": "Например: купить продукты по списку, завтра после 10:00.",
+        "address": "Город, улица, дом и квартира — чтобы волонтёр нашёл вас.",
+        "phone": "Номер увидит только волонтёр, который примет ваш запрос, и координаторы.",
+    }
+
     I18N = {
-        "help_type": HELP_TYPE_I18N,
-        "priority": PRIORITY_I18N,
-        "description": {**DESCRIPTION_I18N, "ph": "form.request_desc_ph"},
-        "address": {"label": "form.address", "ph": "form.address"},
-        "phone": {"label": "form.phone"},
+        "help_type": {**HELP_TYPE_I18N, "empty": "choice.select_help_type"},
+        "priority": {**PRIORITY_I18N, "help": "form.priority_help"},
+        "description": {**DESCRIPTION_I18N, "ph": "form.request_desc_ph", "help": "form.request_desc_help"},
+        "address": {"label": "form.address", "ph": "form.address_ph", "help": "form.address_help"},
+        "phone": {"label": "form.phone", "help": "form.phone_help"},
     }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # A real prompt instead of Django's "---------" blank option.
+        self.fields["help_type"].choices = [("", "Выберите вид помощи"), *HELP_TYPE_CHOICES]
+        for name, text in self.HELP_TEXTS.items():
+            self.fields[name].help_text = text
+        self.fields["address"].widget.attrs["placeholder"] = "ул. Рудаки 10, кв. 5"
         localize(self, self.I18N)
 
     def clean_priority(self):

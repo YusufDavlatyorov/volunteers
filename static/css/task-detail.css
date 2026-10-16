@@ -287,3 +287,14 @@
     .route-card .map-route-meta .metric { min-width: 0; font-size: 1.4rem; }
     .route-card .map-route-meta .metric--text { grid-column: 1 / -1; }
 }
+
+/* Client's own pending request: what happens next (task_detail.html). */
+.next-step {
+    margin-top: var(--space-4);
+    padding: 0.9rem 1rem;
+    border-radius: 12px;
+    border-left: 4px solid var(--info);
+    background: var(--info-glow);
+}
+.next-step strong { display: block; color: var(--text); font-size: 1.02rem; }
+.next-step p { margin: 0.3rem 0 0; color: var(--text-2); line-height: 1.5; }

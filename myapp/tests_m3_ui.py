@@ -103,18 +103,18 @@ class ChatEntryPointTests(_M3Fixture):
         self._msg(self.task, self.client_user, "b")
         self._msg(self.task, self.client_user, "c")
         self._msg(self.task, self.vol, "x")
-        vol_dash = self._get(self.vol, "profile")
+        vol_dash = self._get(self.vol, "dashboard")
         self.assertContains(vol_dash, "data-chat-entry")
         self.assertContains(vol_dash, 'data-count="3"')
         self.assertContains(self._get(self.vol, "task_list"), 'data-count="3"')
-        client_dash = self._get(self.client_user, "profile")
+        client_dash = self._get(self.client_user, "dashboard")
         self.assertContains(client_dash, "data-chat-entry")
         self.assertContains(client_dash, 'data-count="1"')
 
     def test_client_pending_request_has_no_chat_on_dashboard(self):
         HelpRequest.objects.filter(pk=self.task.pk).delete()
         self._task("pending", volunteer=None)
-        response = self._get(self.client_user, "profile")
+        response = self._get(self.client_user, "dashboard")
         self.assertNotContains(response, "data-chat-entry")
         self.assertNotContains(response, "data-chat-unread")
 
@@ -151,7 +151,7 @@ class DashboardQueryCountTests(_M3Fixture):
         self._msg(self.task, self.client_user)
         self.client.force_login(self.vol)
         with CaptureQueriesContext(connection) as ctx:
-            self.client.get(reverse("profile"))
+            self.client.get(reverse("dashboard"))
         unread = [q for q in ctx.captured_queries if "myapp_chatreadstate" in q["sql"].lower()]
         self.assertEqual(len(unread), 1)
 
@@ -275,7 +275,7 @@ class ReviewEntryTests(_M3Fixture):
     def test_staff_navigation_and_volunteer_detail_average(self):
         feedback.submit_review(self.client_user, self.done, stars=2, comment="late", tags=[])
         self.assertContains(self._get(self.curator, "admin_panel"), reverse("crm_reviews"))
-        self.assertContains(self._get(self.curator, "profile"), reverse("crm_reviews"))
+        self.assertContains(self._get(self.curator, "dashboard"), reverse("crm_reviews"))
         response = self._get(self.curator, "crm_volunteer_detail", self.vol.pk)
         self.assertContains(response, "2.0")
         self.assertContains(response, 'data-i18n="review.average"')
@@ -283,7 +283,7 @@ class ReviewEntryTests(_M3Fixture):
     def test_public_rating_shows_average_but_never_comments(self):
         feedback.submit_review(self.client_user, self.done, stars=5, comment="private words", tags=["polite"])
         response = self.client.get(reverse("rating"))
-        self.assertContains(response, "review-summary")
+        self.assertContains(response, "rating-score")
         self.assertNotContains(response, "private words")
 
     def test_review_form_is_accessible(self):
@@ -301,7 +301,8 @@ class M3I18nTests(TestCase):
     TEMPLATES = [
         "templates/myapp/chat.html", "templates/myapp/_chat_button.html", "templates/myapp/task_detail.html",
         "templates/myapp/dashboard/_volunteer.html", "templates/myapp/dashboard/_client.html",
-        "templates/myapp/task_list.html", "templates/accounts/profile.html", "templates/myapp/admin_panel.html",
+        "templates/myapp/task_list.html", "templates/accounts/profile.html", "templates/myapp/dashboard.html",
+        "templates/myapp/admin_panel.html",
         "templates/myapp/crm_volunteer_detail.html",
         *[str(p.relative_to(BASE)) for p in (BASE / "templates/myapp/reviews").glob("*.html")],
     ]

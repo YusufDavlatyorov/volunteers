@@ -1,2 +1,2 @@
-{% load assets %}{# MapLibre GL CSS from unpkg (fast CDN, SRI-pinned); if unpkg fails on this visitor's network, the same file from our own static copy. #}
-<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css" integrity="sha384-uTttxo/aOKbdE5RlD/SPzSDoDmNvGlUYPjONi2MN/b7c9HPSvW07OIuyP7uL6jxK" crossorigin="" onerror="this.onerror=null;this.removeAttribute('integrity');this.href='{% asset 'vendor/maplibre-gl-5.24.0/maplibre-gl.css' %}'">
+{% load maplibre %}{# MapLibre GL CSS from unpkg (fast CDN, SRI-pinned); if unpkg fails on this visitor's network, the same file from our own static copy. URLs/hashes: myapp/templatetags/maplibre.py. #}
+<link rel="stylesheet" href="{% maplibre 'css' %}" integrity="{% maplibre 'css_sri' %}" crossorigin="" onerror="this.onerror=null;this.removeAttribute('integrity');this.href='{% maplibre 'css_local' %}'">

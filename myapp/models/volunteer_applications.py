@@ -1,7 +1,13 @@
+from django.core.cache import cache
 from django.db import models, transaction
 from django.utils import timezone
 
-from accounts.models import REGION_CHOICES, Users
+from accounts.models import ABOUT_NETWORK_CACHE_KEY, REGION_CHOICES, Users, clear_rating_cache
+
+
+def _clear_volunteer_caches():
+    cache.delete(ABOUT_NETWORK_CACHE_KEY)
+    clear_rating_cache()
 
 
 class VolunteerApplication(models.Model):
@@ -47,6 +53,9 @@ class VolunteerApplication(models.Model):
             self.reviewed_by = reviewer
             self.reviewed_at = timezone.now()
             self.save(update_fields=["status", "reviewed_by", "reviewed_at"])
+            # The About page's per-region volunteer counts (services/network.py)
+            # and the rating (who is in it).
+            transaction.on_commit(_clear_volunteer_caches)
 
     def reject(self, reviewer):
         with transaction.atomic():
@@ -57,6 +66,7 @@ class VolunteerApplication(models.Model):
             self.reviewed_by = reviewer
             self.reviewed_at = timezone.now()
             self.save(update_fields=["status", "reviewed_by", "reviewed_at"])
+            transaction.on_commit(_clear_volunteer_caches)
 
     def reapply(self):
         self.status = self.STATUS_PENDING

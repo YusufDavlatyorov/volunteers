@@ -103,9 +103,15 @@ def crm_analytics_view(request):
         display = _display(name, data)
         head = dict(heads[name])
         head["delta_text"], head["delta_sr"] = _delta_texts(table, head)
+        horizontal = display in ("rank", "stack")
         layout.append({
             "name": name, "wide": name in WIDE_CHARTS, "display": display,
             "height": _box_height(display, data), "empty": _is_empty(data), "head": head,
+            # Half-width cards keep one 18rem box; a long ranking scrolls inside it
+            # (analytics.css sizes the plot from --rows).
+            "rows": len(data["labels"]) if horizontal else None,
+            "grouped": display == "rank" and len(data["series"]) > 1,
+            "legend": horizontal and len(data["series"]) > 1,
         })
     return render(request, "myapp/crm_analytics.html", {
         "filters": filters,

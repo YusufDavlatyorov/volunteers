@@ -5,6 +5,11 @@ are visible to the volunteer and staff only; public shapes show only the
 volunteer's average (``Profile.review_avg`` / ``review_count``, denormalised by
 myapp/services/feedback.py). Display-only — not a matching weight (owner
 decision §9.7). Staff can hide an abusive review (ID-only log).
+
+``show_on_landing`` is the one exception to "comments are never public": staff
+tick it (Django admin) to feature a 5-star comment on the About page, where the
+client appears as "First L." only. Off by default; reset when the client
+edits the comment, so an approved text can't be swapped afterwards.
 """
 
 from django.core.validators import MaxLengthValidator, MaxValueValidator, MinValueValidator
@@ -30,6 +35,10 @@ class TaskReview(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     hidden_at = models.DateTimeField(null=True, blank=True)
     hidden_by = models.ForeignKey(Users, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    show_on_landing = models.BooleanField(
+        "Показывать на главной", default=False,
+        help_text="Отзыв попадёт на страницу «О нас», только если у него 5 звёзд, есть текст и он не скрыт.",
+    )
 
     class Meta:
         verbose_name = "Отзыв"

@@ -123,14 +123,14 @@ class LoginRateLimitTests(TestCase):
     def test_successful_login_clears_the_failed_attempt_counter(self):
         self.client.post(reverse("login"), {"username": "throttle_user", "password": "wrong"})
         response = self.client.post(reverse("login"), {"username": "throttle_user", "password": "Volunteer2026!"})
-        self.assertRedirects(response, reverse("profile"))
+        self.assertRedirects(response, reverse("dashboard"))
 
     def test_rate_limit_is_scoped_per_username_not_global(self):
         Users.objects.create_user(username="other_user", email="other@example.com", password="Volunteer2026!", is_client=True)
         for _ in range(5):
             self.client.post(reverse("login"), {"username": "throttle_user", "password": "wrong"})
         response = self.client.post(reverse("login"), {"username": "other_user", "password": "Volunteer2026!"})
-        self.assertRedirects(response, reverse("profile"))
+        self.assertRedirects(response, reverse("dashboard"))
 
 
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")

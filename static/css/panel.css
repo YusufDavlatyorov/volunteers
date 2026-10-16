@@ -1,0 +1,156 @@
+/* ===== panel.css — the staff control panel (/myapp/panel/, admin_panel.html) =====
+   The panel is built from the dashboard's components and loads dashboard.css
+   first; this file only adds the pieces the dashboard has no use for: the
+   hero's action row + "More" menu, the KPI bands, the region column of the
+   request table and the filter form inside its card. Tokens only (no hex /
+   rgba, no inline styles), so the dark theme follows. */
+
+/* ----- Hero actions: primary button + one row of icon buttons; below 768px
+   the icons move into a <details> "More" menu (no JS). ----- */
+.panel-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--line);
+}
+.panel-actions .button svg { width: 16px; height: 16px; }
+.panel-actions__icons { display: flex; align-items: center; gap: var(--space-2); }
+.panel-actions__icons .inline-form { display: flex; margin: 0; }
+.panel-icon-btn {
+    display: grid;
+    place-items: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    min-height: 0;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: transparent;
+    color: var(--text-2);
+    transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
+}
+.panel-icon-btn:hover, .panel-icon-btn:focus-visible { border-color: var(--primary); background: var(--primary-glow); color: var(--primary); }
+.panel-icon-btn svg { width: 18px; height: 18px; }
+
+.panel-more { display: none; position: relative; }
+.panel-more > summary { list-style: none; cursor: pointer; }
+.panel-more > summary::-webkit-details-marker { display: none; }
+.panel-more > summary svg { width: 16px; height: 16px; }
+.panel-more__menu {
+    position: absolute;
+    top: calc(100% + 0.4rem);
+    left: 0;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    width: max-content;
+    max-width: calc(100vw - 2 * var(--gutter));
+    padding: var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--card-bg);
+    box-shadow: var(--shadow-hover);
+}
+.panel-more__menu .inline-form { display: block; margin: 0; }
+.panel-more__item {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: var(--space-3);
+    width: 100%;
+    min-height: 2.5rem;
+    padding: 0 var(--space-3);
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text);
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-align: left;
+}
+.panel-more__item:hover, .panel-more__item:focus-visible { background: var(--primary-glow); color: var(--primary); }
+.panel-more__item svg { width: 18px; height: 18px; color: var(--primary); }
+.panel-more__label { min-width: 0; overflow-wrap: break-word; }
+/* The cards after the hero are their own layers (.reveal transform): lift the
+   hero while its menu is open so the menu is not drawn under them. */
+.dash-hero:has(.panel-more[open]) { position: relative; z-index: 5; }
+@media (max-width: 767px) {
+    /* One line: the primary button gives way (label cut with "…"), "More" never does. */
+    .panel-actions { flex-wrap: nowrap; }
+    .panel-actions > .button { flex: 0 1 auto; min-width: 0; padding-inline: 0.9rem; }
+    .panel-actions > .button > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .panel-actions__icons { display: none; }
+    .panel-more { display: block; flex: 0 0 auto; }
+    .panel-more__menu { left: auto; right: 0; }
+}
+
+/* ----- KPI bands: a title, then columns (label on top, big number) split by
+   1px lines — the lines are the grid's gap over a --line background, so they
+   stay right however the columns wrap (6 → 3 → 2). ----- */
+.panel-band { gap: var(--space-3); }
+.panel-band__title { margin: 0; font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.panel-band__grid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+}
+.panel-band__grid--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.panel-kpi {
+    padding: var(--space-3) var(--space-4);
+    background: var(--card-bg);
+    color: inherit;
+    transition: background 0.18s ease;
+}
+.panel-kpi:hover, .panel-kpi:focus-visible { background: var(--surface-2); }
+.panel-kpi:hover .dash-kpi__label { color: var(--primary); }
+/* The tint is translucent: layer it over the card colour, not over the grid's --line. */
+.panel-kpi--alert { background: linear-gradient(var(--danger-glow), var(--danger-glow)), var(--card-bg); }
+.panel-kpi--alert .dash-kpi__value, .panel-kpi--alert .dash-kpi__label { color: var(--danger); }
+@media (max-width: 767px) {
+    .panel-band__grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .panel-kpi { padding: var(--space-3); }
+}
+@media (max-width: 479px) {
+    .panel-band__grid:not(.panel-band__grid--3) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    /* Three narrow SOS columns: tighter padding + spacing so a label like
+       "ҚАБУЛШУДА" stays one word instead of breaking letter by letter. */
+    .panel-band__grid--3 .panel-kpi { padding: var(--space-3) var(--space-2); }
+    .panel-band__grid--3 .dash-kpi__label { letter-spacing: 0.01em; font-size: 0.7rem; }
+}
+
+/* ----- Request table: the dashboard queue row + a region column; the
+   assigned volunteer (busy tab) in plain text, not the candidate's colour. ----- */
+.panel-requests .dash-col-client { width: 30%; }
+.panel-requests .dash-col-cat { width: 16%; }
+.panel-requests .dash-col-prio { width: 7rem; }
+.panel-requests .dash-col-region { width: 9rem; }
+@media (max-width: 1023px) {
+    /* Tablet: six columns in ~720px — the category shows its icon only (the
+       name is in the cell's title, as on phones), the client gets the room. */
+    .panel-requests .dash-col-client { width: 36%; }
+    .panel-requests .dash-col-cat { width: 2.75rem; }
+    .panel-requests .dash-th-cat span,
+    .panel-requests .dash-table__cat .dash-cat__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+    .panel-requests .dash-col-prio { width: 5.75rem; }
+    .panel-requests .dash-col-region { width: 6rem; }
+    .panel-requests .dash-col-act { width: 6rem; }
+}
+.dash-table__region { color: var(--text-2); }
+.dash-suggest--assigned { color: var(--text); }
+/* Filters inside the card: no outer spacing of their own (the card's gap). */
+.panel-filters { margin: 0; }
+.panel-filters .button { align-self: flex-end; }
+.panel-requests .dash-queue__foot .pagination { margin: 0; gap: var(--space-2); }
+.panel-requests .pagination .button { height: 2rem; min-height: 2rem; padding: 0 0.85rem; font-size: 0.78rem; }
+@media (max-width: 767px) {
+    /* Phone card: who + region on line 1; category, priority, volunteer, button on line 2. */
+    .dash-table--region .dash-table__row { grid-template-areas: "who who who region" "cat prio vol act"; }
+    .dash-table--region .dash-table__person { min-width: 0; }
+    .dash-table__region { grid-area: region; justify-self: end; font-size: 0.75rem; }
+}

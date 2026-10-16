@@ -1,0 +1,2 @@
+{% load maplibre %}{# MapLibre GL + map.js for a page that loads its map on demand (static/js/about-network.js): the same CDN URLs, SRI and self-hosted fallback as _maplibre_css/_js.html, as JSON — nothing is fetched until the map scrolls into view. #}
+{% maplibre_lazy_config as maplibre_cfg %}{{ maplibre_cfg|json_script:"gc-maplibre-lazy" }}

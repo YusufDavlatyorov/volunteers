@@ -1,191 +1,217 @@
-{% comment %}Curator dashboard — "what needs my attention?". Context from services.dashboard._curator. Also included by _admin.html.{% endcomment %}
-{% load analytics_ui %}
-{% if open_emergency_count %}
-<a class="emergency-banner emergency-banner--link" href="{% url 'emergency_list' %}?status=open">
-    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"></path><path d="M12 9v4M12 17h.01"></path></svg>
-    <div>
-        <strong>{{ open_emergency_count }} <span data-i18n="emg.dash_open">open SOS report(s)</span></strong>
-        <p data-i18n="emg.dash_cta">A volunteer needs help — open the emergency queue.</p>
+{% comment %}
+Staff dashboard (curator; admin = this + platform numbers, see _admin.html) —
+"what needs my attention?". Context from services.dashboard._curator / _admin.
+Real data only: a block with nothing to show is not rendered. Colours come from
+style.css tokens (dashboard.css), chart colours from static/js/charts-theme.js.
+{% endcomment %}
+{% load i18n_plural %}
+<section class="card dash-hero reveal" aria-labelledby="dashHeroTitle">
+    <div class="dash-hero__top">
+        {% include "myapp/dashboard/_greeting.html" %}
+        {% include "myapp/dashboard/_alert.html" with sos_count=open_emergency_count overdue_count=stats.tasks_overdue %}
     </div>
-</a>
-{% endif %}
 
-<div class="kpi-row reveal">
-    <a class="card stat-card {% if stats.emergencies_open %}stat-card--alert{% endif %}" href="{% url 'emergency_list' %}?status=open">
-        <span class="metric">{{ stats.emergencies_open }}</span><p data-i18n="emg.kpi_open">Open SOS</p>
-    </a>
-    <a class="card stat-card {% if stats.tasks_overdue %}stat-card--alert{% endif %}" href="{% url 'crm_tasks' %}?overdue=1">
-        <span class="metric">{{ stats.tasks_overdue }}</span><p data-i18n="crm.kpi_overdue">Overdue</p>
-    </a>
-    <a class="card stat-card {% if stats.tasks_stale %}stat-card--alert{% endif %}" href="{% url 'crm_tasks' %}?stale=1">
-        <span class="metric">{{ stats.tasks_stale }}</span><p data-i18n="crm.kpi_stale">Stalled</p>
-    </a>
-    <a class="card stat-card" href="{% url 'crm_tasks' %}?status=pending">
-        <span class="metric">{{ stats.tasks_pending }}</span><p data-i18n="dash.unassigned">Unassigned</p>
-    </a>
-    <a class="card stat-card" href="{% url 'volunteer_applications' %}">
-        <span class="metric">{{ stats.pending_applications }}</span><p data-i18n="va.pending_count">Pending Applications</p>
-    </a>
-    <a class="card stat-card" href="{% url 'people_list' 'volunteer' %}?availability=available">
-        <span class="metric">{{ stats.volunteers_available }}</span><p data-i18n="crm.kpi_available">Available</p>
-    </a>
-    <a class="card stat-card" href="{% url 'people_list' 'volunteer' %}?availability=away">
-        <span class="metric">{{ stats.volunteers_away }}</span><p data-i18n="crm.kpi_away">Do not disturb</p>
-    </a>
-    <a class="card stat-card" href="{% url 'pet_list' %}">
-        <span class="metric">{{ pets_open_count }}</span><p data-i18n="pet.kpi_open">Lost &amp; Found</p>
-    </a>
-</div>
-
-{% if trend %}{% sparkline trend %}{% endif %}
-
-<div class="card reveal {% if open_emergencies %}card--alert{% endif %}">
-    <div class="section-head"><h3 data-i18n="emg.feed_title">Active emergencies</h3><a class="button ghost" href="{% url 'emergency_list' %}" data-i18n="common.view_all">View all</a></div>
-    {% if open_emergencies %}
-        <div class="mini-list">
-            {% for report in open_emergencies %}
-                <a class="mini-list-item mini-list-item--link" href="{% url 'emergency_detail' report.id %}">
-                    <h4>{% include "myapp/_emergency_status_tag.html" with status=report.status status_display=report.get_status_display %} {{ report.volunteer.username }}</h4>
-                    <p>#{{ report.help_request_id }} · {{ report.get_region_display|default:"—" }} · {{ report.created_at|timesince }} <span data-i18n="va.ago_suffix">ago</span></p>
-                </a>
-            {% endfor %}
+    <dl class="dash-kpis">
+        <div class="dash-kpi">
+            <dt class="dash-kpi__label" data-i18n="dash.requests_total">Requests total</dt>
+            <dd class="dash-kpi__value">{{ stats.tasks_total }}</dd>
+            {% if stats.tasks_created_week %}<dd class="dash-kpi__note"><span data-i18n="dash.last_7_days">last 7 days</span>: +{{ stats.tasks_created_week }}</dd>{% endif %}
         </div>
-    {% else %}
-        <p class="opportunity-desc" data-i18n="emg.feed_empty">No active emergencies.</p>
-    {% endif %}
-</div>
-
-<div class="card reveal">
-    <div class="section-head"><h3 data-i18n="dash.overdue_title">Overdue tasks</h3><a class="button ghost" href="{% url 'crm_tasks' %}?overdue=1" data-i18n="common.view_all">View all</a></div>
-    {% if overdue_tasks %}
-        <div class="mini-list">
-            {% for task in overdue_tasks %}
-                <a class="mini-list-item mini-list-item--link" href="{% url 'task_detail' task.id %}">
-                    <h4><span class="tag urgent" data-i18n="crm.overdue_badge">Overdue</span> #{{ task.id }} · {{ task.get_help_type_display }}</h4>
-                    <p>{{ task.volunteer.username|default:"—" }} · {{ task.get_region_display|default:"—" }} · {{ task.accepted_at|timesince }} <span data-i18n="va.ago_suffix">ago</span></p>
-                </a>
-            {% endfor %}
+        <div class="dash-kpi">
+            <dt class="dash-kpi__label" data-i18n="dash.completed_total">Completed</dt>
+            <dd class="dash-kpi__value">{{ stats.tasks_completed }}{% if stats.tasks_total %} <span class="dash-kpi__pct">{% widthratio stats.tasks_completed stats.tasks_total 100 %}%</span>{% endif %}</dd>
+            {% if stats.tasks_total %}<dd class="dash-kpi__bar"><progress class="dash-progress dash-progress--ok" value="{{ stats.tasks_completed }}" max="{{ stats.tasks_total }}">{% widthratio stats.tasks_completed stats.tasks_total 100 %}%</progress></dd>{% endif %}
         </div>
-    {% else %}
-        <p class="opportunity-desc" data-i18n="dash.no_overdue">No overdue tasks.</p>
-    {% endif %}
-</div>
-
-<div class="card reveal">
-    <div class="section-head"><h3 data-i18n="dash.stale_title">Waiting too long</h3><a class="button ghost" href="{% url 'crm_tasks' %}?stale=1" data-i18n="common.view_all">View all</a></div>
-    {% if stale_pending_tasks %}
-        <div class="mini-list">
-            {% for task in stale_pending_tasks %}
-                <a class="mini-list-item mini-list-item--link" href="{% url 'task_detail' task.id %}">
-                    <h4><span class="tag urgent" data-i18n="crm.stale_badge">Stalled</span> #{{ task.id }} · {{ task.get_help_type_display }}</h4>
-                    <p>{{ task.get_region_display|default:"—" }} · {{ task.created_at|timesince }} <span data-i18n="va.ago_suffix">ago</span></p>
-                    {% if task.assignment_suggestion %}
-                        <p class="opportunity-desc"><span data-i18n="dash.suggested">Suggested</span>: {{ task.assignment_suggestion.name }} · {{ task.assignment_suggestion.distance_km }} km{% if task.assignment_suggestion.skill_match %} · <span data-i18n="rec.skill_match">Skills match</span>{% endif %}</p>
-                    {% endif %}
-                </a>
-            {% endfor %}
+        <div class="dash-kpi">
+            <dt class="dash-kpi__label" data-i18n="admin.stat_clients">Clients</dt>
+            <dd class="dash-kpi__value">{{ stats.clients_total }}</dd>
         </div>
-    {% else %}
-        <p class="opportunity-desc" data-i18n="dash.no_stale">No requests stuck waiting.</p>
-    {% endif %}
-</div>
-
-<div class="card reveal">
-    <div class="section-head"><h3 data-i18n="dash.unassigned_title">Waiting for a volunteer</h3><a class="button ghost" href="{% url 'crm_tasks' %}?status=pending" data-i18n="common.view_all">View all</a></div>
-    {% if unassigned_tasks %}
-        <div class="mini-list">
-            {% for task in unassigned_tasks %}
-                <a class="mini-list-item mini-list-item--link" href="{% url 'task_detail' task.id %}">
-                    <h4>{% if task.is_urgent %}<span class="tag urgent" data-i18n="task.urgent_badge">Urgent</span> {% endif %}#{{ task.id }} · {{ task.get_help_type_display }}</h4>
-                    <p>{{ task.get_region_display|default:"—" }} · {{ task.created_at|timesince }} <span data-i18n="va.ago_suffix">ago</span></p>
-                    {% if task.assignment_suggestion %}
-                        <p class="opportunity-desc"><span data-i18n="dash.suggested">Suggested</span>: {{ task.assignment_suggestion.name }} · {{ task.assignment_suggestion.distance_km }} km{% if task.assignment_suggestion.skill_match %} · <span data-i18n="rec.skill_match">Skills match</span>{% endif %}</p>
-                    {% endif %}
-                </a>
-            {% endfor %}
+        <div class="dash-kpi">
+            <dt class="dash-kpi__label" data-i18n="admin.stat_volunteers">Volunteers</dt>
+            <dd class="dash-kpi__value">{{ stats.volunteers_total }}</dd>
+            {% if stats.volunteers_total %}<dd class="dash-kpi__note"><span data-i18n="crm.kpi_available">Available</span>: {{ stats.volunteers_available }}</dd>{% endif %}
         </div>
-    {% else %}
-        <p class="opportunity-desc" data-i18n="dash.no_unassigned">Every request has a volunteer.</p>
-    {% endif %}
-</div>
+        {% if dash_role == "admin" %}
+            <div class="dash-kpi">
+                <dt class="dash-kpi__label" data-i18n="dash.curators">Curators</dt>
+                <dd class="dash-kpi__value">{{ users_by_role.curators }}</dd>
+            </div>
+            <div class="dash-kpi">
+                <dt class="dash-kpi__label" data-i18n="events.title">Events</dt>
+                <dd class="dash-kpi__value">{{ total_events }}</dd>
+                {% if stats.events_upcoming %}<dd class="dash-kpi__note"><span data-i18n="dash.upcoming">upcoming</span>: {{ stats.events_upcoming }}</dd>{% endif %}
+            </div>
+        {% else %}
+            <div class="dash-kpi">
+                <dt class="dash-kpi__label" data-i18n="dash.unassigned">Unassigned</dt>
+                <dd class="dash-kpi__value">{{ stats.tasks_pending }}</dd>
+                {% if stats.tasks_stale %}<dd class="dash-kpi__note dash-kpi__note--alert"><span data-i18n="crm.kpi_stale">Stalled</span>: {{ stats.tasks_stale }}</dd>{% endif %}
+            </div>
+            <div class="dash-kpi">
+                <dt class="dash-kpi__label" data-i18n="events.upcoming">Upcoming Events</dt>
+                <dd class="dash-kpi__value">{{ stats.events_upcoming }}</dd>
+            </div>
+        {% endif %}
+    </dl>
+</section>
 
-<div class="card reveal">
-    <div class="section-head"><h3 data-i18n="va.list_title">Volunteer Applications</h3><a class="button ghost" href="{% url 'volunteer_applications' %}" data-i18n="common.view_all">View all</a></div>
-    {% if pending_applications %}
-        <div class="mini-list">
-            {% for app in pending_applications %}
-                <a class="mini-list-item mini-list-item--link" href="{% url 'volunteer_application_detail' app.id %}">
-                    <h4>{{ app.user.username }}</h4>
-                    <p>{{ app.get_region_display|default:"—" }} · {{ app.created_at|timesince }} <span data-i18n="va.ago_suffix">ago</span></p>
-                </a>
-            {% endfor %}
+<div class="dash-row dash-row--3">
+    {% if stats.volunteers_total %}
+    <section class="card dash-card reveal" aria-labelledby="dashReadinessTitle">
+        <div class="dash-card__head"><h2 class="dash-card__title" id="dashReadinessTitle" data-i18n="dash.readiness">Volunteer readiness</h2></div>
+        <div class="dash-tiles">
+            <a class="dash-tile dash-tile--ok" href="{% url 'people_list' 'volunteer' %}?availability=available">
+                <span class="dash-tile__value">{{ availability.available }}</span>
+                <span class="dash-tile__label" data-i18n="crm.kpi_available">Available</span>
+            </a>
+            <a class="dash-tile" href="{% url 'people_list' 'volunteer' %}?availability=busy">
+                <span class="dash-tile__value">{{ availability.busy }}</span>
+                <span class="dash-tile__label" data-i18n="availability.busy">Busy</span>
+            </a>
         </div>
-    {% else %}
-        <p class="opportunity-desc" data-i18n="va.no_pending">No pending applications</p>
-    {% endif %}
-</div>
-
-<div class="card reveal">
-    <div class="section-head"><h3 data-i18n="dash.offers_to_review">Donation offers to review</h3><a class="button ghost" href="{% url 'donations_admin' %}?status=pending" data-i18n="common.view_all">View all</a></div>
-    {% if donation_offers_pending %}
-        <div class="mini-list">
-            {% for offer in donation_offers_pending %}
-                <a class="mini-list-item mini-list-item--link" href="{% url 'donation_detail' offer.id %}">
-                    <h4>{% include "myapp/_donation_status_tag.html" with status=offer.status status_display=offer.get_status_display %} {{ offer.item_label }} × {{ offer.quantity }}{% if offer.unit %} {{ offer.unit }}{% endif %}</h4>
-                    <p>{{ offer.donor_label }} · {{ offer.get_category_display }} · {{ offer.get_region_display|default:"—" }} · {{ offer.created_at|timesince }} <span data-i18n="va.ago_suffix">ago</span></p>
-                </a>
-            {% endfor %}
+        <div class="dash-meter">
+            <div class="dash-meter__label"><span data-i18n="dash.available_share">Available now</span><strong>{% widthratio availability.available stats.volunteers_total 100 %}%</strong></div>
+            <progress class="dash-progress dash-progress--ok" value="{{ availability.available }}" max="{{ stats.volunteers_total }}">{% widthratio availability.available stats.volunteers_total 100 %}%</progress>
         </div>
-    {% else %}
-        <p class="opportunity-desc" data-i18n="dash.no_offers_review">No offers waiting for review.</p>
+        <p class="dash-card__note">
+            <span data-i18n="availability.offline">Offline</span>: {{ availability.offline }}
+            {% if stats.volunteers_away %} · <a href="{% url 'people_list' 'volunteer' %}?availability=away"><span data-i18n="crm.kpi_away">Do not disturb</span>: {{ stats.volunteers_away }}</a>{% endif %}
+        </p>
+        <a class="dash-card__link" href="{% url 'people_list' 'volunteer' %}"><span data-i18n="dash.all_volunteers">All volunteers</span>{% include "myapp/dashboard/_icon.html" with name="arrow" %}</a>
+    </section>
     {% endif %}
-</div>
 
-<div class="card reveal">
-    <div class="section-head"><h3 data-i18n="pet.dash_title">Lost &amp; Found</h3><a class="button ghost" href="{% url 'pet_list' %}" data-i18n="common.view_all">View all</a></div>
-    {% if recent_pet_reports %}
-        <div class="mini-list">
-            {% for report in recent_pet_reports %}
-                <a class="mini-list-item mini-list-item--link" href="{% url 'pet_report_detail' report.id %}">
-                    <h4>{% include "myapp/_pet_type_tag.html" with report_type=report.report_type report_type_display=report.get_report_type_display %} #{{ report.id }} · {{ report.display_name }}</h4>
-                    <p>{{ report.get_species_display }} · {{ report.get_region_display|default:"—" }} · {{ report.created_at|timesince }} <span data-i18n="va.ago_suffix">ago</span></p>
-                </a>
-            {% endfor %}
+    {% if offer_summary.total %}
+    <section class="card dash-card reveal" aria-labelledby="dashDonationsTitle">
+        <div class="dash-card__head"><h2 class="dash-card__title" id="dashDonationsTitle" data-i18n="don.admin_title">Donation offers</h2></div>
+        <div class="dash-tiles dash-tiles--3">
+            <a class="dash-tile{% if offer_summary.pending %} dash-tile--alert{% endif %}" href="{% url 'donations_admin' %}?status=pending">
+                <span class="dash-tile__value">{{ offer_summary.pending }}</span>
+                <span class="dash-tile__label" data-i18n="don.kpi_pending">To review</span>
+            </a>
+            <div class="dash-tile">
+                <span class="dash-tile__value">{{ offer_summary.active_offers }}</span>
+                <span class="dash-tile__label" data-i18n="dash.offers_active">Active</span>
+            </div>
+            <div class="dash-tile">
+                <span class="dash-tile__value">{{ offer_summary.received }}</span>
+                <span class="dash-tile__label" data-i18n="dash.offers_received">Received</span>
+            </div>
         </div>
-    {% else %}
-        <p class="opportunity-desc" data-i18n="pet.dash_empty">No open lost or found reports.</p>
+        {% if offer_summary.items_received %}
+        <div class="dash-meter">
+            <div class="dash-meter__label"><span data-i18n="dash.items_distributed">Items distributed</span><strong>{{ offer_summary.items_distributed }} / {{ offer_summary.items_received }}</strong></div>
+            <progress class="dash-progress" value="{{ offer_summary.items_distributed }}" max="{{ offer_summary.items_received }}">{% widthratio offer_summary.items_distributed offer_summary.items_received 100 %}%</progress>
+        </div>
+        {% endif %}
+        {% if offer_summary.businesses %}<p class="dash-card__note"><span data-i18n="don.kpi_businesses">Businesses helping</span>: {{ offer_summary.businesses }}</p>{% endif %}
+        <a class="dash-card__link" href="{% url 'donations_admin' %}?status=pending"><span data-i18n="dash.offers_queue">Offers queue</span>{% include "myapp/dashboard/_icon.html" with name="arrow" %}</a>
+    </section>
     {% endif %}
-</div>
 
-<div class="card reveal">
-    <div class="section-head"><h3 data-i18n="dash.by_region">By region</h3></div>
-    <div class="table-scroll">
-        <table class="data-table">
-            <thead><tr><th data-i18n="tbl.region">Region</th><th data-i18n="crm.kpi_pending">Pending</th><th data-i18n="crm.kpi_active">Active</th></tr></thead>
-            <tbody>
-                {% for row in region_breakdown %}
-                    <tr>
-                        <td data-label="Region">{{ row.label }}</td>
-                        <td data-label="Pending" class="col-num">{{ row.pending }}</td>
-                        <td data-label="Active" class="col-num">{{ row.active }}</td>
-                    </tr>
-                {% empty %}
-                    <tr><td colspan="3" data-i18n="dash.no_region_data">No active requests.</td></tr>
+    {% if region_share %}
+    <section class="card dash-card reveal" aria-labelledby="dashRegionsTitle">
+        <div class="dash-card__head"><h2 class="dash-card__title" id="dashRegionsTitle" data-i18n="dash.regions_title">Open requests by region</h2></div>
+        <div class="dash-donut">
+            <div class="dash-donut__chart">
+                <canvas data-region-chart role="img" aria-labelledby="dashRegionsTitle"></canvas>
+                <div class="dash-donut__center"><strong>{{ region_open_total }}</strong><span data-i18n="dash.open_requests">open</span></div>
+            </div>
+            <ul class="dash-legend" role="list">
+                {% for row in region_share %}
+                    <li class="dash-legend__item" data-region="{{ row.region }}" data-count="{{ row.count }}">
+                        <span class="dash-legend__dot" aria-hidden="true"></span>
+                        <span class="dash-legend__name"{% if row.region %} data-i18n="region.{{ row.region }}"{% endif %}>{{ row.label }}</span>
+                        <span class="dash-legend__value">{{ row.count }} · {{ row.pct }}%</span>
+                    </li>
                 {% endfor %}
-            </tbody>
-        </table>
-    </div>
+            </ul>
+        </div>
+    </section>
+    {% endif %}
 </div>
 
-<div class="card reveal">
-    <div class="section-head"><h3 data-i18n="crm.activity_title">Recent Activity</h3></div>
-    {% include "myapp/_activity_feed.html" %}
+<div class="dash-row dash-row--main">
+    <section class="card dash-card dash-queue reveal" aria-labelledby="dashQueueTitle">
+        <div class="dash-card__head dash-card__head--line">
+            <h2 class="dash-card__title dash-card__title--clip" id="dashQueueTitle" data-i18n="dash.queue_title">Request queue</h2>
+        </div>
+        {% if queue %}
+            {% comment %}Tabs count the whole pending queue (services.dashboard._queue_categories) and open it filtered.{% endcomment %}
+            <nav class="dash-filter" aria-labelledby="dashQueueTitle">
+                <a class="dash-filter__tab is-active" href="{% url 'crm_tasks' %}?status=pending"><span data-i18n="dash.all">All</span><span class="dash-filter__count">{{ stats.tasks_pending }}</span></a>
+                {% for key, count in queue_categories %}
+                    <a class="dash-filter__tab" href="{% url 'crm_tasks' %}?status=pending&amp;help_type={{ key }}"><span data-i18n="help.{{ key }}">{{ key }}</span><span class="dash-filter__count">{{ count }}</span></a>
+                {% endfor %}
+            </nav>
+            <table class="dash-table">
+                <colgroup><col class="dash-col-client"><col class="dash-col-cat"><col class="dash-col-prio"><col class="dash-col-vol"><col class="dash-col-act"></colgroup>
+                <thead>
+                    <tr>
+                        <th scope="col" data-i18n="dash.col.client">Client</th>
+                        <th scope="col" data-i18n="dash.col.category">Category</th>
+                        <th scope="col" data-i18n="dash.col.priority">Priority</th>
+                        <th scope="col" data-i18n="dash.col.volunteer">Volunteer</th>
+                        <th scope="col"><span class="visually-hidden" data-i18n="dash.col.action">Action</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in queue %}{% include "myapp/dashboard/_queue_row.html" %}{% endfor %}
+                </tbody>
+            </table>
+            <div class="dash-queue__foot">
+                {% if stats.tasks_pending > queue|length %}<p><span data-i18n="dash.shown">Shown</span> <strong>{{ queue|length }}</strong> <span data-i18n="dash.of">of</span> <strong>{{ stats.tasks_pending }}</strong></p>{% endif %}
+                <a class="button ghost dash-btn-xs" href="{% url 'crm_tasks' %}?status=pending"><span data-i18n="dash.queue_all">Full queue</span>{% include "myapp/dashboard/_icon.html" with name="arrow" %}</a>
+            </div>
+        {% else %}
+            <p class="dash-empty" data-i18n="dash.no_unassigned">Every request has a volunteer.</p>
+        {% endif %}
+    </section>
+
+    <section class="card dash-card reveal" aria-labelledby="dashFeedTitle">
+        <div class="dash-card__head"><h2 class="dash-card__title" id="dashFeedTitle" data-i18n="crm.activity_title">Recent Activity</h2></div>
+        {% include "myapp/dashboard/_feed.html" %}
+        {% if rating_leader %}
+            <div class="dash-leader">
+                <span class="dash-avatar dash-avatar--accent" aria-hidden="true">{{ rating_leader.initials }}</span>
+                <span class="dash-person">
+                    <span class="dash-leader__label">{% include "myapp/dashboard/_icon.html" with name="medal" %}<span data-i18n="dash.leader">Rating leader</span></span>
+                    <strong class="dash-person__name">{{ rating_leader.name }}</strong>
+                    <span class="dash-person__meta">{% plural_i18n "rating.n_tasks" rating_leader.completed %}{% if rating_leader.avg %} · ★ {{ rating_leader.avg|floatformat:1 }}{% endif %}</span>
+                </span>
+                <a class="button ghost dash-btn-sm" href="{% url 'rating' %}" data-i18n="nav.rating">Rating</a>
+            </div>
+        {% endif %}
+    </section>
 </div>
 
-<div class="card reveal">
-    <div class="button-row">
-        <a class="button primary" href="{% url 'admin_panel' %}" data-i18n="dash.full_console">Full CRM console</a>
-        <a class="button ghost" href="{% url 'map' %}" data-i18n="nav.map">Map</a>
-        <a class="button ghost" href="{% url 'emergency_list' %}" data-i18n="emg.list_title">Emergencies</a>
-    </div>
+{% comment %}Two rows of three same-size cards: one header + item component (_list_card.html), ≤ CARD_LIST_LIMIT items each.{% endcomment %}
+<div class="dash-row dash-row--cards">
+    {% url 'emergency_list' as sos_url %}
+    {% include "myapp/dashboard/_list_card.html" with kind="sos" items=open_emergencies head_id="dashSosTitle" title_key="emg.feed_title" title_text="Активные сигналы" link_url=sos_url link_key="common.view_all" link_text="Смотреть все" empty_key="emg.feed_empty" empty_text="Нет активных сигналов." alert=True %}
+    {% url 'crm_tasks' as tasks_url %}
+    {% include "myapp/dashboard/_list_card.html" with kind="overdue" items=overdue_tasks head_id="dashOverdueTitle" title_key="dash.overdue_title" title_text="Просроченные задачи" link_url=tasks_url|add:"?overdue=1" link_key="common.view_all" link_text="Смотреть все" empty_key="dash.no_overdue" empty_text="Просроченных задач нет." %}
+    {% if dash_role == "admin" %}
+        {% url 'volunteer_applications' as apps_url %}
+        {% include "myapp/dashboard/_list_card.html" with kind="application" items=pending_applications head_id="dashAppsTitle" title_key="va.list_title" title_text="Заявки на волонтёрство" link_url=apps_url link_key="common.view_all" link_text="Смотреть все" empty_key="va.no_pending" empty_text="Нет заявок на рассмотрении" %}
+    {% endif %}
+</div>
+
+<div class="dash-row dash-row--cards">
+    {% url 'donations_admin' as offers_url %}
+    {% include "myapp/dashboard/_list_card.html" with kind="offer" items=donation_offers_pending head_id="dashOffersTitle" title_key="dash.offers_to_review" title_text="Предложения на проверку" link_url=offers_url|add:"?status=pending" link_key="common.view_all" link_text="Смотреть все" empty_key="dash.no_offers_review" empty_text="Нет предложений на проверку." %}
+    {% url 'pet_list' as pets_url %}
+    {% include "myapp/dashboard/_list_card.html" with kind="pet" items=recent_pet_reports count=pets_open_count head_id="dashPetsTitle" title_key="pet.dash_title" title_text="Потеряшки" link_url=pets_url link_key="common.view_all" link_text="Смотреть все" empty_key="pet.dash_empty" empty_text="Нет открытых объявлений." %}
+    {% if trend %}
+        <section class="card dash-card dash-lcard reveal trend-card" aria-labelledby="dashTrendTitle">
+            {% url 'crm_analytics' as analytics_url %}
+            {% include "myapp/dashboard/_card_head.html" with head_id="dashTrendTitle" title_key="an.trend_title" title_text="Запросы за период" title_days=trend.days link_url=analytics_url link_key="an.open" link_text="Аналитика" %}
+            {{ trend|json_script:"dashTrendData" }}
+            <div class="dash-trend"><canvas data-trend-chart role="img" aria-labelledby="dashTrendTitle dashTrendLegend"></canvas></div>
+            <p class="trend-legend" id="dashTrendLegend">
+                <span class="trend-legend__item trend-legend__item--created"><span><span data-i18n="an.s.created">Создано</span>:</span> <strong>{{ trend.total_created }}</strong></span>
+                <span class="trend-legend__item trend-legend__item--completed"><span><span data-i18n="an.s.completed">Выполнено</span>:</span> <strong>{{ trend.total_completed }}</strong></span>
+            </p>
+        </section>
+    {% endif %}
 </div>

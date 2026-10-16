@@ -1,0 +1,44 @@
+{% load i18n_plural %}{% comment %}
+One item of a dashboard list card (_list_card.html): always two lines, fixed
+height — line 1 = status badge + title, line 2 = meta; each line is cut with
+"…" (never wraps), the full text is in the link's title. `kind` (sos | overdue | application | offer | pet | event | broadcast)
+picks what the lines say; `item` is the row.
+{% endcomment %}
+<li>
+{% if kind == "sos" %}
+    <a class="dash-item" href="{% url 'emergency_detail' item.id %}" title="{{ item.get_status_display }} · {{ item.volunteer.username }} — #{{ item.help_request_id }} · {{ item.get_region_display|default:'—' }} · {{ item.created_at|date:'d.m.Y H:i' }}">
+        <span class="dash-item__line">{% include "myapp/_emergency_status_tag.html" with status=item.status status_display=item.get_status_display %}<span class="dash-item__title">{{ item.volunteer.username }}</span></span>
+        <span class="dash-item__meta">#{{ item.help_request_id }} · {{ item.get_region_display|default:"—" }} · {% time_ago item.created_at %}</span>
+    </a>
+{% elif kind == "overdue" %}
+    <a class="dash-item" href="{% url 'task_detail' item.id %}" title="#{{ item.id }} · {{ item.get_help_type_display }} — {{ item.volunteer.username|default:'—' }} · {{ item.get_region_display|default:'—' }} · {{ item.accepted_at|date:'d.m.Y H:i' }}">
+        <span class="dash-item__line"><span class="tag urgent" data-i18n="crm.overdue_badge">Overdue</span><span class="dash-item__title">#{{ item.id }} · <span data-i18n="help.{{ item.help_type }}">{{ item.get_help_type_display }}</span></span></span>
+        <span class="dash-item__meta">{{ item.volunteer.username|default:"—" }} · {{ item.get_region_display|default:"—" }} · {% time_ago item.accepted_at %}</span>
+    </a>
+{% elif kind == "application" %}
+    <a class="dash-item" href="{% url 'volunteer_application_detail' item.id %}" title="{{ item.user.username }} — {{ item.get_region_display|default:'—' }} · {{ item.created_at|date:'d.m.Y H:i' }}">
+        <span class="dash-item__line"><span class="tag {% if item.status == 'rejected' %}urgent{% elif item.status == 'approved' %}success{% else %}accent{% endif %}" data-i18n="va.status_{{ item.status }}">{{ item.get_status_display }}</span><span class="dash-item__title">{{ item.user.username }}</span></span>
+        <span class="dash-item__meta">{{ item.get_region_display|default:"—" }} · {% time_ago item.created_at %}</span>
+    </a>
+{% elif kind == "offer" %}
+    <a class="dash-item" href="{% url 'donation_detail' item.id %}" title="{{ item.item_label }} × {{ item.quantity }}{% if item.unit %} {{ item.unit }}{% endif %} — {{ item.donor_label }} · {{ item.get_category_display }} · {{ item.get_region_display|default:'—' }} · {{ item.created_at|date:'d.m.Y H:i' }}">
+        <span class="dash-item__line">{% include "myapp/_donation_status_tag.html" with status=item.status status_display=item.get_status_display %}<span class="dash-item__title">{{ item.item_label }} × {{ item.quantity }}{% if item.unit %} {{ item.unit }}{% endif %}</span></span>
+        <span class="dash-item__meta">{{ item.donor_label }} · {{ item.get_category_display }} · {{ item.get_region_display|default:"—" }} · {% time_ago item.created_at %}</span>
+    </a>
+{% elif kind == "pet" %}
+    <a class="dash-item" href="{% url 'pet_report_detail' item.id %}" title="#{{ item.id }} · {{ item.display_name }} — {{ item.get_species_display }} · {{ item.get_region_display|default:'—' }} · {{ item.created_at|date:'d.m.Y H:i' }}">
+        <span class="dash-item__line">{% include "myapp/_pet_type_tag.html" with report_type=item.report_type report_type_display=item.get_report_type_display %}<span class="dash-item__title">#{{ item.id }} · {{ item.display_name }}</span></span>
+        <span class="dash-item__meta">{{ item.get_species_display }} · {{ item.get_region_display|default:"—" }} · {% time_ago item.created_at %}</span>
+    </a>
+{% elif kind == "event" %}
+    <a class="dash-item" href="{% url 'event_list' %}" title="{{ item.title }} — {{ item.date|date:'d.m.Y H:i' }} · {{ item.get_region_display }}">
+        <span class="dash-item__line"><span class="tag muted">{{ item.date|date:"d.m" }}</span><span class="dash-item__title">{{ item.title }}</span></span>
+        <span class="dash-item__meta">{{ item.date|date:"H:i" }} · <span data-i18n="region.{{ item.region }}">{{ item.get_region_display }}</span></span>
+    </a>
+{% elif kind == "broadcast" %}
+    <a class="dash-item" href="{% url 'broadcast_list' %}" title="{{ item.subject }} — {{ item.created_at|date:'d.m.Y H:i' }} · {{ item.get_region_display }} · {{ item.sent_count }}">
+        <span class="dash-item__line"><span class="dash-item__title">{{ item.subject }}</span></span>
+        <span class="dash-item__meta">{% time_ago item.created_at %} · <span data-i18n="region.{{ item.region }}">{{ item.get_region_display }}</span> · {{ item.sent_count }} <span data-i18n="broadcasts.recipients">получателей</span></span>
+    </a>
+{% endif %}
+</li>

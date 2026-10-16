@@ -191,7 +191,7 @@
             return;
         }
         const me = meLatLng();
-        const dist = me ? GCMap.haversineKm(me, [point.lat, point.lng]).toFixed(1) + ' km' : '—';
+        const dist = me ? GCMap.haversineKm(me, [point.lat, point.lng]).toFixed(1) + ' ' + I('unit.km', 'km') : '—';
         const statusTag = point.status === 'active' ? 'info' : (point.status === 'completed' ? 'success' : (point.status === 'cancelled' ? 'urgent' : ''));
         const badges = [
             `<span class="tag ${statusTag}">${statusLabel[point.status] || point.status}</span>`,

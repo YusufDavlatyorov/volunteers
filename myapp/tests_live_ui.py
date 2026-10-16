@@ -118,10 +118,10 @@ class AwayIndicatorTests(TestCase):
 
     def test_volunteer_dashboard_banner(self):
         self.client.force_login(self.away)
-        response = self.client.get(reverse("profile"))
+        response = self.client.get(reverse("dashboard"))
         self.assertContains(response, 'class="away-banner')
         self.client.force_login(self.normal)
-        self.assertNotContains(self.client.get(reverse("profile")), 'class="away-banner')
+        self.assertNotContains(self.client.get(reverse("dashboard")), 'class="away-banner')
 
     def test_away_last_day_is_day_before_stored_boundary(self):
         boundary = timezone.make_aware(datetime.datetime(2026, 10, 13, 0, 0))
@@ -136,8 +136,9 @@ class CancelledRequestDisplayTests(TestCase):
                                    phone="+992901234567", region="dushanbe", status="cancelled",
                                    cancelled_at=timezone.now())
         self.client.force_login(client)
-        response = self.client.get(reverse("profile"))
-        self.assertContains(response, 'data-i18n="task.status_cancelled"')
+        response = self.client.get(reverse("dashboard"))
+        # The client's own requests use the client wording (2026-10-15, tests_ux_flows).
+        self.assertContains(response, 'data-i18n="task.client_status_cancelled"')
 
 
 class LiveUiI18nTests(TestCase):
@@ -154,7 +155,7 @@ class LiveUiI18nTests(TestCase):
         "base.html", "myapp/notifications/list.html", "myapp/notifications/preferences.html",
         "myapp/task_detail.html", "myapp/dashboard/_volunteer.html", "myapp/dashboard/_curator.html",
         "myapp/admin_panel.html", "myapp/people_list.html", "myapp/crm_volunteer_detail.html",
-        "accounts/profile.html", "myapp/_task_status_tag.html",
+        "accounts/profile.html", "myapp/dashboard.html", "myapp/_task_status_tag.html",
     ]
 
     def test_keys_exist_in_all_languages(self):

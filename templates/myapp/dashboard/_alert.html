@@ -1,0 +1,22 @@
+{% load i18n_plural %}{% comment %}
+Staff hero alert plate (dashboard + /panel/): open SOS reports (→ the open
+emergency queue) and overdue tasks (→ crm/tasks/?overdue=1). Not rendered when
+both are zero. Params: sos_count, overdue_count.
+{% endcomment %}{% if sos_count or overdue_count %}
+<div class="dash-alert" role="alert">
+    {% if sos_count %}
+        <div class="dash-alert__row dash-alert__sos">
+            <span class="dash-alert__icon">{% include "myapp/dashboard/_icon.html" with name="alert" %}</span>
+            <strong>{% plural_i18n "emg.n_open" sos_count %}</strong>
+            <a class="button danger dash-btn-sm" href="{% url 'emergency_list' %}?status=open" data-i18n="dash.triage">Triage</a>
+        </div>
+    {% endif %}
+    {% if overdue_count %}
+        <a class="dash-alert__row dash-alert__overdue" href="{% url 'crm_tasks' %}?overdue=1">
+            <span class="dash-alert__icon">{% include "myapp/dashboard/_icon.html" with name="clock" %}</span>
+            <span>{% plural_i18n "dash.n_overdue" overdue_count %}</span>
+            <span class="dash-alert__chev">{% include "myapp/dashboard/_icon.html" with name="chevron" %}</span>
+        </a>
+    {% endif %}
+</div>
+{% endif %}

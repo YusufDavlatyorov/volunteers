@@ -30,7 +30,9 @@ class ThirdPartyAssetsTests(TestCase):
             hosts.discard("khayrkhoh.tj")
             with self.subTest(url=url):
                 self.assertLessEqual(hosts, ALLOWED_THIRD_PARTY)
-                self.assertNotIn("unpkg.com", hosts)  # MapLibre only on map pages
+                # MapLibre only on map pages — the About map loads it lazily
+                # from JS (#gc-maplibre-lazy), never as a src/href at first paint.
+                self.assertNotIn("unpkg.com", hosts)
 
     def test_fonts_preconnect_and_swap(self):
         html = self.client.get("/").content.decode()
@@ -50,7 +52,7 @@ class ThirdPartyAssetsTests(TestCase):
 class ResponsiveImagesTests(TestCase):
     def test_landing_photos_are_webp_srcset_with_jpeg_fallback(self):
         html = self.client.get("/").content.decode()
-        for cls, base in (("volunteers-photo", "images/volunteers/volunteers-team-"), ("regions-photo", "images/tajikistan/mountains-")):
+        for cls, base in (("volunteers-photo", "images/volunteers/volunteers-team-"),):
             with self.subTest(cls=cls):
                 block =re.search(r"<picture>((?:(?!</picture>).)*class=\"" + cls + r"\".*?)</picture>", html, re.S).group(1)
                 self.assertIn('type="image/webp"', block)
@@ -59,7 +61,7 @@ class ResponsiveImagesTests(TestCase):
                 img = re.search(r"<img[^>]*class=\"" + cls + r"\"[^>]*>", block).group(0)
                 for attr in ('width="', 'height="', 'loading="lazy"', "sizes=", 'src="/static/' + base):
                     self.assertIn(attr, img)
-        for f in ["images/volunteers/volunteers-team-640.webp", "images/tajikistan/mountains-480.webp"]:
+        for f in ["images/volunteers/volunteers-team-640.webp"]:
             self.assertIsNotNone(finders.find(f), f)
 
 

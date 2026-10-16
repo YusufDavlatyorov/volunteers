@@ -57,33 +57,36 @@
     </p>
 
     <div class="kpi-row analytics-kpis">
-        <div class="card stat-card"><span class="metric" data-num="{{ kpis.created|default:0 }}">{{ kpis.created|default:0|ru_num }}</span><p data-i18n="an.kpi.created">Создано запросов</p></div>
-        <div class="card stat-card"><span class="metric" data-num="{{ kpis.completed|default:0 }}">{{ kpis.completed|default:0|ru_num }}</span><p data-i18n="an.kpi.completed">Выполнено</p></div>
-        <div class="card stat-card"><span class="metric">{% if kpis.completion_rate is not None %}<span data-pct="{{ kpis.completion_rate }}">{{ kpis.completion_rate }}&nbsp;%</span>{% else %}—{% endif %}</span><p data-i18n="an.kpi.completion_rate">Доля выполненных</p></div>
-        <div class="card stat-card"><span class="metric">{% if kpis.hours_to_accept is not None %}<span data-num="{{ kpis.hours_to_accept|unlocalize }}" data-decimals="1">{{ kpis.hours_to_accept|ru_num:1 }}</span> <span class="metric__unit" data-i18n="an.u.h">ч</span>{% else %}—{% endif %}</span><p data-i18n="an.kpi.to_accept">Среднее время до принятия</p></div>
-        <div class="card stat-card"><span class="metric">{% if kpis.hours_to_complete is not None %}<span data-num="{{ kpis.hours_to_complete|unlocalize }}" data-decimals="1">{{ kpis.hours_to_complete|ru_num:1 }}</span> <span class="metric__unit" data-i18n="an.u.h">ч</span>{% else %}—{% endif %}</span><p data-i18n="an.kpi.to_complete">Среднее время выполнения</p></div>
-        <div class="card stat-card"><span class="metric">{% if avg_rating is not None %}<span data-num="{{ avg_rating|unlocalize }}" data-decimals="1">{{ avg_rating|ru_num:1 }}</span>{% else %}—{% endif %}</span><p data-i18n="an.kpi.avg_rating">Средняя оценка</p></div>
-        <div class="card stat-card"><span class="metric">{% if sos_minutes is not None %}<span data-num="{{ sos_minutes|unlocalize }}" data-decimals="0">{{ sos_minutes|ru_num }}</span> <span class="metric__unit" data-i18n="an.u.min">мин</span>{% else %}—{% endif %}</span><p data-i18n="an.kpi.sos_ack">Средняя реакция на SOS</p></div>
+        <div class="card stat-card"><span class="metric" data-num="{{ kpis.created|default:0 }}">{{ kpis.created|default:0|ru_num }}</span><p title="Создано запросов" data-i18n-title="an.kpi.created" data-i18n="an.kpi.created">Создано запросов</p></div>
+        <div class="card stat-card"><span class="metric" data-num="{{ kpis.completed|default:0 }}">{{ kpis.completed|default:0|ru_num }}</span><p title="Выполнено" data-i18n-title="an.kpi.completed" data-i18n="an.kpi.completed">Выполнено</p></div>
+        <div class="card stat-card"><span class="metric">{% if kpis.completion_rate is not None %}<span data-pct="{{ kpis.completion_rate }}">{{ kpis.completion_rate }}&nbsp;%</span>{% else %}—{% endif %}</span><p title="Доля выполненных" data-i18n-title="an.kpi.completion_rate" data-i18n="an.kpi.completion_rate">Доля выполненных</p></div>
+        <div class="card stat-card"><span class="metric">{% if kpis.hours_to_accept is not None %}<span data-num="{{ kpis.hours_to_accept|unlocalize }}" data-decimals="1">{{ kpis.hours_to_accept|ru_num:1 }}</span> <span class="metric__unit" data-i18n="an.u.h">ч</span>{% else %}—{% endif %}</span><p title="Среднее время до принятия" data-i18n-title="an.kpi.to_accept" data-i18n="an.kpi.to_accept">Среднее время до принятия</p></div>
+        <div class="card stat-card"><span class="metric">{% if kpis.hours_to_complete is not None %}<span data-num="{{ kpis.hours_to_complete|unlocalize }}" data-decimals="1">{{ kpis.hours_to_complete|ru_num:1 }}</span> <span class="metric__unit" data-i18n="an.u.h">ч</span>{% else %}—{% endif %}</span><p title="Среднее время выполнения" data-i18n-title="an.kpi.to_complete" data-i18n="an.kpi.to_complete">Среднее время выполнения</p></div>
+        <div class="card stat-card"><span class="metric">{% if avg_rating is not None %}<span data-num="{{ avg_rating|unlocalize }}" data-decimals="1">{{ avg_rating|ru_num:1 }}</span>{% else %}—{% endif %}</span><p title="Средняя оценка" data-i18n-title="an.kpi.avg_rating" data-i18n="an.kpi.avg_rating">Средняя оценка</p></div>
+        <div class="card stat-card"><span class="metric">{% if sos_minutes is not None %}<span data-num="{{ sos_minutes|unlocalize }}" data-decimals="0">{{ sos_minutes|ru_num }}</span> <span class="metric__unit" data-i18n="an.u.min">мин</span>{% else %}—{% endif %}</span><p title="Средняя реакция на SOS" data-i18n-title="an.kpi.sos_ack" data-i18n="an.kpi.sos_ack">Средняя реакция на SOS</p></div>
     </div>
 
     <div class="chart-grid">
         {% for item in chart_layout %}
-            <section class="card chart-card{% if item.wide %} chart-card--wide{% endif %}" data-chart="{{ item.name }}" data-display="{{ item.display }}" data-empty="{% if item.empty %}1{% else %}0{% endif %}" aria-labelledby="chartTitle-{{ item.name }}">
+            <section class="card chart-card{% if item.wide %} chart-card--wide{% else %} chart-card--half{% endif %}" data-chart="{{ item.name }}" data-display="{{ item.display }}" data-empty="{% if item.empty %}1{% else %}0{% endif %}" aria-labelledby="chartTitle-{{ item.name }}">
                 <div class="chart-card__head">
                     <div class="chart-card__titles">
-                        <h3 id="chartTitle-{{ item.name }}" data-i18n="an.c.{{ item.name }}">{{ item.name }}</h3>
+                        <h3 id="chartTitle-{{ item.name }}"{% if not item.wide %} title="{{ item.name }}" data-i18n-title="an.c.{{ item.name }}"{% endif %} data-i18n="an.c.{{ item.name }}">{{ item.name }}</h3>
                         {% include "myapp/_chart_headline.html" with head=item.head %}
                     </div>
                     <a class="button ghost chart-card__csv" href="{% url 'crm_analytics_csv' item.name %}?{{ filters.querystring }}" data-i18n-tooltip="an.csv_hint" data-tooltip="Скачать данные графика (CSV)" aria-label="CSV" download data-csv>CSV</a>
                 </div>
                 {% if item.name == "delays" or item.name == "workload" or item.name == "ratings" or item.name == "availability" or item.name == "chat_flags_topics" %}
-                    <p class="field-hint chart-card__note" data-i18n="an.n.{{ item.name }}"></p>
+                    <p class="field-hint chart-card__note"{% if not item.wide %} data-i18n-title="an.n.{{ item.name }}"{% endif %} data-i18n="an.n.{{ item.name }}"></p>
+                {% elif not item.wide %}
+                    {# Same 2-line slot in every half-width card, so the charts line up. #}
+                    <p class="field-hint chart-card__note" aria-hidden="true"></p>
                 {% endif %}
                 {% if item.name == "chat_flags_topics" %}
                     <p class="chart-card__summary" data-i18n="an.flag_summary" data-i18n-args='{"n": {{ flag_kpis.flagged|default:0 }}, "total": {{ flag_kpis.messages|default:0 }}, "share": "{{ flag_kpis.share|default_if_none:"0" }}", "open": {{ flag_kpis.unreviewed|default:0 }}}'>Сообщений с флагом: {{ flag_kpis.flagged|default:0 }} из {{ flag_kpis.messages|default:0 }} ({{ flag_kpis.share|default_if_none:"0" }}%) · ещё не проверено: {{ flag_kpis.unreviewed|default:0 }}</p>
                 {% endif %}
-                <div class="chart-box chart-box--{{ item.display }}{% if item.height %} chart-box--rows{% endif %}"{% if item.height %} style="--box-h: {{ item.height }}px"{% endif %}>
-                    {% if item.empty %}<p class="chart-empty" data-i18n="an.no_data">Нет данных за выбранный период</p>{% else %}<canvas role="img" aria-labelledby="chartTitle-{{ item.name }}"></canvas>{% endif %}
+                <div class="chart-box chart-box--{{ item.display }}{% if item.height %} chart-box--rows{% endif %}{% if item.grouped %} chart-box--grouped{% endif %}{% if item.legend %} chart-box--legend{% endif %}"{% if item.height %} style="--box-h: {{ item.height }}px; --rows: {{ item.rows }}"{% endif %}>
+                    {% if item.empty %}<p class="chart-empty" data-i18n="an.no_data">Нет данных за выбранный период</p>{% else %}<div class="chart-plot"><canvas role="img" aria-labelledby="chartTitle-{{ item.name }}"></canvas></div>{% endif %}
                 </div>
                 <details class="chart-table">
                     <summary data-i18n="an.table">Показать таблицей</summary>

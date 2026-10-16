@@ -170,15 +170,14 @@ class MapDataLiveTests(TestCase):
 
 
 class AboutPrivacyNoteTests(TestCase):
-    def test_privacy_section_prerendered_in_russian(self):
+    # The location-privacy card was removed from the landing page (owner
+    # 2026-10-14); the retention rules themselves (tracking stop, trail and
+    # chat purges) stay in the backend and keep their own tests.
+    def test_privacy_section_is_gone(self):
         html = self.client.get(reverse("about")).content.decode()
-        self.assertIn('id="privacy"', html)
-        ru = translation_table("ru")
-        for key in ("about.privacy_title", "about.privacy_when", "about.privacy_who",
-                    "about.privacy_stop", "about.privacy_keep"):
-            self.assertIn(f'data-i18n="{key}"', html)
-            self.assertIn(ru[key], html)
-        self.assertIn("24", ru["about.privacy_keep"])
+        self.assertNotIn('id="privacy"', html)
+        self.assertNotIn("privacy-note", html)
+        self.assertNotIn('data-i18n="about.privacy_', html)
 
 
 class TrackingUiI18nTests(TestCase):

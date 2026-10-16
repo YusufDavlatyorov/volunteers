@@ -137,21 +137,7 @@ def recommend_volunteers(task, limit=5):
         return []
 
     now = timezone.now()
-    weights = URGENT_WEIGHTS if task.is_urgent else NORMAL_WEIGHTS
-
-    candidates = (
-        Users.objects.filter(is_volunteer=True, is_active=True)
-        .exclude(profile__availability_status=Profile.AVAILABILITY_OFFLINE)
-        # Do-not-disturb / on vacation: excluded entirely, like offline.
-        .filter(not_away_q())
-        .filter(profile__latitude__isnull=False, profile__longitude__isnull=False)
-        .select_related("profile")
-        .annotate(
-            active_task_count=Count(
-                "volunteer_tasks", filter=Q(volunteer_tasks__status="active"), distinct=True
-            )
-        )
-    )
+    candidates = _candidate_queryset()
     if task.volunteer_id:
         # Already assigned — recommending them again is a no-op for the curator.
         candidates = candidates.exclude(pk=task.volunteer_id)
@@ -168,7 +154,68 @@ def recommend_volunteers(task, limit=5):
         Abs(Cast(F("profile__longitude"), FloatField()) - task_lng) * lng_weight
     )
     candidates = candidates.alias(_proximity=proximity).order_by("_proximity", "id")[:CANDIDATE_CAP]
+    return _rank(task, candidates, now, limit)
 
+
+# Batched variant for list pages (staff dashboard queue, /panel/ table): one
+# query loads the whole eligible pool, then every task gets exactly what
+# recommend_volunteers(task, limit=1) would answer — the same filters, the same
+# CANDIDATE_CAP nearest by the same proximity metric, the same ranking. Above
+# this many eligible volunteers it falls back to one SQL-capped call per task
+# (a bounded page, so still bounded work).
+BULK_POOL_CAP = 1000
+
+
+def best_volunteer_per_task(tasks):
+    """{task.id: the top recommend_volunteers() pick, or None} for every task,
+    from ONE candidate query instead of one per task. Read-only."""
+    picks = {task.id: None for task in tasks}
+    located = [task for task in tasks if task.has_location]
+    if not located:
+        return picks
+    now = timezone.now()
+    pool = list(_candidate_queryset().order_by("id")[:BULK_POOL_CAP + 1])
+    for task in located:
+        if len(pool) > BULK_POOL_CAP:
+            ranked = recommend_volunteers(task, limit=1)
+        else:
+            task_lat, task_lng = float(task.latitude), float(task.longitude)
+            lng_weight = math.cos(math.radians(task_lat)) or 1.0
+            nearest = sorted(
+                (volunteer for volunteer in pool if volunteer.pk != task.volunteer_id),
+                key=lambda v: (
+                    abs(float(v.profile.latitude) - task_lat) + abs(float(v.profile.longitude) - task_lng) * lng_weight,
+                    v.id,
+                ),
+            )[:CANDIDATE_CAP]
+            ranked = _rank(task, nearest, now, 1)
+        picks[task.id] = ranked[0] if ranked else None
+    return picks
+
+
+def _candidate_queryset():
+    """Volunteers who can be recommended at all: active, not offline, not on
+    do-not-disturb, with a saved location — each with its active-task count."""
+    return (
+        Users.objects.filter(is_volunteer=True, is_active=True)
+        .exclude(profile__availability_status=Profile.AVAILABILITY_OFFLINE)
+        # Do-not-disturb / on vacation: excluded entirely, like offline.
+        .filter(not_away_q())
+        .filter(profile__latitude__isnull=False, profile__longitude__isnull=False)
+        .select_related("profile")
+        .annotate(
+            active_task_count=Count(
+                "volunteer_tasks", filter=Q(volunteer_tasks__status="active"), distinct=True
+            )
+        )
+    )
+
+
+def _rank(task, candidates, now, limit):
+    """Score `candidates` for `task` (the shared ranking of recommend_volunteers
+    and best_volunteer_per_task), best first, at most `limit`."""
+    weights = URGENT_WEIGHTS if task.is_urgent else NORMAL_WEIGHTS
+    task_lat, task_lng = float(task.latitude), float(task.longitude)
     ranked = []
 
     for volunteer in candidates:

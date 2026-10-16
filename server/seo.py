@@ -59,8 +59,8 @@ PUBLIC_PAGES = {
     "rating": {
         "title": "Рейтинг волонтёров — KhayrKhoh",
         "description": (
-            "Волонтёры KhayrKhoh по регионам Таджикистана: средняя оценка "
-            "клиентов и значки за помощь пожилым людям."
+            "Рейтинг волонтёров KhayrKhoh в Таджикистане: места по выполненным "
+            "заявкам, средняя оценка клиентов и значки за помощь пожилым людям."
         ),
         "canonical": "rating",
         "sitemap": {"priority": 0.6, "changefreq": "daily"},
@@ -91,6 +91,7 @@ PUBLIC_PAGES = {
 # public pages (about, rating) live under it.
 ROBOTS_DISALLOW = [
     "/admin/",
+    "/dashboard/",
     "/profile/",
     "/update-profile/",
     "/forgot-password/",

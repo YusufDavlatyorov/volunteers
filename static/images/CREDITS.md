@@ -9,7 +9,6 @@ platform's own region rather than generic "Asian" stock imagery.
 
 | File | Description | Author | License | Source |
 |---|---|---|---|---|
-| `tajikistan/mountains-{480,960}.{webp,jpg}` (resized from the 1800×1200 original) | Wakhan valley, Pamir mountains, Tajikistan | Ninara (Helsinki) | CC BY 2.0 | https://commons.wikimedia.org/wiki/File:Wakhan,_Tajikistan_(30187116688).jpg |
 | `volunteers/aid-delivery-elderly.jpg` | A young Red Crescent volunteer hands a food-aid box to an elderly man, Tajikistan | Шухрат Саъдиев (Shukhrat Sadiev) | CC BY-SA 4.0 | https://commons.wikimedia.org/wiki/File:Humanitarian_aid_in_Tajikistan_01.jpg |
 | `volunteers/community-registration.jpg` | Volunteers registering community members for aid distribution, Tajikistan | Шухрат Саъдиев (Shukhrat Sadiev) | CC BY-SA 4.0 | https://commons.wikimedia.org/wiki/File:Humanitarian_aid_in_Tajikistan_02.jpg |
 | `volunteers/aid-distribution.jpg` | Community aid distribution with volunteers and families, Tajikistan | Шухрат Саъдиев (Shukhrat Sadiev) | CC BY-SA 4.0 | https://commons.wikimedia.org/wiki/File:Humanitarian_aid_in_Tajikistan_03.jpg |
@@ -34,3 +33,7 @@ only holds imagery used for marketing/demo purposes.
 page "Meet Our Volunteers" photo) is not from Wikimedia Commons — it is the
 project's own photo, previously hot-linked from its Facebook page (an expiring
 fbcdn URL), now self-hosted and resized (WebP + JPEG fallback, `srcset`).
+
+**Exception:** `about/about-hero-{768,1280,1672}.{webp,jpg}` (the About page hero)
+is not from Wikimedia Commons either — it was supplied by the project owner
+(2026-10-14) and resized from a 1672×941 original (WebP + JPEG fallback, `srcset`).

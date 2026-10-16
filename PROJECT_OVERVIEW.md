@@ -467,7 +467,7 @@ All templates use `{% extends "base.html" %}` except `myapp/ai_advisor.html` whi
 | `myapp/task_detail.html` | `/myapp/tasks/<pk>/` | Single request detail |
 | `myapp/task_form.html` | shared | Reused for: create request, create event, broadcast |
 | `myapp/completed_tasks.html` | `/myapp/archive/` | Archive of completed requests |
-| `myapp/rating.html` | `/myapp/rating/` | Top 30 volunteers by rating |
+| `myapp/rating.html` | `/myapp/rating/` | Ranked volunteers with places by completed requests, all time (2026-10-14: `myapp/services/rating.py`; supersedes "top 30" and the 2026-10-03 "no places") |
 | `myapp/photo_reports.html` | `/myapp/reports/` | List + upload form for photo reports |
 | `myapp/ai_assistant.html` | `/myapp/ai/` | AI chat interface |
 | `myapp/ai_advisor.html` | not directly linked | Stub — just `{% extends "myapp/ai_assistant.html" %}` |
@@ -478,7 +478,7 @@ All templates use `{% extends "base.html" %}` except `myapp/ai_advisor.html` whi
 - `admin_panel_view` → `filter_form`, `free_requests`, `busy_requests`, `archive_count`, `broadcasts`, `events`
 - `task_list_view` → `tasks`, `filter_form`, `my_active`
 - `about_view` → `stats` (dict), `reports`
-- `rating_view` → `volunteers`, `by_region`
+- `rating_view` → `podium`, `page_rows`, `updated_minutes` (2026-10-14, `myapp/services/rating.py`)
 - `photo_reports_view` → `reports`, `form`
 
 ---

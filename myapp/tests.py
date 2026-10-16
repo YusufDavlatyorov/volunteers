@@ -1,4 +1,5 @@
 import io
+import re
 import threading
 from decimal import Decimal
 from unittest import mock
@@ -149,7 +150,7 @@ class VolunteerApplicationTests(TestCase):
         user, _ = self._make_pending("pendingvol", "p@example.com")
         self.client.login(username="pendingvol", password="pass12345")
         response = self.client.get(reverse("task_list"))
-        self.assertRedirects(response, reverse("profile"))
+        self.assertRedirects(response, reverse("dashboard"))
 
     def test_admin_approve_grants_volunteer(self):
         user, application = self._make_pending("tobeapproved", "a2@example.com")
@@ -184,7 +185,7 @@ class VolunteerApplicationTests(TestCase):
         )
         self.client.login(username="rejectedvol", password="pass12345")
         response = self.client.get(reverse("accept_task", args=[task.pk]))
-        self.assertRedirects(response, reverse("profile"))
+        self.assertRedirects(response, reverse("dashboard"))
         task.refresh_from_db()
         self.assertEqual(task.status, "pending")
 
@@ -195,7 +196,7 @@ class VolunteerApplicationTests(TestCase):
         )
         self.client.login(username="pendingvol2", password="pass12345")
         response = self.client.get(reverse("accept_task", args=[task.pk]))
-        self.assertRedirects(response, reverse("profile"))
+        self.assertRedirects(response, reverse("dashboard"))
 
     def test_one_active_task_rule_still_enforced(self):
         user, application = self._make_pending("busyvol", "a7@example.com")
@@ -283,17 +284,17 @@ class VolunteerApplicationsAdminSectionTests(TestCase):
     def test_curator_cannot_access_applications_page(self):
         self.client.login(username="section_curator", password="pass12345")
         response = self.client.get(reverse("volunteer_applications"))
-        self.assertRedirects(response, reverse("profile"))
+        self.assertRedirects(response, reverse("dashboard"))
 
     def test_volunteer_cannot_access_applications_page(self):
         self.client.login(username="section_volunteer", password="pass12345")
         response = self.client.get(reverse("volunteer_applications"))
-        self.assertRedirects(response, reverse("profile"))
+        self.assertRedirects(response, reverse("dashboard"))
 
     def test_client_cannot_access_applications_page(self):
         self.client.login(username="section_client", password="pass12345")
         response = self.client.get(reverse("volunteer_applications"))
-        self.assertRedirects(response, reverse("profile"))
+        self.assertRedirects(response, reverse("dashboard"))
 
     # 5-8: approve / reject behaviour
     def test_admin_can_approve_pending_application(self):
@@ -375,7 +376,7 @@ class VolunteerApplicationsAdminSectionTests(TestCase):
     def test_curator_cannot_approve_via_section_urls(self):
         self.client.login(username="section_curator", password="pass12345")
         response = self.client.post(reverse("volunteer_application_approve", args=[self.application.pk]))
-        self.assertRedirects(response, reverse("profile"))
+        self.assertRedirects(response, reverse("dashboard"))
         self.application.refresh_from_db()
         self.assertEqual(self.application.status, VolunteerApplication.STATUS_PENDING)
 
@@ -387,7 +388,7 @@ class VolunteerApplicationsAdminSectionTests(TestCase):
         self.client.logout()
         self.client.login(username="section_curator", password="pass12345")
         response = self.client.get(reverse("volunteer_application_detail", args=[self.application.pk]))
-        self.assertRedirects(response, reverse("profile"))
+        self.assertRedirects(response, reverse("dashboard"))
 
 
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
@@ -1293,12 +1294,12 @@ class TaskRecommendationsViewTests(TestCase):
     def test_client_cannot_get_recommendations(self):
         self.client.login(username="rec_client", password="pass12345")
         response = self.client.get(reverse("task_recommendations", args=[self.task.pk]))
-        self.assertRedirects(response, reverse("profile"))
+        self.assertRedirects(response, reverse("dashboard"))
 
     def test_volunteer_cannot_get_recommendations(self):
         self.client.login(username="rec_vol", password="pass12345")
         response = self.client.get(reverse("task_recommendations", args=[self.task.pk]))
-        self.assertRedirects(response, reverse("profile"))
+        self.assertRedirects(response, reverse("dashboard"))
 
     def test_anonymous_cannot_get_recommendations(self):
         response = self.client.get(reverse("task_recommendations", args=[self.task.pk]))
@@ -1330,7 +1331,7 @@ class TaskRecommendationsViewTests(TestCase):
     def test_client_cannot_notify(self):
         self.client.login(username="rec_client", password="pass12345")
         response = self.client.post(reverse("task_notify_volunteer", args=[self.task.pk, self.nearby_volunteer.pk]))
-        self.assertRedirects(response, reverse("profile"))
+        self.assertRedirects(response, reverse("dashboard"))
 
     def test_notify_on_non_pending_task_is_graceful(self):
         self.task.status = "cancelled"
@@ -1515,11 +1516,11 @@ class CrmTasksViewTests(TestCase):
 
     def test_volunteer_denied(self):
         self.client.login(username="ct_vol", password="pass12345")
-        self.assertRedirects(self.client.get(reverse("crm_tasks")), reverse("profile"))
+        self.assertRedirects(self.client.get(reverse("crm_tasks")), reverse("dashboard"))
 
     def test_client_denied(self):
         self.client.login(username="ct_client", password="pass12345")
-        self.assertRedirects(self.client.get(reverse("crm_tasks")), reverse("profile"))
+        self.assertRedirects(self.client.get(reverse("crm_tasks")), reverse("dashboard"))
 
     def test_anonymous_denied(self):
         self.assertEqual(self.client.get(reverse("crm_tasks")).status_code, 302)
@@ -1635,12 +1636,12 @@ class CrmVolunteerDetailViewTests(TestCase):
     def test_volunteer_denied(self):
         self.client.login(username="cvd_vol2", password="pass12345")
         response = self.client.get(reverse("crm_volunteer_detail", args=[self.volunteer.pk]))
-        self.assertRedirects(response, reverse("profile"))
+        self.assertRedirects(response, reverse("dashboard"))
 
     def test_client_denied(self):
         self.client.login(username="cvd_client", password="pass12345")
         response = self.client.get(reverse("crm_volunteer_detail", args=[self.volunteer.pk]))
-        self.assertRedirects(response, reverse("profile"))
+        self.assertRedirects(response, reverse("dashboard"))
 
     def test_freshness_none_when_no_location_set(self):
         self.client.login(username="cvd_admin", password="pass12345")
@@ -1681,12 +1682,12 @@ class PeopleListCrmTests(TestCase):
     def test_volunteer_cannot_access_people_list(self):
         self.client.login(username="pl_avail", password="pass12345")
         response = self.client.get(reverse("people_list", args=["volunteer"]))
-        self.assertRedirects(response, reverse("profile"))
+        self.assertRedirects(response, reverse("dashboard"))
 
     def test_client_cannot_access_people_list(self):
         self.client.login(username="pl_client", password="pass12345")
         response = self.client.get(reverse("people_list", args=["volunteer"]))
-        self.assertRedirects(response, reverse("profile"))
+        self.assertRedirects(response, reverse("dashboard"))
 
     def test_availability_filter_narrows_results(self):
         self.client.login(username="pl_admin", password="pass12345")
@@ -1747,11 +1748,11 @@ class AdminPanelDashboardTests(TestCase):
 
     def test_volunteer_denied_dashboard(self):
         self.client.login(username="dash_vol", password="pass12345")
-        self.assertRedirects(self.client.get(reverse("admin_panel")), reverse("profile"))
+        self.assertRedirects(self.client.get(reverse("admin_panel")), reverse("dashboard"))
 
     def test_client_denied_dashboard(self):
         self.client.login(username="dash_client", password="pass12345")
-        self.assertRedirects(self.client.get(reverse("admin_panel")), reverse("profile"))
+        self.assertRedirects(self.client.get(reverse("admin_panel")), reverse("dashboard"))
 
 
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
@@ -1891,7 +1892,7 @@ class TaskDetailIdorTests(TestCase):
     def test_other_client_cannot_view_someone_elses_pending_task(self):
         self.client.login(username="idor_client_b", password="pass12345")
         response = self.client.get(reverse("task_detail", args=[self.task.pk]))
-        self.assertRedirects(response, reverse("profile"))
+        self.assertRedirects(response, reverse("dashboard"))
 
     def test_owning_client_can_view_own_task(self):
         self.client.login(username="idor_client_a", password="pass12345")
@@ -1907,7 +1908,7 @@ class TaskDetailIdorTests(TestCase):
     def test_volunteer_in_other_region_cannot_view_pending_task(self):
         self.client.login(username="idor_vol_other", password="pass12345")
         response = self.client.get(reverse("task_detail", args=[self.task.pk]))
-        self.assertRedirects(response, reverse("profile"))
+        self.assertRedirects(response, reverse("dashboard"))
 
     def test_volunteer_with_no_region_can_view_any_pending_task(self):
         # Matches task_list_view: a volunteer with no region set sees pending
@@ -1927,7 +1928,7 @@ class TaskDetailIdorTests(TestCase):
         )
         self.client.login(username="idor_vol_bystander", password="pass12345")
         response = self.client.get(reverse("task_detail", args=[self.task.pk]))
-        self.assertRedirects(response, reverse("profile"))
+        self.assertRedirects(response, reverse("dashboard"))
 
     def test_curator_and_admin_have_full_access(self):
         for username in ("idor_curator", "idor_admin"):
@@ -1945,7 +1946,7 @@ class TaskDetailIdorTests(TestCase):
         self.assertEqual(other_task.pk, self.task.pk + 1)  # sanity: adjacent ids, as a real IDOR probe would try
         self.client.login(username="idor_client_a", password="pass12345")
         response = self.client.get(reverse("task_detail", args=[other_task.pk]))
-        self.assertRedirects(response, reverse("profile"))
+        self.assertRedirects(response, reverse("dashboard"))
 
 
 class AcceptTaskRaceConditionTests(TestCase):
@@ -2934,7 +2935,7 @@ class EmergencyReportViewTests(TestCase):
         self.client.login(username="e_client", password="pass12345")
         resp = self.client.post(self._url())
         self.assertEqual(EmergencyReport.objects.count(), 0)
-        self.assertRedirects(resp, reverse("profile"))
+        self.assertRedirects(resp, reverse("dashboard"))
 
     def test_volunteer_cannot_report_on_another_volunteers_task(self):
         self.client.login(username="e_vol2", password="pass12345")
@@ -3004,7 +3005,7 @@ class EmergencyUpdateViewTests(TestCase):
             resp = self._post(actor, "acknowledge")
             self.report.refresh_from_db()
             self.assertEqual(self.report.status, "open")
-            self.assertRedirects(resp, reverse("profile"))
+            self.assertRedirects(resp, reverse("dashboard"))
 
     def test_client_cannot_update(self):
         self._post("e_client", "resolve")
@@ -3049,10 +3050,10 @@ class EmergencyDetailAccessTests(TestCase):
 
     def test_other_volunteer_denied(self):
         resp = self._get("e_vol2")
-        self.assertRedirects(resp, reverse("profile"))
+        self.assertRedirects(resp, reverse("dashboard"))
 
     def test_client_denied(self):
-        self.assertRedirects(self._get("e_client"), reverse("profile"))
+        self.assertRedirects(self._get("e_client"), reverse("dashboard"))
 
     def test_staff_see_action_controls(self):
         resp = self._get("e_curator")
@@ -3076,9 +3077,9 @@ class EmergencyCrmListTests(TestCase):
 
     def test_requires_staff(self):
         self.client.login(username="e_vol", password="pass12345")
-        self.assertRedirects(self.client.get(reverse("emergency_list")), reverse("profile"))
+        self.assertRedirects(self.client.get(reverse("emergency_list")), reverse("dashboard"))
         self.client.login(username="e_client", password="pass12345")
-        self.assertRedirects(self.client.get(reverse("emergency_list")), reverse("profile"))
+        self.assertRedirects(self.client.get(reverse("emergency_list")), reverse("dashboard"))
 
     def test_open_report_appears_for_staff(self):
         self.client.login(username="e_curator", password="pass12345")
@@ -3140,25 +3141,25 @@ class EmergencyDashboardTests(TestCase):
 
     def test_volunteer_dashboard_has_sos_button(self):
         self.client.login(username="e_vol", password="pass12345")
-        resp = self.client.get(reverse("profile"))
+        resp = self.client.get(reverse("dashboard"))
         self.assertContains(resp, reverse("emergency_report", args=[self.task.pk]))
 
     def test_volunteer_dashboard_shows_notice_when_report_open(self):
         report = EmergencyReport.objects.create(help_request=self.task, volunteer=self.volunteer)
         self.client.login(username="e_vol", password="pass12345")
-        resp = self.client.get(reverse("profile"))
+        resp = self.client.get(reverse("dashboard"))
         self.assertNotContains(resp, reverse("emergency_report", args=[self.task.pk]))
         self.assertContains(resp, reverse("emergency_detail", args=[report.pk]))
 
     def test_client_dashboard_has_no_sos_button(self):
         self.client.login(username="e_client", password="pass12345")
-        resp = self.client.get(reverse("profile"))
+        resp = self.client.get(reverse("dashboard"))
         self.assertNotContains(resp, "emergency/report/")
 
     def test_staff_dashboard_shows_open_count(self):
         EmergencyReport.objects.create(help_request=self.task, volunteer=self.volunteer)
         self.client.login(username="e_curator", password="pass12345")
-        resp = self.client.get(reverse("profile"))
+        resp = self.client.get(reverse("dashboard"))
         self.assertEqual(resp.context["open_emergency_count"], 1)
 
     def test_task_detail_sos_button_for_assigned_volunteer_only(self):
@@ -3347,7 +3348,7 @@ class EmergencyNotificationFailureTests(TestCase):
         mail.outbox.clear()
         self.client.login(username="e_vol", password="pass12345")
         resp = self.client.post(reverse("emergency_update", args=[report.pk]), {"action": "realert"})
-        self.assertRedirects(resp, reverse("profile"))
+        self.assertRedirects(resp, reverse("dashboard"))
         self.assertEqual(len(mail.outbox), 0)
 
     def test_realert_noop_on_closed_report(self):
@@ -3497,7 +3498,7 @@ class VolunteerDashboardTests(TestCase):
 
     def _get(self, user="d5_vol_a"):
         self.client.login(username=user, password="pass12345")
-        return self.client.get(reverse("profile"))
+        return self.client.get(reverse("dashboard"))
 
     def test_volunteer_gets_volunteer_dashboard(self):
         resp = self._get()
@@ -3554,7 +3555,7 @@ class ClientDashboardTests(TestCase):
 
     def _get(self, user="d5_cli_a"):
         self.client.login(username=user, password="pass12345")
-        return self.client.get(reverse("profile"))
+        return self.client.get(reverse("dashboard"))
 
     def test_client_gets_client_dashboard(self):
         resp = self._get()
@@ -3590,7 +3591,7 @@ class CuratorDashboardTests(TestCase):
 
     def _get(self, user="d5_curator"):
         self.client.login(username=user, password="pass12345")
-        return self.client.get(reverse("profile"))
+        return self.client.get(reverse("dashboard"))
 
     def test_curator_gets_curator_dashboard(self):
         resp = self._get()
@@ -3660,7 +3661,7 @@ class AdminDashboardTests(TestCase):
 
     def _get(self):
         self.client.login(username="d5_admin", password="pass12345")
-        return self.client.get(reverse("profile"))
+        return self.client.get(reverse("dashboard"))
 
     def test_admin_gets_platform_dashboard(self):
         resp = self._get()
@@ -3688,14 +3689,14 @@ class DashboardSecurityTests(TestCase):
         self.admin, self.curator, self.vol_a, self.vol_b, self.cli_a, self.cli_b = _dash_users()
 
     def test_anonymous_redirected_to_login(self):
-        resp = self.client.get(reverse("profile"))
+        resp = self.client.get(reverse("dashboard"))
         self.assertEqual(resp.status_code, 302)
         self.assertIn("/login", resp.url)
 
     def test_volunteer_dashboard_has_no_platform_or_other_user_data(self):
         _hr(self.cli_b, status="active", volunteer=self.vol_b, accepted_at=timezone.now())
         self.client.login(username="d5_vol_a", password="pass12345")
-        resp = self.client.get(reverse("profile"))
+        resp = self.client.get(reverse("dashboard"))
         self.assertNotIn("users_by_role", resp.context)
         self.assertNotIn("stats", resp.context)
         self.assertNotIn("stale_pending_tasks", resp.context)
@@ -3705,20 +3706,20 @@ class DashboardSecurityTests(TestCase):
         emg_task = _hr(self.cli_b, status="active", volunteer=self.vol_b, accepted_at=timezone.now())
         EmergencyReport.objects.create(help_request=emg_task, volunteer=self.vol_b)
         self.client.login(username="d5_cli_a", password="pass12345")
-        resp = self.client.get(reverse("profile"))
+        resp = self.client.get(reverse("dashboard"))
         self.assertNotIn("open_emergencies", resp.context)
         self.assertNotContains(resp, reverse("emergency_list"))
 
     def test_query_param_tampering_is_ignored(self):
         self.client.login(username="d5_vol_a", password="pass12345")
-        r1 = self.client.get(reverse("profile"))
-        r2 = self.client.get(reverse("profile") + "?user=1&role=admin&id=999")
+        r1 = self.client.get(reverse("dashboard"))
+        r2 = self.client.get(reverse("dashboard") + "?user=1&role=admin&id=999")
         self.assertEqual(r1.context["dash_role"], r2.context["dash_role"])
         self.assertEqual(r2.context["dash_role"], "volunteer")
 
-    def test_dashboard_view_route_redirects_to_profile(self):
+    def test_old_myapp_dashboard_route_redirects_to_dashboard(self):
         self.client.login(username="d5_vol_a", password="pass12345")
-        self.assertRedirects(self.client.get(reverse("dashboard")), reverse("profile"))
+        self.assertRedirects(self.client.get(reverse("dashboard_legacy")), reverse("dashboard"))
 
     def test_for_user_roleless_returns_guest(self):
         roleless = Users.objects.create_user(username="d5_none", email="d5_none@example.com", password="pass12345")
@@ -4019,7 +4020,7 @@ class DonationViewTests(TestCase):
         theirs = donations.create_offer(donor=self.client_b, item_name="b")
         self._login("dn_cli_a")
         resp = self.client.get(reverse("donation_detail", args=[theirs.id]))
-        self.assertRedirects(resp, reverse("profile"))
+        self.assertRedirects(resp, reverse("dashboard"))
 
     def test_curator_can_view_ledger_and_any_offer(self):
         theirs = donations.create_offer(donor=self.client_b, item_name="b")
@@ -4030,7 +4031,7 @@ class DonationViewTests(TestCase):
     def test_donations_ledger_is_staff_only(self):
         offer = donations.create_offer(donor=self.client_a, item_name="a")
         self._login("dn_cli_a")
-        self.assertRedirects(self.client.get(reverse("donations_admin")), reverse("profile"))
+        self.assertRedirects(self.client.get(reverse("donations_admin")), reverse("dashboard"))
         self._login("dn_curator")
         self.assertEqual(self.client.get(reverse("donations_admin")).status_code, 200)
 
@@ -4108,21 +4109,21 @@ class DonationDashboardTests(TestCase):
         mine = donations.create_offer(donor=self.cli_a, item_name="Плед", quantity=2)
         donations.create_offer(donor=self.cli_b, item_name="Куртка")
         self.client.login(username="d5_cli_a", password="pass12345")
-        resp = self.client.get(reverse("profile"))
+        resp = self.client.get(reverse("dashboard"))
         self.assertEqual(resp.context["donation_count"], 1)
         self.assertEqual({d.id for d in resp.context["recent_donations"]}, {mine.id})
 
     def test_admin_dashboard_has_offer_summary(self):
         donations.create_offer(donor=self.cli_a, item_name="a")
         self.client.login(username="d5_admin", password="pass12345")
-        resp = self.client.get(reverse("profile"))
+        resp = self.client.get(reverse("dashboard"))
         self.assertIn("offer_summary", resp.context)
         self.assertEqual(resp.context["offer_summary"]["pending"], 1)
 
     def test_curator_dashboard_has_pending_offers_queue(self):
         donations.create_offer(donor=self.cli_a, item_name="a")
         self.client.login(username="d5_curator", password="pass12345")
-        resp = self.client.get(reverse("profile"))
+        resp = self.client.get(reverse("dashboard"))
         self.assertIn("offer_summary", resp.context)
         self.assertEqual(len(resp.context["donation_offers_pending"]), 1)
 
@@ -4131,7 +4132,7 @@ class DonationDashboardTests(TestCase):
         donations.approve_offer(d, actor=self.admin)
         donations.assign_offer_volunteer(d, volunteer=self.vol_a, actor=self.admin)
         self.client.login(username="d5_vol_a", password="pass12345")
-        resp = self.client.get(reverse("profile"))
+        resp = self.client.get(reverse("dashboard"))
         self.assertEqual({x.id for x in resp.context["assigned_donations"]}, {d.id})
 
 # ===========================================================================
@@ -4281,18 +4282,18 @@ class PetReportPermissionTests(TestCase):
             "report_type": "found", "species": "cat", "description": "hijacked",
             "region": "sogd",
         })
-        self.assertRedirects(resp, reverse("profile"))
+        self.assertRedirects(resp, reverse("dashboard"))
         self.report.refresh_from_db()
         self.assertEqual(self.report.description, "brown dog")
 
         resp = self.client.post(reverse("pet_report_delete", args=[self.report.id]))
-        self.assertRedirects(resp, reverse("profile"))
+        self.assertRedirects(resp, reverse("dashboard"))
         self.assertTrue(PetReport.objects.filter(pk=self.report.pk).exists())
 
     def test_other_user_cannot_change_status(self):
         self._login("pet_other")
         resp = self.client.post(reverse("pet_report_status", args=[self.report.id]), {"action": "resolve"})
-        self.assertRedirects(resp, reverse("profile"))
+        self.assertRedirects(resp, reverse("dashboard"))
         self.report.refresh_from_db()
         self.assertEqual(self.report.status, PetReport.STATUS_OPEN)
 
@@ -4599,7 +4600,7 @@ class PetDashboardTests(TestCase):
         mine = _pet(self.reporter, pet_name="Mine")
         _pet(self.other, pet_name="Theirs")
         self.client.login(username="pet_owner", password="pass12345")
-        resp = self.client.get(reverse("profile"))
+        resp = self.client.get(reverse("dashboard"))
         self.assertEqual(resp.context["pet_report_count"], 1)
         self.assertEqual({r.id for r in resp.context["my_pet_reports"]}, {mine.id})
         self.assertNotContains(resp, "Theirs")
@@ -4607,14 +4608,14 @@ class PetDashboardTests(TestCase):
     def test_curator_dashboard_shows_open_board_count_and_recent(self):
         _pet(self.reporter, pet_name="Buddy")
         self.client.login(username="pet_curator", password="pass12345")
-        resp = self.client.get(reverse("profile"))
+        resp = self.client.get(reverse("dashboard"))
         self.assertEqual(resp.context["pets_open_count"], 1)
         self.assertEqual([r.pet_name for r in resp.context["recent_pet_reports"]], ["Buddy"])
 
     def test_curator_dashboard_pet_card_has_no_contact_detail(self):
         _pet(self.reporter, pet_name="Buddy", contact_phone="+992 900 777 000")
         self.client.login(username="pet_curator", password="pass12345")
-        resp = self.client.get(reverse("profile"))
+        resp = self.client.get(reverse("dashboard"))
         self.assertNotContains(resp, "+992 900 777 000")
 
 
@@ -4857,13 +4858,14 @@ class MapEndpointBoundsTests(TestCase):
             _pet(self.cli_a, latitude="38.55", longitude="68.77")
         self.assertEqual(len(pets.open_board_points(limit=2)), 2)
 
-    def test_admin_panel_task_grids_are_capped(self):
+    def test_admin_panel_request_table_is_paginated(self):
         for i in range(4):
             _hr(self.cli_a, status="pending")
         self.client.login(username="d5_admin", password="pass12345")
-        with mock.patch("myapp.views.ADMIN_PANEL_TASK_LIMIT", 2):
+        with mock.patch("myapp.services.dashboard.PANEL_PAGE_SIZE", 2):
             resp = self.client.get(reverse("admin_panel"))
-        self.assertEqual(len(resp.context["free_requests"]), 2)
+        self.assertEqual(len(resp.context["rows"]), 2)
+        self.assertEqual(resp.context["page_obj"].paginator.num_pages, 2)
 
 
 class CrmOverdueStaleFilterCentralisationTests(TestCase):
@@ -5253,102 +5255,68 @@ class ListViewPaginationBoundsTests(TestCase):
         self.assertEqual(len(resp.context["page_obj"]), 2)
 
 
-class AboutHeroVideoTests(TestCase):
-    """The About hero shows ONLY the background video (no poster photo, no
-    background image) and serves small, seamless, web-optimized loops:
-    VP9 WebM before H.264 MP4, a smaller variant for phones, no audio,
-    faststart MP4s, reduced-motion / off-screen / hidden-tab handling."""
+class AboutHeroPhotoTests(TestCase):
+    """The About hero is a full-bleed photo (the video is gone): a <picture>
+    with a WebP srcset + JPEG fallback, never upscaled past the 1672 px
+    original, loaded eagerly (it is the LCP element), under a scrim and a
+    readability gradient so the white headline stays legible."""
 
-    VIDEOS = settings.BASE_DIR / "static" / "videos"
-    VARIANTS = ("hero-loop-mobile.webm", "hero-loop-mobile.mp4", "hero-loop-desktop.webm", "hero-loop-desktop.mp4")
+    IMAGES = settings.BASE_DIR / "static" / "images" / "about"
+    WIDTHS = (768, 1280, 1672)
     HOME_CSS = settings.BASE_DIR / "static" / "css" / "home.css"
-    MAX_BYTES = 3 * 1024 * 1024
+    MAX_BYTES = 400 * 1024
 
     def _hero(self):
         import re
 
         html = self.client.get(reverse("about")).content.decode()
-        match = re.search(r"(<video[^>]*>)(.*?)</video>", html, re.S)
-        self.assertIsNotNone(match, "hero <video> missing from the About page")
-        return html, match.group(1), match.group(2)
+        match = re.search(r'<section class="hero">(.*?)</section>', html, re.S)
+        self.assertIsNotNone(match, "hero section missing from the About page")
+        return html, match.group(1)
 
-    @staticmethod
-    def _atoms(data):
-        atoms, i = [], 0
-        while i + 8 <= len(data):
-            size = int.from_bytes(data[i:i + 4], "big")
-            atoms.append(data[i + 4:i + 8])
-            if size < 8:
-                break
-            i += size
-        return atoms
-
-    def test_hero_video_has_no_poster_and_starts_inline_after_page_load(self):
-        html, tag, _ = self._hero()
-        self.assertNotIn("poster", tag)
-        self.assertNotIn("tajikistan/hero.jpg", html)
-        # iOS Safari only autoplays inline when muted + playsinline.
-        for attr in ("muted", "loop", "playsinline", "disablepictureinpicture", 'preload="metadata"'):
+    def test_hero_is_a_picture_not_a_video(self):
+        html, hero = self._hero()
+        self.assertNotIn("<video", html)
+        self.assertNotIn("videos/", html)
+        self.assertNotIn("topbar--over-video", html)
+        picture = re.search(r"<picture>(.*?)</picture>", hero, re.S).group(1)
+        self.assertIn('type="image/webp"', picture)
+        for w in self.WIDTHS:
+            with self.subTest(width=w):
+                self.assertIn(f"images/about/about-hero-{w}.webp {w}w", picture)
+                self.assertIn(f"images/about/about-hero-{w}.jpg {w}w", picture)
+        img = re.search(r'<img[^>]*class="hero-photo"[^>]*>', picture).group(0)
+        for attr in ('src="/static/images/about/about-hero-1280.jpg"', 'sizes="100vw"', 'alt=""',
+                     'width="1672"', 'height="941"', 'fetchpriority="high"'):
             with self.subTest(attr=attr):
-                self.assertIn(attr, tag)
-        # Not fetched with the page: no autoplay attribute; the script turns on
-        # preload + autoplay after window "load" so the video never competes
-        # with HTML/CSS/fonts on a slow link.
-        self.assertNotRegex(tag, r"\sautoplay[\s>]")
-        self.assertIn("window.addEventListener('load', start", html)
-        self.assertIn("video.autoplay = true", html)
-        self.assertIn("video.preload = 'auto'", html)
+                self.assertIn(attr, img)
+        self.assertNotIn('loading="lazy"', img)  # LCP image: never lazy
 
-    def test_sources_mobile_first_webm_before_mp4_with_content_hash(self):
-        import re
+    def test_files_exist_are_small_and_never_upscaled(self):
+        from PIL import Image
 
-        _, _, body = self._hero()
-        sources = re.findall(r'<source src="([^"]+)" type=(?:\'[^\']*\'|"[^"]*")()(?: media="([^"]+)")?>', body)
-        self.assertEqual(
-            [(src.split("?")[0].rsplit("/", 1)[-1], media) for src, _type, media in sources],
-            [("hero-loop-mobile.webm", "(max-width: 768px)"), ("hero-loop-mobile.mp4", "(max-width: 768px)"),
-             ("hero-loop-desktop.webm", ""), ("hero-loop-desktop.mp4", "")],
-        )
-        for src, _type, _media in sources:
-            with self.subTest(src=src):
-                self.assertRegex(src, r"\?v=[0-9a-f]{10}$")  # immutable-cacheable URL
+        self.assertFalse((settings.BASE_DIR / "static" / "videos").exists())
+        for w in self.WIDTHS:
+            for ext in ("webp", "jpg"):
+                with self.subTest(file=f"{w}.{ext}"):
+                    path = self.IMAGES / f"about-hero-{w}.{ext}"
+                    self.assertLess(path.stat().st_size, self.MAX_BYTES)
+                    with Image.open(path) as im:
+                        self.assertEqual(im.width, w)
+            with self.subTest(width=w):
+                self.assertLessEqual((self.IMAGES / f"about-hero-{w}.webp").stat().st_size,
+                                     (self.IMAGES / f"about-hero-{w}.jpg").stat().st_size)
 
-    def test_files_exist_are_small_and_old_file_is_gone(self):
-        self.assertFalse((self.VIDEOS / "hero-loop.mp4").exists())
-        for name in self.VARIANTS:
-            with self.subTest(name=name):
-                path = self.VIDEOS / name
-                self.assertTrue(path.exists())
-                self.assertLess(path.stat().st_size, self.MAX_BYTES)
-        # each WebM is no bigger than its MP4 counterpart (it's listed first)
-        for size in ("mobile", "desktop"):
-            with self.subTest(size=size):
-                self.assertLessEqual((self.VIDEOS / f"hero-loop-{size}.webm").stat().st_size,
-                                     (self.VIDEOS / f"hero-loop-{size}.mp4").stat().st_size)
-
-    def test_mp4s_are_faststart_without_audio(self):
-        for name in ("hero-loop-mobile.mp4", "hero-loop-desktop.mp4"):
-            with self.subTest(name=name):
-                data = (self.VIDEOS / name).read_bytes()
-                atoms = self._atoms(data)
-                self.assertLess(atoms.index(b"moov"), atoms.index(b"mdat"))
-                self.assertNotIn(b"soun", data[:data.index(b"mdat")])  # no audio track handler
-
-    def test_playback_script_handles_reduced_motion_visibility_and_viewport(self):
-        html, _, _ = self._hero()
-        for needle in ("prefers-reduced-motion: reduce", "visibilitychange", "IntersectionObserver", "video.pause()"):
-            with self.subTest(needle=needle):
-                self.assertIn(needle, html)
+    def test_hero_css_covers_and_keeps_the_text_readable(self):
         css = self.HOME_CSS.read_text(encoding="utf-8")
-        self.assertRegex(css, r"prefers-reduced-motion: reduce\)\s*\{\s*\.hero-photo \{ display: none; \}")
-
-    def test_hero_css_has_no_background_photo_or_filter(self):
-        import re
-
-        css = self.HOME_CSS.read_text(encoding="utf-8")
-        for selector in (".hero", ".hero-photo", ".hero::before"):
-            with self.subTest(selector=selector):
-                block = re.search(re.escape(selector) + r"\s*\{([^}]*)\}", css)
-                self.assertIsNotNone(block)
-                self.assertNotIn("url(", block.group(1))
-                self.assertNotIn("filter", block.group(1))
+        photo = re.search(r"\.hero-photo\s*\{([^}]*)\}", css).group(1)
+        for decl in ("position: absolute", "object-fit: cover", "width: 100%", "height: 100%"):
+            with self.subTest(decl=decl):
+                self.assertIn(decl, photo)
+        self.assertIn("min-height: 82vh", re.search(r"\.hero\s*\{([^}]*)\}", css).group(1))
+        for overlay in (".hero::before", ".hero::after"):
+            with self.subTest(overlay=overlay):
+                block = re.search(re.escape(overlay) + r"\s*\{([^}]*)\}", css).group(1)
+                self.assertIn("gradient(", block)
+                self.assertNotIn("url(", block)
+                self.assertNotIn("filter", block)

@@ -56,7 +56,7 @@ class RobotsTxtTests(TestCase):
     def test_rules_and_sitemap_line(self):
         lines = self._robots().splitlines()
         self.assertEqual(lines[0], "User-agent: *")
-        for path in ("/admin/", "/profile/", "/update-profile/",
+        for path in ("/admin/", "/dashboard/", "/profile/", "/update-profile/",
                      "/reset-password/", "/confirm-email/", "/forgot-password/"):
             with self.subTest(path=path):
                 self.assertIn(f"Disallow: {path}", lines)
@@ -123,7 +123,7 @@ class SitemapTests(TestCase):
             with self.subTest(loc=loc):
                 self.assertTrue(loc.startswith(f"{SITE}/"))
                 path = loc[len(SITE):]
-                self.assertFalse(path.startswith(("/admin/", "/profile/", "/reset-password/", "/confirm-email/")))
+                self.assertFalse(path.startswith(("/admin/", "/dashboard/", "/profile/", "/reset-password/", "/confirm-email/")))
                 if path.startswith("/myapp/"):
                     self.assertEqual(path, reverse("rating"))
 
@@ -212,7 +212,7 @@ class PublicPageHeadTests(TestCase):
     def test_signed_in_home_redirects_to_dashboard(self):
         Users.objects.create_user(username="seo_user", email="seo@example.com", password="Volunteer2026!", is_client=True)
         self.client.login(username="seo_user", password="Volunteer2026!")
-        self.assertRedirects(self.client.get("/"), reverse("profile"), fetch_redirect_response=False)
+        self.assertRedirects(self.client.get("/"), reverse("dashboard"), fetch_redirect_response=False)
 
 
 @override_settings(SITE_URL=SITE)
@@ -274,7 +274,7 @@ class NoindexTests(TestCase):
 
     def test_logged_in_pages_and_myapp_crm(self):
         self.client.login(username="seo_private", password="Volunteer2026!")
-        for url in (reverse("profile"), reverse("edit_profile"), reverse("map"), reverse("my_donations"), reverse("my_pet_reports")):
+        for url in (reverse("dashboard"), reverse("profile"), reverse("edit_profile"), reverse("map"), reverse("my_donations"), reverse("my_pet_reports")):
             with self.subTest(url=url):
                 self._assert_noindex(url)
 

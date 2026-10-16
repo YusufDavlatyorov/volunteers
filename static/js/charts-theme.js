@@ -340,7 +340,7 @@
                 // Rounded only at the free end (top / right); a stack only on its last segment.
                 borderRadius: display === 'stack' && !last ? 0 : 6, borderSkipped: 'start',
                 categoryPercentage: 0.6, barPercentage: many > 1 && display !== 'stack' ? 0.9 : 1,
-                maxBarThickness: display === 'rank' || display === 'stack' ? 18 : 40,
+                maxBarThickness: display === 'rank' || display === 'stack' ? 20 : 40,
             });
         });
     }

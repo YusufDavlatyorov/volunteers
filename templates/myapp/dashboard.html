@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% load assets %}
+{% block title %}Dashboard - KhayrKhoh{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% asset 'css/dashboard.css' %}">{% endblock %}
+{% block content %}
+{% comment %}
+"What do I do now" — the role dashboard (myapp.views.dashboard_view). Role
+blocks come from services.dashboard via myapp/dashboard/_<role>.html: hero
+(greeting, alerts, KPI strip), cards, lists, Quick Actions — all inside one
+1200px container (.section) under the normal site navbar. "Who I am" (user
+card, activity calendar, badges, saved location, community) is the profile page, accounts/profile.html — keep the two apart.
+{% endcomment %}
+<section class="section dash">
+    <div class="dash-main">
+        {% if dash_role == "volunteer" %}
+            {% include "myapp/dashboard/_volunteer.html" %}
+        {% elif dash_role == "client" %}
+            {% include "myapp/dashboard/_client.html" %}
+        {% elif dash_role == "admin" %}
+            {% include "myapp/dashboard/_admin.html" %}
+        {% elif dash_role == "curator" %}
+            {% include "myapp/dashboard/_curator.html" %}
+        {% else %}
+            <section class="card dash-hero reveal" aria-labelledby="dashHeroTitle">
+                <div class="dash-hero__top">{% include "myapp/dashboard/_greeting.html" %}</div>
+            </section>
+        {% endif %}
+
+        {% if volunteer_application and volunteer_application.status != "approved" %}
+            <section class="card dash-card reveal" aria-labelledby="dashApplicationTitle">
+                <div class="dash-card__head">
+                    <h2 class="dash-card__title" id="dashApplicationTitle" data-i18n="va.title">Volunteer Application</h2>
+                    <span class="tag {% if volunteer_application.status == 'rejected' %}urgent{% else %}accent{% endif %}" data-i18n="va.status_{{ volunteer_application.status }}">{{ volunteer_application.get_status_display }}</span>
+                </div>
+                {% if volunteer_application.status == "pending" %}
+                    <p class="status-message" data-i18n="va.msg_pending">Your application is currently being reviewed by an administrator.</p>
+                {% elif volunteer_application.status == "rejected" %}
+                    <p class="status-message" data-i18n="va.msg_rejected">Your volunteer application was rejected.</p>
+                {% endif %}
+                <a class="dash-card__link" href="{% url 'volunteer_application' %}"><span data-i18n="va.view_status">View Application Status</span>{% include "myapp/dashboard/_icon.html" with name="arrow" %}</a>
+            </section>
+        {% endif %}
+
+        <section class="card dash-card reveal" aria-labelledby="dashQuickTitle">
+            <div class="dash-card__head"><h2 class="dash-card__title" id="dashQuickTitle" data-i18n="profile.quick">Quick Actions</h2></div>
+            <nav class="dash-actions" aria-labelledby="dashQuickTitle">
+                {% if user.is_superuser or user.is_curator %}
+                    <a class="dash-action" href="{% url 'admin_panel' %}"><span class="dash-action__icon">{% include "myapp/dashboard/_icon.html" with name="overview" %}</span><span class="dash-action__label" data-i18n="profile.admin">Admin Panel</span></a>
+                    <a class="dash-action" href="{% url 'emergency_list' %}"><span class="dash-action__icon">{% include "myapp/dashboard/_icon.html" with name="alert" %}</span><span class="dash-action__label" data-i18n="emg.list_title">Emergencies</span></a>
+                    <a class="dash-action" href="{% url 'crm_reviews' %}"><span class="dash-action__icon">{% include "myapp/dashboard/_icon.html" with name="star" %}</span><span class="dash-action__label" data-i18n="review.crm_title">Reviews</span></a>
+                    <a class="dash-action" href="{% url 'broadcast' %}"><span class="dash-action__icon">{% include "myapp/dashboard/_icon.html" with name="send" %}</span><span class="dash-action__label" data-i18n="profile.send_msg">Send Message</span></a>
+                    <a class="dash-action" href="{% url 'create_event' %}"><span class="dash-action__icon">{% include "myapp/dashboard/_icon.html" with name="calendar" %}</span><span class="dash-action__label" data-i18n="profile.create_event">Create Event</span></a>
+                    {# Staff pages the navbar does not link to. #}
+                    <a class="dash-action" href="{% url 'crm_tasks' %}"><span class="dash-action__icon">{% include "myapp/dashboard/_icon.html" with name="inbox" %}</span><span class="dash-action__label" data-i18n="dash.nav.requests">Requests</span></a>
+                    <a class="dash-action" href="{% url 'donations_admin' %}"><span class="dash-action__icon">{% include "myapp/dashboard/_icon.html" with name="gift" %}</span><span class="dash-action__label" data-i18n="dash.nav.donations">Donation offers</span></a>
+                    <a class="dash-action" href="{% url 'event_list' %}"><span class="dash-action__icon">{% include "myapp/dashboard/_icon.html" with name="calendar" %}</span><span class="dash-action__label" data-i18n="events.title">Events</span></a>
+                    <a class="dash-action" href="{% url 'people_list' 'volunteer' %}"><span class="dash-action__icon">{% include "myapp/dashboard/_icon.html" with name="users" %}</span><span class="dash-action__label" data-i18n="admin.stat_volunteers">Volunteers</span></a>
+                    <a class="dash-action" href="{% url 'people_list' 'client' %}"><span class="dash-action__icon">{% include "myapp/dashboard/_icon.html" with name="user" %}</span><span class="dash-action__label" data-i18n="admin.stat_clients">Clients</span></a>
+                    {% if user.is_superuser %}<a class="dash-action" href="{% url 'people_list' 'curator' %}"><span class="dash-action__icon">{% include "myapp/dashboard/_icon.html" with name="shield" %}</span><span class="dash-action__label" data-i18n="dash.curators">Curators</span></a>{% endif %}
+                    <a class="dash-action" href="{% url 'crm_analytics' %}"><span class="dash-action__icon">{% include "myapp/dashboard/_icon.html" with name="chart" %}</span><span class="dash-action__label" data-i18n="dash.nav.analytics">CRM analytics</span></a>
+                {% endif %}
+                {% if user.is_volunteer %}
+                    <a class="dash-action" href="{% url 'task_list' %}"><span class="dash-action__icon">{% include "myapp/dashboard/_icon.html" with name="inbox" %}</span><span class="dash-action__label" data-i18n="profile.open_req">Open Requests</span></a>
+                    <a class="dash-action" href="{% url 'map' %}"><span class="dash-action__icon">{% include "myapp/dashboard/_icon.html" with name="map" %}</span><span class="dash-action__label" data-i18n="nav.map">Map</span></a>
+                    <a class="dash-action" href="{% url 'my_reviews' %}"><span class="dash-action__icon">{% include "myapp/dashboard/_icon.html" with name="star" %}</span><span class="dash-action__label" data-i18n="review.mine_title">My reviews</span></a>
+                    <a class="dash-action" href="{% url 'photo_reports' %}"><span class="dash-action__icon">{% include "myapp/dashboard/_icon.html" with name="image" %}</span><span class="dash-action__label" data-i18n="profile.photo_rep">Photo Reports</span></a>
+                {% endif %}
+                {% if user.is_client %}
+                    <a class="dash-action" href="{% url 'create_request' %}"><span class="dash-action__icon">{% include "myapp/dashboard/_icon.html" with name="plus" %}</span><span class="dash-action__label" data-i18n="profile.create_req">Create Request</span></a>
+                {% endif %}
+                <a class="dash-action" href="{% url 'notifications' %}"><span class="dash-action__icon">{% include "myapp/dashboard/_icon.html" with name="bell" %}</span><span class="dash-action__label" data-i18n="bell.label">Notifications</span></a>
+                <a class="dash-action" href="{% url 'notification_preferences' %}"><span class="dash-action__icon">{% include "myapp/dashboard/_icon.html" with name="settings" %}</span><span class="dash-action__label" data-i18n="ntf.preferences">Notification settings</span></a>
+                <a class="dash-action" href="{% url 'ai_assistant' %}"><span class="dash-action__icon">{% include "myapp/dashboard/_icon.html" with name="chat" %}</span><span class="dash-action__label" data-i18n="profile.ai">AI Assistant</span></a>
+                <a class="dash-action" href="{% url 'rating' %}"><span class="dash-action__icon">{% include "myapp/dashboard/_icon.html" with name="medal" %}</span><span class="dash-action__label" data-i18n="profile.rating">Rating</span></a>
+            </nav>
+        </section>
+    </div>
+</section>
+{% endblock %}
+{% block extra_js %}{% if region_share or trend %}<script src="{% asset 'vendor/chartjs-4.4.7/chart.umd.min.js' %}" defer></script><script src="{% asset 'js/charts-theme.js' %}" defer></script><script src="{% asset 'js/dashboard.js' %}" defer></script>{% endif %}{% endblock %}

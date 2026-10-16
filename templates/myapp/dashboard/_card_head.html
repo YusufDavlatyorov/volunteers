@@ -1,0 +1,10 @@
+{% comment %}
+One card header for the dashboard's compact cards: title on the left (cut with
+"…" when tight, full text in title), one small button on the right — always one
+line. Params: head_id, title_key, title_text, [title_days] (an.trend_title's
+{days}), [count], [link_url, link_key, link_text].
+{% endcomment %}
+<div class="dash-card__head dash-card__head--line">
+    <h2 class="dash-card__title dash-card__title--clip" id="{{ head_id }}" title="{{ title_text }}" data-i18n-title="{{ title_key }}"><span data-i18n="{{ title_key }}"{% if title_days %} data-i18n-args='{"days": {{ title_days }}}'{% endif %}>{{ title_text }}</span>{% if count %} <span class="dash-card__count">{{ count }}</span>{% endif %}</h2>
+    {% if link_url %}<a class="button ghost dash-btn-xs" href="{{ link_url }}" data-i18n="{{ link_key }}">{{ link_text }}</a>{% endif %}
+</div>

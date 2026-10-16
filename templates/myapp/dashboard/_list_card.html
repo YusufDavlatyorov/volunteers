@@ -1,0 +1,18 @@
+{% comment %}
+A compact list card of the staff dashboard (SOS, overdue, volunteer
+applications, donation offers, Lost & Found): the shared header, up to
+services.dashboard.CARD_LIST_LIMIT items in one fixed-height item component,
+or a short centred empty state. Every card in a row has the same size.
+Params: kind (sos | overdue | application | offer | pet), items, the
+_card_head.html params, empty_key, empty_text, [alert] (red edge when items).
+{% endcomment %}
+<section class="card dash-card dash-lcard reveal{% if alert and items %} card--alert{% endif %}" aria-labelledby="{{ head_id }}">
+    {% include "myapp/dashboard/_card_head.html" %}
+    {% if items %}
+        <ul class="dash-items" role="list">
+            {% for item in items %}{% include "myapp/dashboard/_list_item.html" %}{% endfor %}
+        </ul>
+    {% else %}
+        <p class="dash-empty" data-i18n="{{ empty_key }}">{{ empty_text }}</p>
+    {% endif %}
+</section>

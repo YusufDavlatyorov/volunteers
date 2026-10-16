@@ -316,7 +316,7 @@ class ViewTests(AnalyticsBase):
             self.client.force_login(user)
             with self.subTest(user=user.username):
                 for target in (url, reverse("crm_analytics_heat"), reverse("crm_analytics_csv", args=["funnel"])):
-                    self.assertRedirects(self.client.get(target), reverse("profile"), fetch_redirect_response=False)
+                    self.assertRedirects(self.client.get(target), reverse("dashboard"), fetch_redirect_response=False)
         self.client.logout()
         self.assertEqual(self.client.get(url).status_code, 302)
 
@@ -370,8 +370,9 @@ class ViewTests(AnalyticsBase):
     def test_curator_dashboard_has_trend_card_and_link(self):
         self.seed(1)
         self.client.force_login(self.curator)
-        response = self.client.get(reverse("profile"))
-        self.assertContains(response, 'class="card reveal trend-card"')
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, 'dash-lcard reveal trend-card"')
+        self.assertContains(response, "data-trend-chart")
         self.assertContains(response, reverse("crm_analytics"))
         self.client.force_login(self.admin)
         self.assertContains(self.client.get(reverse("admin_panel")), reverse("crm_analytics"))
@@ -389,3 +390,27 @@ class ViewTests(AnalyticsBase):
                 self.assertEqual(table.get(key), text, f"{lang} {key}")
             for key in ("region.sogd", "availability.busy", "don.status_pending", "don.category_food"):
                 self.assertTrue(table.get(key), f"{lang} {key}")
+
+    def test_kpi_strip_is_one_row_of_seven_scoped_to_this_page(self):
+        """The 7 KPI tiles sit in one row (4 + 3 below 1100px, 2-up below 768px)
+        through .analytics-kpis only — the shared .kpi-row grid (panel etc.)
+        keeps its own columns. Each label carries its full text in a translated
+        title (it is clamped to two lines)."""
+        from pathlib import Path
+
+        from django.conf import settings
+
+        css = (Path(settings.BASE_DIR) / "static/css/analytics.css").read_text()
+        block = re.search(r"\.analytics-kpis \{(.*?)\}", css, re.S).group(1)
+        self.assertIn("repeat(7, minmax(0, 1fr))", block)
+        self.assertRegex(css, r"max-width: 1099\.98px\) \{\s*\.analytics-kpis \{ grid-template-columns: repeat\(4,")
+        self.assertRegex(css, r"max-width: 767\.98px\) \{\s*\.analytics-kpis \{ grid-template-columns: repeat\(2,")
+        self.assertIn("-webkit-line-clamp: 2", css)
+        style = (Path(settings.BASE_DIR) / "static/css/style.css").read_text()
+        self.assertIn("grid-template-columns: repeat(auto-fit, minmax(9rem, 11.5rem));", style)
+
+        self.client.force_login(self.curator)
+        body = self.client.get(reverse("crm_analytics")).content.decode()
+        self.assertIn('<div class="kpi-row analytics-kpis">', body)
+        labels = re.findall(r'<p title="([^"]+)" data-i18n-title="(an\.kpi\.\w+)" data-i18n="\2">\1</p>', body)
+        self.assertEqual(len(labels), 7)

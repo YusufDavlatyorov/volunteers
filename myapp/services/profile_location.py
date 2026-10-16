@@ -21,6 +21,16 @@ logger = logging.getLogger(__name__)
 REMIND_BATCH_LIMIT = 500
 
 
+def is_stale(profile, now=None):
+    """No saved point, or older than LOCATION_STALE_DAYS (matching uses it).
+    The per-profile twin of ``stale_volunteer_profiles`` — the profile's
+    location card and the dashboard's reminder banner read it."""
+    if not profile.has_location or profile.location_updated_at is None:
+        return True
+    now = now or timezone.now()
+    return now - profile.location_updated_at > timedelta(days=settings.LOCATION_STALE_DAYS)
+
+
 def stale_volunteer_profiles(now=None):
     now = now or timezone.now()
     cutoff = now - timedelta(days=settings.LOCATION_STALE_DAYS)

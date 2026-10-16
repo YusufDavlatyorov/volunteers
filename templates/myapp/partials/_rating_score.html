@@ -1,0 +1,2 @@
+{% load i18n_plural %}{# Average client rating + review count (correct plural). Public: never comments. #}
+{% if row.reviews %}<span class="rating-score"><span class="rating-star" aria-hidden="true">★</span> <strong>{{ row.avg|floatformat:1 }}</strong> <span class="rating-score__count">{% plural_i18n "rating.n_reviews" row.reviews %}</span></span>{% else %}<span class="rating-score rating-score--none" data-i18n="review.none_yet">No reviews yet</span>{% endif %}

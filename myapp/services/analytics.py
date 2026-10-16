@@ -5,6 +5,8 @@ in Python, so the number of SQL queries stays constant regardless of how
 many volunteers/tasks exist.
 """
 
+from datetime import timedelta
+
 from django.db.models import Count
 from django.db.models import Q
 from django.urls import reverse
@@ -13,6 +15,7 @@ from django.utils import timezone
 from accounts.models import Profile, REGION_CHOICES, Users
 from ..models import (
     EmergencyReport,
+    Event,
     HelpRequest,
     VolunteerApplication,
 )
@@ -61,14 +64,16 @@ def task_status_breakdown():
         urgent=Count("id", filter=Q(is_urgent=True, status__in=["pending", "active"])),
         overdue=Count("id", filter=currently_overdue_q()),
         stale=Count("id", filter=currently_stale_pending_q()),
+        created_week=Count("id", filter=Q(created_at__gte=timezone.now() - timedelta(days=7))),
     )
     return counts
 
 
 def emergency_breakdown():
-    """{'open': n, 'acknowledged': n, 'active': open+acknowledged} — the SOS
-    reports that still need staff attention."""
+    """{'open': n, 'acknowledged': n, 'active': open+acknowledged, 'total': n}
+    — the SOS reports that still need staff attention, and every report ever."""
     counts = EmergencyReport.objects.aggregate(
+        total=Count("id"),
         open=Count("id", filter=Q(status=EmergencyReport.STATUS_OPEN)),
         acknowledged=Count("id", filter=Q(status=EmergencyReport.STATUS_ACKNOWLEDGED)),
     )
@@ -86,6 +91,7 @@ def dashboard_stats():
         "emergencies_open": emergencies["open"],
         "emergencies_acknowledged": emergencies["acknowledged"],
         "emergencies_active": emergencies["active"],
+        "emergencies_total": emergencies["total"],
         "volunteers_total": sum(availability.values()),
         "volunteers_available": availability.get(Profile.AVAILABILITY_AVAILABLE, 0),
         "volunteers_busy": availability.get(Profile.AVAILABILITY_BUSY, 0),
@@ -95,6 +101,11 @@ def dashboard_stats():
         "tasks_pending": tasks["pending"],
         "tasks_active": tasks["active"],
         "tasks_completed": tasks["completed"],
+        "tasks_cancelled": tasks["cancelled"],
+        # Every request ever made (the four lifecycle buckets of the same
+        # aggregate) and how many of them arrived in the last 7 days.
+        "tasks_total": tasks["pending"] + tasks["active"] + tasks["completed"] + tasks["cancelled"],
+        "tasks_created_week": tasks["created_week"],
         "tasks_overdue": tasks["overdue"],
         "tasks_stale": tasks["stale"],
         "tasks_urgent": tasks["urgent"],
@@ -104,6 +115,7 @@ def dashboard_stats():
         "pending_applications": VolunteerApplication.objects.filter(
             status=VolunteerApplication.STATUS_PENDING
         ).count(),
+        "events_upcoming": Event.objects.filter(date__gte=timezone.now()).count(),
     }
 
 

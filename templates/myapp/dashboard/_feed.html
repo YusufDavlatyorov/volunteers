@@ -1,0 +1,17 @@
+{% load i18n_plural %}{% comment %}Recent-activity feed (dashboard + /panel/): services.analytics.recent_activity rows, one icon per kind.{% endcomment %}
+{% if recent_activity %}
+    <ol class="dash-feed" role="list">
+        {% for event in recent_activity %}
+            <li class="dash-feed__item dash-feed__item--{{ event.type }}">
+                <span class="dash-feed__icon">{% if event.type == "application" %}{% include "myapp/dashboard/_icon.html" with name="user_plus" %}{% elif event.type == "task_accepted" %}{% include "myapp/dashboard/_icon.html" with name="handshake" %}{% elif event.type == "task_completed" %}{% include "myapp/dashboard/_icon.html" with name="check" %}{% elif event.type == "task_overdue" %}{% include "myapp/dashboard/_icon.html" with name="clock" %}{% else %}{% include "myapp/dashboard/_icon.html" with name="inbox" %}{% endif %}</span>
+                <a class="dash-feed__body" href="{{ event.url }}">
+                    <strong class="dash-feed__title" data-i18n="dash.ev.{{ event.type }}">{{ event.type }}</strong>
+                    <span class="dash-feed__text">{{ event.message }}</span>
+                </a>
+                <span class="dash-feed__time">{% time_ago event.timestamp %}</span>
+            </li>
+        {% endfor %}
+    </ol>
+{% else %}
+    <p class="dash-card__note" data-i18n="crm.no_activity">No recent activity yet.</p>
+{% endif %}

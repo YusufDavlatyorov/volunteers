@@ -6,7 +6,7 @@ from django.contrib.sitemaps.views import sitemap
 from django.http import HttpResponsePermanentRedirect
 from django.templatetags.static import static as static_url
 
-from myapp.views import home_view
+from myapp.views import dashboard_view, home_view
 
 from .health import liveness_view, readiness_view
 from .seo import SITEMAPS, robots_txt
@@ -31,6 +31,7 @@ urlpatterns = [
 
     path('admin/', admin.site.urls),
     path('', home_view, name='home'),
+    path('dashboard/', dashboard_view, name='dashboard'),
     path('',include('accounts.urls')),
     path('myapp/',include('myapp.urls')),
 ]

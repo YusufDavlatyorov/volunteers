@@ -391,7 +391,7 @@ def main_menu(user, lang) -> Reply:
     rows.append([Button(t(lang, "menu.notifications"), "ntf"), Button(t(lang, "menu.language"), "lang")])
     if community.configured() and community.is_eligible(user):
         rows.append([Button(t(lang, "menu.community"), "com")])
-    rows.append([Button(t(lang, "menu.open_site"), url=_site(reverse("profile")))])
+    rows.append([Button(t(lang, "menu.open_site"), url=_site(reverse("dashboard")))])
     return Reply(t(lang, f"menu.title.{role}", name=_name(user)), rows)
 
 

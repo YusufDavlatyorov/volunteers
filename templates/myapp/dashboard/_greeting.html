@@ -1,0 +1,14 @@
+{% comment %}Hero intro shared by every role: role tag, greeting + name, the role's subtitle. Context: greeting, dash_role, profile, user.{% endcomment %}
+<div class="dash-hero__intro">
+    {% if dash_role != "guest" %}<span class="tag muted dash-hero__role" data-i18n="dash.role.{{ dash_role }}">{{ user.role_display }}</span>{% endif %}
+    <h1 class="dash-hero__title" id="dashHeroTitle">{% if greeting == "morning" %}<span data-i18n="dash.morning">Good morning</span>{% elif greeting == "afternoon" %}<span data-i18n="dash.afternoon">Good afternoon</span>{% else %}<span data-i18n="dash.evening">Good evening</span>{% endif %}, {{ profile.full_name|default:user.username }}</h1>
+    {% if dash_role == "volunteer" %}
+        <p class="dash-hero__sub" data-i18n="dash.volunteer_sub">Ready to make a difference?</p>
+    {% elif dash_role == "client" %}
+        <p class="dash-hero__sub" data-i18n="dash.client_sub">Need a little help today?</p>
+    {% elif dash_role == "curator" or dash_role == "admin" %}
+        <p class="dash-hero__sub" data-i18n="dash.admin_sub">Here's what's happening across the platform.</p>
+    {% else %}
+        <p class="dash-hero__sub" data-i18n="dash.guest_sub">Welcome back to KhayrKhoh.</p>
+    {% endif %}
+</div>

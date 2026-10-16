@@ -168,16 +168,17 @@ from .services import feedback as feedback_service  # noqa: E402
 
 @admin.register(TaskReview)
 class TaskReviewAdmin(admin.ModelAdmin):
-    list_display = ("id", "task", "volunteer", "client", "stars", "hidden_at", "created_at")
-    list_filter = ("stars", ("hidden_at", admin.EmptyFieldListFilter), "created_at")
+    list_display = ("id", "task", "volunteer", "client", "stars", "show_on_landing", "hidden_at", "created_at")
+    list_filter = ("stars", "show_on_landing", ("hidden_at", admin.EmptyFieldListFilter), "created_at")
     search_fields = ("volunteer__username", "client__username")
     list_select_related = ("task", "volunteer", "client")
     # Read-only: stars/comment are the client's words, and a raw edit/delete
     # would skip the denormalised Profile.review_avg/review_count recompute.
     # Moderation goes through services.feedback.hide/unhide (the actions below,
-    # or the CRM list at /myapp/crm/reviews/).
-    readonly_fields = tuple(f.name for f in TaskReview._meta.fields)
-    actions = ("hide_reviews", "unhide_reviews")
+    # or the CRM list at /myapp/crm/reviews/). The one editable field is the
+    # About-page opt-in, saved through services.feedback.set_landing.
+    readonly_fields = tuple(f.name for f in TaskReview._meta.fields if f.name != "show_on_landing")
+    actions = ("hide_reviews", "unhide_reviews", "feature_on_landing", "remove_from_landing")
 
     def has_add_permission(self, request):
         return False
@@ -194,6 +195,23 @@ class TaskReviewAdmin(admin.ModelAdmin):
     def unhide_reviews(self, request, queryset):
         done = sum(1 for r in queryset if feedback_service.unhide(request.user, r).code == feedback_service.OK)
         self.message_user(request, f"Снова видимых отзывов: {done}.")
+
+    def save_model(self, request, obj, form, change):
+        # Only show_on_landing is editable; route it through the service (cache
+        # + ID-only log) instead of a raw save.
+        if change and "show_on_landing" in form.changed_data:
+            feedback_service.set_landing(request.user, obj, obj.show_on_landing)
+
+    @admin.action(description="Показывать на главной (только 5★ с текстом)")
+    def feature_on_landing(self, request, queryset):
+        done = sum(1 for r in queryset if feedback_service.set_landing(request.user, r, True).code == feedback_service.OK)
+        shown = queryset.filter(stars=5, hidden_at__isnull=True).exclude(comment="").count()
+        self.message_user(request, f"Отмечено для главной: {done}. Подходят для показа (5★, с текстом, не скрыты): {shown}.")
+
+    @admin.action(description="Убрать с главной")
+    def remove_from_landing(self, request, queryset):
+        done = sum(1 for r in queryset if feedback_service.set_landing(request.user, r, False).code == feedback_service.OK)
+        self.message_user(request, f"Убрано с главной: {done}.")
 
 
 # --- Achievements (Feature Pack v2, milestone 4) ---------------------------

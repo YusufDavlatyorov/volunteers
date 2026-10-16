@@ -18,6 +18,10 @@ The one path for leaving, editing, hiding and reading reviews
   ones to staff only); per review, ``can_see_comment`` also keeps the comment
   of a 1–2 star review from the volunteer (coordinators only).
 - ``review_request`` — the "rate the help" prompt, called when a task completes.
+- ``set_landing`` / ``landing_testimonials`` — the About page's featured
+  reviews: staff opt a review in (``TaskReview.show_on_landing``, default off);
+  only 5-star, non-empty, visible ones are shown, the client as "First L."
+  (``short_public_name``) — never the username, the volunteer or any id.
 
 Display-only: reviews are **not** a matching weight (owner decision, FEATURES_PLAN
 §9.7) — nothing here is read by ``services/matching.py``.
@@ -40,8 +44,8 @@ from django.db.models import Avg, Count
 from django.urls import reverse
 from django.utils import timezone
 
-from accounts.models import RATING_CACHE_KEY, Profile, Users
-from myapp.models import REVIEW_COMMENT_MAX_LENGTH, REVIEW_TAGS, TaskReview
+from accounts.models import ABOUT_COMMUNITY_CACHE_KEY, REGION_CHOICES, Profile, Users, clear_rating_cache
+from myapp.models import HELP_TYPE_CHOICES, REVIEW_COMMENT_MAX_LENGTH, REVIEW_TAGS, TaskReview
 
 from .access import is_staff_user
 
@@ -213,8 +217,9 @@ def recompute_volunteer_stats(volunteer) -> dict:
     if isinstance(volunteer, Users) and Users.profile.is_cached(volunteer):
         volunteer.profile.review_avg = avg
         volunteer.profile.review_count = count
-    # The public rating page caches Profile rows; show the new average at once.
-    cache.delete(RATING_CACHE_KEY)
+    # The public rating caches the averages; show the new one at once. The
+    # About page's leaders (and its testimonials, a hidden review) too.
+    clear_rating_cache()
     return {"avg": avg, "count": count}
 
 
@@ -356,8 +361,16 @@ def _edit(client, review, stars, comment, tags) -> Outcome:
     old_stars = review.stars
     if (old_stars, review.comment, list(review.tags or [])) == (stars, comment, tags):
         return Outcome(True, NOT_CHANGED, review)
+    fields = ["stars", "comment", "tags", "updated_at"]
+    # Staff approved the old words for the About page, not the new ones.
+    unfeatured = review.show_on_landing and review.comment != comment
+    if unfeatured:
+        review.show_on_landing = False
+        fields.append("show_on_landing")
     review.stars, review.comment, review.tags = stars, comment, tags
-    review.save(update_fields=["stars", "comment", "tags", "updated_at"])
+    review.save(update_fields=fields)
+    if unfeatured:
+        cache.delete(ABOUT_COMMUNITY_CACHE_KEY)
     logger.info(
         "review edited review=%s task=%s client=%s stars=%s->%s",
         review.pk, review.task_id, client.pk, old_stars, stars,
@@ -455,3 +468,70 @@ def staff_reviews(*, low=False, hidden=None, volunteer_id=None):
     elif hidden is False:
         qs = qs.filter(hidden_at__isnull=True)
     return qs
+
+
+# --------------------------------------------------------------------------- #
+# About page testimonials
+# --------------------------------------------------------------------------- #
+
+LANDING_TESTIMONIALS = 3
+
+
+def set_landing(staff, review, value: bool) -> Outcome:
+    """Feature a review on the About page (or take it off). Staff only;
+    conditional UPDATE — idempotent. Featuring does not check the stars: the
+    page filter (5 stars, a comment, not hidden) decides what is shown."""
+    if not is_staff_user(staff):
+        return Outcome(False, FORBIDDEN, review)
+    value = bool(value)
+    changed = TaskReview.objects.filter(pk=review.pk).exclude(show_on_landing=value).update(
+        show_on_landing=value
+    )
+    review.show_on_landing = value
+    if not changed:
+        return Outcome(True, NOT_CHANGED, review)
+    cache.delete(ABOUT_COMMUNITY_CACHE_KEY)
+    logger.info("review landing=%s review=%s task=%s by=%s", value, review.pk, review.task_id, staff.pk)
+    return Outcome(True, OK, review)
+
+
+def short_public_name(full_name: str) -> str:
+    """"Ходжимурод Тошматов" -> "Ходжимурод Т.": the first word in full, every
+    other word cut to its initial. "" when there is no name (the page then
+    shows a neutral label — never the username)."""
+    words = (full_name or "").split()
+    if not words:
+        return ""
+    return " ".join([words[0], *(f"{w[0].upper()}." for w in words[1:])])
+
+
+def _initials(full_name: str) -> str:
+    return "".join(w[0].upper() for w in (full_name or "").split()[:2])
+
+
+def landing_testimonials(limit: int = LANDING_TESTIMONIALS) -> list[dict]:
+    """The newest staff-approved 5-star reviews with a comment, as plain dicts
+    (one query, no model objects — nothing else can leak into the template):
+    ``{"comment", "name", "initials", "help_type", "help_type_label", "region",
+    "region_label"}`` (labels = the Russian fallback text; i18n.js translates)."""
+    help_labels, region_labels = dict(HELP_TYPE_CHOICES), dict(REGION_CHOICES)
+    rows = (
+        TaskReview.objects.filter(
+            show_on_landing=True, stars=MAX_STARS, hidden_at__isnull=True, client__is_active=True,
+        )
+        .exclude(comment="")
+        .order_by("-created_at", "-pk")
+        .values("comment", "client__profile__full_name", "client__region", "task__help_type")[:limit]
+    )
+    return [
+        {
+            "comment": row["comment"],
+            "name": short_public_name(row["client__profile__full_name"]),
+            "initials": _initials(row["client__profile__full_name"]),
+            "help_type": row["task__help_type"],
+            "help_type_label": help_labels.get(row["task__help_type"], ""),
+            "region": row["client__region"] or "",
+            "region_label": region_labels.get(row["client__region"], ""),
+        }
+        for row in rows
+    ]

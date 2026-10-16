@@ -112,3 +112,19 @@ def error_i18n_attrs(errors):
     if args:
         attrs += format_html(' data-i18n-args="{}"', json.dumps(args))
     return mark_safe(attrs)
+
+
+@register.filter
+def described_widget(field):
+    """Render a bound field's widget tied to its hint / error for assistive
+    tech: aria-describedby → the ``<id>_hint`` / ``<id>_error`` elements that
+    partials/_field.html renders, and aria-invalid when the field has errors."""
+    ids, attrs = [], {}
+    if field.help_text:
+        ids.append(f"{field.auto_id}_hint")
+    if field.errors:
+        ids.append(f"{field.auto_id}_error")
+        attrs["aria-invalid"] = "true"
+    if ids:
+        attrs["aria-describedby"] = " ".join(ids)
+    return field.as_widget(attrs=attrs) if field.auto_id and attrs else str(field)

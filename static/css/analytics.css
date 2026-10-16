@@ -75,23 +75,91 @@
     .an-filter__btn { order: 5; grid-column: 1 / -1; width: 100%; }
 }
 .analytics-meta { margin: var(--space-2) 0 var(--space-4); }
-.analytics-kpis { margin-bottom: var(--space-4); }
-.analytics-kpis .metric { font-variant-numeric: tabular-nums; }
+/* KPI strip: all 7 tiles in ONE row (~160px each in the 1200px container);
+   4 + 3 below 1100px, two-up below 768px. Scoped to this page — the shared
+   .kpi-row (panel etc.) keeps its own fixed-size wrapping grid. Tiles are
+   compact: number on top, a label of at most two lines pinned to the bottom
+   (full text in its title), every tile the same height. */
+.analytics-kpis {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    grid-auto-rows: 1fr;
+    align-items: stretch;
+    gap: var(--space-3);
+    margin: 0 0 var(--space-4);
+}
+.analytics-kpis .stat-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 0;
+    padding: var(--space-3) var(--space-4);
+}
+.analytics-kpis .metric {
+    font-size: 1.5rem;
+    line-height: 1.2;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+.analytics-kpis .metric__unit { font-size: 0.875rem; }
+.analytics-kpis .stat-card p {
+    margin: auto 0 0;
+    font-size: 0.8125rem;
+    line-height: 1.3;
+    color: var(--muted);
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+    overflow-wrap: normal;
+}
+@media (max-width: 1099.98px) {
+    .analytics-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 767.98px) {
+    .analytics-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 
+/* Chart cards: two equal columns (one below 900px). Every half-width card is
+   built the same way — a one-line header, a 2-line note slot, one 18rem chart
+   box, the table toggle at the bottom — so they are the same size by
+   construction, and stretch keeps a row even when one card's table is open.
+   (No grid-auto-rows: 1fr — it would size every row like the heatmap row and
+   grow them all whenever one table opens.) Wide cards span the row and keep
+   their own heights. */
 .chart-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--space-4);
-    align-items: start;
+    align-items: stretch;
+}
+@media (max-width: 899.98px) {
+    .chart-grid { grid-template-columns: minmax(0, 1fr); }
 }
 .chart-card { min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); }
 .chart-card--wide { grid-column: 1 / -1; }
+.chart-card--half .chart-card__head h3 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; overflow-wrap: normal; }
+/* min-height = the line with a change chip, so a "live" headline is as tall. */
+.chart-card--half .chart-headline { flex-wrap: nowrap; min-width: 0; min-height: 2rem; }
+.chart-card--half .chart-headline > * { flex: none; }
+.chart-card--half .chart-headline__vs { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chart-card--half .chart-card__note {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+    line-height: 1.35;
+    height: 2.7em;
+}
+.chart-card--half .chart-table { margin-top: auto; }
 .chart-card__head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-2); }
 .chart-card__titles { min-width: 0; display: flex; flex-direction: column; gap: 0.35rem; }
 .chart-card__head h3 { margin: 0; font-size: 1.05rem; overflow-wrap: anywhere; min-width: 0; }
 .chart-card__csv { flex: none; min-height: 2.25rem; padding: 0.3rem 0.8rem; font-size: 0.8rem; }
 .chart-card__note { margin: 0; }
-.chart-card__note:empty { display: none; }
+.chart-card--wide .chart-card__note:empty { display: none; }
 /* Headline: the period's number + change vs the previous period. */
 .chart-headline { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.6rem; }
 .chart-headline__value { font-size: 1.6rem; font-weight: 800; line-height: 1.1; color: var(--text); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
@@ -112,10 +180,21 @@
     --delta-good: #6cc9a0; --delta-good-bg: rgba(95, 211, 154, 0.12);
     --delta-bad: #e39a8a; --delta-bad-bg: rgba(255, 138, 128, 0.12);
 }
-.chart-box { position: relative; height: 16rem; min-width: 0; }
-.chart-card--wide .chart-box { height: 18rem; }
-.chart-box--doughnut, .chart-card--wide .chart-box--doughnut { height: 15rem; }
-.chart-box--rows, .chart-card--wide .chart-box--rows { height: var(--box-h); }
+.chart-box { position: relative; height: 18rem; min-width: 0; }
+.chart-plot { position: relative; height: 100%; }
+.chart-card--wide .chart-box--doughnut { height: 15rem; }
+.chart-card--wide .chart-box--rows { height: var(--box-h); }
+/* Half-width: the same 18rem for every display. A ranking that needs more
+   rows than fit (--rows × --row-px) scrolls inside the box; the card never grows. */
+.chart-card--half .chart-box { overflow-y: auto; overscroll-behavior: contain; --row-px: 28px; --plot-pad: 8px; }
+.chart-card--half .chart-box--grouped { --row-px: 46px; }
+.chart-card--half .chart-box--legend { --plot-pad: 42px; }
+.chart-card--half .chart-box--rows .chart-plot { height: max(100%, calc(var(--rows) * var(--row-px) + var(--plot-pad))); }
+/* Below 700px crm-analytics.js wraps long category names onto two lines. */
+@media (max-width: 699.98px) {
+    .chart-card--half .chart-box { --row-px: 36px; }
+    .chart-card--half .chart-box--grouped { --row-px: 48px; }
+}
 .chart-box canvas { display: block; max-width: 100%; }
 /* Empty period: the text sits in the chart area itself (same height, no jump). */
 .chart-empty {
@@ -171,7 +250,7 @@
     .an-filter .an-date input::-webkit-calendar-picker-indicator { margin: 0; padding: 0; width: 0.9rem; }
     .an-filter .an-ctl { font-size: 0.85rem; }
     .an-filter select.an-ctl { padding-left: 0.6rem; }
-    .chart-box, .chart-card--wide .chart-box { height: 14rem; }
+    .chart-card--wide .chart-box { height: 14rem; }
     .analytics-heat { height: 18rem; }
 }
 .chart-card__summary { margin: 0; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }

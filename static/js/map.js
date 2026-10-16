@@ -159,6 +159,9 @@ const GCMap = {
             'FullscreenControl.Exit': this.t('map.exit_fullscreen', null, 'Exit full screen'),
             'AttributionControl.ToggleAttribution': this.t('map.attribution', null, 'Map data'),
             'Map.Title': this.t('map.title', null, 'Map'),
+            'CooperativeGesturesHandler.WindowsHelpText': this.t('map.coop_windows', null, 'Use Ctrl + scroll to zoom the map'),
+            'CooperativeGesturesHandler.MacHelpText': this.t('map.coop_mac', null, 'Use ⌘ + scroll to zoom the map'),
+            'CooperativeGesturesHandler.MobileHelpText': this.t('map.coop_mobile', null, 'Use two fingers to move the map'),
         };
     },
 
@@ -199,6 +202,9 @@ const GCMap = {
          start3d     — initial mode; default = the viewer's saved preference (3D)
          fullscreen  — add the full-screen control
          scrollZoom  — default true
+         cooperativeGestures — default false; true = a map embedded in a long
+                       page (About): Ctrl/⌘ + scroll to zoom, two fingers to pan,
+                       so it never traps the page scroll
        Returns a maplibregl.Map, or null (container missing / no WebGL — the
        container then shows the localized error). */
     createMap(target, opts) {
@@ -229,6 +235,7 @@ const GCMap = {
                 maxPitch: is3d ? 70 : 0,
                 attributionControl: { compact: true },
                 scrollZoom: opts.scrollZoom !== false,
+                cooperativeGestures: !!opts.cooperativeGestures,
                 locale: this._mapLocale(),
                 fadeDuration: this._reducedMotion() ? 0 : 300,
             });

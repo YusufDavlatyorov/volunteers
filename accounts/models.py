@@ -10,8 +10,26 @@ from django.utils import timezone
 
 
 MAX_UPLOAD_SIZE_MB = 5
-# Public rating page cache (myapp.views.rating_view); cleared whenever points change.
-RATING_CACHE_KEY = "rating_page:v3"  # v3: one shared list by name, no places (2026-10-09)
+# Public rating (myapp/services/rating.py): one cached all-time ranking. v5 =
+# places, ranked by completed requests, no period switch (owner 2026-10-14,
+# reversing the "no places" rule of 2026-10-03/09). Cleared (+ the About
+# leaders) whenever a task completes, review stats change or an application
+# is decided.
+RATING_CACHE_KEY = "rating_page:v5"
+# Landing page "leaders" + featured testimonials (myapp.views.about_view);
+# cleared whenever review stats or a review's landing flag change.
+ABOUT_COMMUNITY_CACHE_KEY = "about_community:v1"
+
+
+def clear_rating_cache():
+    """Drop the ranking and the About page leaders built from it."""
+    from django.core.cache import cache
+
+    cache.delete_many([RATING_CACHE_KEY, ABOUT_COMMUNITY_CACHE_KEY])
+
+# Landing page volunteer network: approved volunteers per region
+# (myapp/services/network.py); cleared when an application is approved/rejected.
+ABOUT_NETWORK_CACHE_KEY = "about_network:v1"
 MAX_UPLOAD_SIZE_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024
 
 
@@ -295,9 +313,8 @@ class Profile(models.Model):
     def add_points(self, points=3):
         self.rating += points
         self.save(update_fields=["rating", "updated_at"])
-        from django.core.cache import cache
-
-        cache.delete(RATING_CACHE_KEY)  # the leaderboard reflects new points at once
+        # Called when a task completes: the ranking (completed requests) moves at once.
+        clear_rating_cache()
 
     def has_skill(self, help_type):
         return help_type in (self.skills or [])

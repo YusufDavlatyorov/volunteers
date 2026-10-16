@@ -1,4 +1,4 @@
-{% load static assets realtime_ui responsive %}
+{% load static assets realtime_ui responsive flash %}
 <!doctype html>
 <html lang="ru" data-theme="light">
 <head>
@@ -12,6 +12,13 @@
             var saved = localStorage.getItem('gc-theme');
             if (saved === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
         } catch (e) {}
+        // Scroll reveal may hide content only when JS runs (style.css .gc-reveal);
+        // if the reveal script never starts, show everything after 3 s anyway.
+        var root = document.documentElement;
+        if ('IntersectionObserver' in window) {
+            root.classList.add('gc-reveal');
+            setTimeout(function() { if (!window.gcRevealReady) root.classList.remove('gc-reveal'); }, 3000);
+        }
     })();
     </script>
     {% comment %}
@@ -66,7 +73,10 @@
     <div class="container">
         {# Logo + brand name. The name is localized like every other UI string (i18n.js key brand.name: #}
         {# KhayrKhoh / Хайрхох / Хайрхоҳ); the white mark replaces the colour one in the dark theme. #}
-        <a class="brand navbar__brand" href="{% url 'home' %}" aria-label="KhayrKhoh">
+        {# Both logos lead to About: signed in → the about page ("/" redirects them to the dashboard), #}
+        {# a visitor → "/" (the same content, and the canonical URL). #}
+        {% if user.is_authenticated %}{% url 'about' as brand_url %}{% else %}{% url 'home' as brand_url %}{% endif %}
+        <a class="brand navbar__brand" href="{{ brand_url }}" aria-label="KhayrKhoh">
             <img class="brand-logo brand-logo--light" src="{% static 'img/logo-mark.svg' %}" alt="" width="36" height="36">
             <img class="brand-logo brand-logo--dark" src="{% static 'img/logo-mark-white.svg' %}" alt="" width="36" height="36">
             <span class="navbar__brand-name" data-i18n="brand.name">KhayrKhoh</span>
@@ -76,7 +86,7 @@
             {% with active=request.resolver_match.url_name %}
             {% if user.is_authenticated %}
                 <a href="{% url 'about' %}" data-i18n="nav.about" {% if active == 'about' %}aria-current="page"{% endif %} >About Us</a>
-                <a href="{% url 'profile' %}" data-i18n="nav.dashboard" {% if active == 'profile' %}aria-current="page"{% endif %}>Dashboard</a>
+                <a href="{% url 'dashboard' %}" data-i18n="nav.dashboard" {% if active == 'dashboard' %}aria-current="page"{% endif %}>Dashboard</a>
                 <a href="{% url 'map' %}" data-i18n="nav.map" {% if active == 'map' %}aria-current="page"{% endif %}>Map</a>
                 {% if user.is_superuser or user.is_curator %}
                     <a href="{% url 'admin_panel' %}" data-i18n="nav.admin" {% if active == 'admin_panel' %}aria-current="page"{% endif %}>Admin Panel</a>
@@ -158,10 +168,22 @@
 </nav>
 
 {% if messages %}
-<div class="toast-stack">
-    {% for message in messages %}
-        <div class="toast {{ message.tags }}">{{ message }}</div>
-    {% endfor %}
+{% comment %}
+Flash messages: typed (icon + colour + the text itself), announced to screen
+readers (alert for errors/warnings, status otherwise), translated through
+i18n.js (templatetags/flash.py) and closable. Errors and warnings stay until
+closed; confirmations stay 10 s, paused while hovered or focused. On a phone
+they sit in the page flow under the top bar (never over the content) and stay
+until closed. Own container: live toasts (live-ui.js) use .toast-stack.
+{% endcomment %}
+<div class="flash-stack">
+    {% for message in messages %}{% with level=message|flash_level %}
+        <div class="toast toast--flash toast--{{ level }} {{ message.tags }}" role="{% if level == 'error' or level == 'warning' %}alert{% else %}status{% endif %}" data-flash data-persist="{% if level == 'error' or level == 'warning' %}1{% else %}0{% endif %}">
+            <span class="toast__icon" aria-hidden="true">{% if level == "success" %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>{% elif level == "error" or level == "warning" %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>{% else %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>{% endif %}</span>
+            <span class="toast__text"{% flash_i18n_attrs message %}>{{ message }}</span>
+            <button type="button" class="toast__close" data-flash-close aria-label="Закрыть" data-i18n-aria="common.close">×</button>
+        </div>
+    {% endwith %}{% endfor %}
 </div>
 {% endif %}
 
@@ -179,13 +201,17 @@
     <div class="container">
         <div class="footer-grid">
             <div class="footer-col">
-                <a class="brand navbar__brand" href="{% url 'about' %}" aria-label="KhayrKhoh">
+                <a class="brand navbar__brand" href="{{ brand_url }}" aria-label="KhayrKhoh">
                     <img class="brand-logo brand-logo--light" src="{% static 'img/logo-mark.svg' %}" alt="" width="36" height="36">
                     <img class="brand-logo brand-logo--dark" src="{% static 'img/logo-mark-white.svg' %}" alt="" width="36" height="36">
                     <span class="navbar__brand-name" data-i18n="brand.name">KhayrKhoh</span>
                 </a>
                 <p data-i18n="footer.about">A volunteer platform connecting elderly people across Tajikistan with volunteers, coordinated by regional curators.</p>
-                <a class="button secondary" href="{% url 'register' %}" data-i18n="hero.join">Become a Volunteer</a>
+                {% if user.is_authenticated %}
+                    <a class="button secondary" href="{% url 'dashboard' %}" data-i18n="nav.cabinet">My dashboard</a>
+                {% else %}
+                    <a class="button secondary" href="{% url 'register' %}" data-i18n="hero.join">Become a Volunteer</a>
+                {% endif %}
             </div>
             <div class="footer-col">
                 <h3 data-i18n="footer.regions_title">Where we work</h3>
@@ -205,7 +231,7 @@
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.68 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.32 1.85.55 2.81.68A2 2 0 0 1 22 16.92Z"></path></svg>
                         <span>+992 071 81 77 22</span>
                     </a>
-                    <a href="mailto:hello@khayrkhoh.tj">
+                    <a href="mailto:main@khayrkhoh.tj">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"></rect><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"></path></svg>
                         <span>main@khayrkhoh.tj</span>
                     </a>
@@ -321,10 +347,65 @@ const revealObserver = new IntersectionObserver((entries) => {
     });
 }, { threshold: 0.1 });
 document.querySelectorAll('.reveal').forEach((el) => revealObserver.observe(el));
+window.gcRevealReady = true;
 
-/* ===== AUTO-HIDE TOASTS ===== */
-document.querySelectorAll('.toast').forEach((t, i) => {
-    setTimeout(() => { t.style.opacity = '0'; t.style.transform = 'translateX(30px)'; setTimeout(() => t.remove(), 400); }, 4000 + i * 600);
+/* ===== CONFIRM IRREVERSIBLE ACTIONS =====
+   <form data-confirm="i18n.key"> asks first (complete a request, reject an
+   application, delete a notice). The question follows the UI language. */
+document.addEventListener('submit', (event) => {
+    const form = event.target.closest && event.target.closest('form[data-confirm]');
+    if (!form) return;
+    const table = (window.T && window.T[document.documentElement.lang]) || {};
+    const question = table[form.dataset.confirm] || form.dataset.confirmText || 'OK?';
+    if (!window.confirm(question)) { event.preventDefault(); event.stopImmediatePropagation(); }
+}, true);
+
+/* ===== FILTER BARS ON PHONES =====
+   A GET filter form (.filter-bar) collapses behind one "Filters" button below
+   600 px, so the list — what people came for — is on the first screen. The
+   button shows how many filters are set; nothing changes on wider screens. */
+document.querySelectorAll('form.filter-bar[method="get"]').forEach((form) => {
+    const fields = form.querySelectorAll('select, input:not([type=hidden]):not([type=submit])');
+    if (fields.length < 2) return;
+    const active = [...fields].filter((f) => (f.type === 'checkbox' || f.type === 'radio') ? f.checked : !!f.value).length;
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'button ghost filter-toggle';
+    toggle.setAttribute('aria-expanded', 'false');
+    const label = document.createElement('span');
+    label.setAttribute('data-i18n', 'common.filters');
+    const table = (window.T && window.T[document.documentElement.lang]) || {};
+    label.textContent = table['common.filters'] || 'Фильтры';
+    toggle.appendChild(label);
+    if (active) {
+        const count = document.createElement('span');
+        count.className = 'filter-toggle__count';
+        count.textContent = active;
+        toggle.appendChild(count);
+    }
+    toggle.addEventListener('click', () => {
+        const open = form.classList.toggle('is-open');
+        toggle.setAttribute('aria-expanded', String(open));
+    });
+    form.classList.add('is-collapsible');
+    form.prepend(toggle);
+});
+
+/* ===== FLASH TOASTS =====
+   Errors / warnings stay until closed. Confirmations hide after 10 s, but the
+   timer pauses while the pointer or keyboard focus is on the toast (people who
+   read slowly or use a screen magnifier get all the time they need). */
+document.querySelectorAll('[data-flash]').forEach((t, i) => {
+    let timer = null;
+    const hide = () => { t.style.opacity = '0'; t.style.transform = 'translateX(30px)'; setTimeout(() => t.remove(), 400); };
+    const inFlow = window.matchMedia('(max-width: 560px)').matches;
+    const arm = () => { if (t.dataset.persist !== '1' && !inFlow) { clearTimeout(timer); timer = setTimeout(hide, 10000 + i * 1000); } };
+    const pause = () => clearTimeout(timer);
+    t.addEventListener('mouseenter', pause); t.addEventListener('mouseleave', arm);
+    t.addEventListener('focusin', pause); t.addEventListener('focusout', arm);
+    const close = t.querySelector('[data-flash-close]');
+    if (close) close.addEventListener('click', () => { pause(); hide(); });
+    arm();
 });
 </script>
 {% block extra_js %}{% endblock %}
