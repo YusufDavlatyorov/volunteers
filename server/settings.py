@@ -440,6 +440,13 @@ TELEGRAM_COMMUNITY_BOT_USERNAME = os.getenv('TELEGRAM_COMMUNITY_BOT_USERNAME', '
 TELEGRAM_COMMUNITY_CHAT_IDS = os.getenv('TELEGRAM_COMMUNITY_CHAT_IDS', '')
 COMMUNITY_INVITE_HOURS = int(os.getenv('COMMUNITY_INVITE_HOURS', '24'))
 
+# "Continue with Google" (accounts/google_oauth.py): an OAuth 2.0 Web client from
+# Google Cloud Console → APIs & Services → Credentials, with the authorized
+# redirect URI <DJANGO_SITE_URL>/auth/google/callback/ (README "Sign in with
+# Google"). Both unset = the button is hidden and the routes answer 404.
+GOOGLE_OAUTH_CLIENT_ID = os.getenv('GOOGLE_OAUTH_CLIENT_ID', '').strip()
+GOOGLE_OAUTH_CLIENT_SECRET = os.getenv('GOOGLE_OAUTH_CLIENT_SECRET', '').strip()
+
 # `manage.py test` must never reach a real Telegram chat, whatever .env holds
 # (a production token on a developer machine): tests that need a token set one
 # with override_settings and mock the HTTP layer. Django already swaps email
@@ -447,6 +454,9 @@ COMMUNITY_INVITE_HOURS = int(os.getenv('COMMUNITY_INVITE_HOURS', '24'))
 if len(sys.argv) > 1 and sys.argv[1] == 'test':
     TELEGRAM_BOT_TOKEN = ''
     TELEGRAM_COMMUNITY_BOT_TOKEN = ''
+    # Same for Google: tests opt in with override_settings + a mocked token call.
+    GOOGLE_OAUTH_CLIENT_ID = ''
+    GOOGLE_OAUTH_CLIENT_SECRET = ''
 
 # A local (DEBUG) run must not hold the production SMTP login / bot tokens —
 # shout in the Terminal if it does (names only, never values).

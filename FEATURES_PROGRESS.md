@@ -263,6 +263,19 @@ Baseline: 657 tests green at `2467bc5` (main).
   network down at start → polls once back; rejected token → exits at once, 1 getMe, no token;
   502 / dropped connections → keeps polling, no token / no URL / no httpx line at INFO and DEBUG,
   both bots. Mutation-checked (each guard removed → its test fails).
+- 2026-10-16 — **«Войти через Google»** (branch `feature/google-login`, from the owner's patch; not
+  merged, not deployed — goes out with the rest). OpenID Connect + PKCE on `requests`, no new
+  dependency (`accounts/google_oauth.py`): `/auth/google/` → Google → `/auth/google/callback/`
+  (single-use state + nonce, per-IP throttle, iss/aud/exp/iat/nonce checked) → login by
+  `Users.google_sub`, else link by Google-verified email, else `/auth/google/signup/` (role /
+  username / region; "volunteer" files a `VolunteerApplication`). Button on login/register (EN/RU/TJ)
+  only when `GOOGLE_OAUTH_CLIENT_ID` + `_SECRET` are set, otherwise the routes 404; `/auth/` in
+  robots. Setup steps: README "Sign in with Google". Integrated with the 2026-10-14..16 work: the
+  migration is **accounts 0014** (0013 was taken by `full_name` 60), Google sign-in lands like the
+  password login (safe `?next=` kept through the round trip, else `dashboard`, not `profile`), its
+  flash texts in `FLASH_KEYS` + i18n.js (`flash.google_*`, TJ to be checked by a native speaker),
+  the sign-up page uses the current logo. `accounts/tests_google.py`: 20 tests. Result: **1685
+  tests OK** (was 1665).
 
 ## Deploy checklist (milestone 7; only after the owner writes "deploy")
 

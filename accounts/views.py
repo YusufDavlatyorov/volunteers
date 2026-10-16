@@ -6,13 +6,15 @@ from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
-from django.http import JsonResponse
+from django.db import IntegrityError, transaction
+from django.http import Http404, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme, urlencode
 from django.views.decorators.http import require_POST
 
-from .forms import ForgotPasswordForm, LoginForm, ProfileForm, RegistrationForm, ResetPasswordForm, UserUpdateForm
+from . import google_oauth
+from .forms import ForgotPasswordForm, GoogleSignupForm, LoginForm, ProfileForm, RegistrationForm, ResetPasswordForm, UserUpdateForm
 from .models import Profile, REGION_CHOICES, Users, hash_token, validate_file_size
 from myapp.models import VolunteerApplication
 from myapp.notifications import queue_email
@@ -51,6 +53,25 @@ def _register_attempt(cache_key, window_seconds):
     cache.set(cache_key, cache.get(cache_key, 0) + 1, window_seconds)
 
 
+def _file_volunteer_application(user, motivation):
+    """A "volunteer" sign-up (password or Google) files a pending application
+    and tells the admins — the role itself is granted only on approval."""
+    application, _ = VolunteerApplication.objects.get_or_create(
+        user=user,
+        defaults={"region": user.region, "reason": motivation or ""},
+    )
+    admins = Users.objects.filter(is_superuser=True, is_active=True)
+    notify(
+        admins, "application_submitted",
+        params={"application_id": application.pk, "username": user.username,
+                "kind": "new", "region": user.region},
+        link=reverse("volunteer_application_detail", args=[application.pk]),
+        dedupe_key=f"application_new:{application.pk}",
+        extra={"region_name": user.get_region_display() or None},
+    )
+    return application
+
+
 def register_view(request):
     if request.user.is_authenticated:
         return redirect("dashboard")
@@ -69,22 +90,7 @@ def register_view(request):
             f"Здравствуйте, {user.username}!\nПодтвердите email по ссылке:\n{verify_url}",
         )
         if form.cleaned_data["role"] == "volunteer":
-            application, _ = VolunteerApplication.objects.get_or_create(
-                user=user,
-                defaults={
-                    "region": user.region,
-                    "reason": form.cleaned_data.get("motivation", ""),
-                },
-            )
-            admins = Users.objects.filter(is_superuser=True, is_active=True)
-            notify(
-                admins, "application_submitted",
-                params={"application_id": application.pk, "username": user.username,
-                        "kind": "new", "region": user.region},
-                link=reverse("volunteer_application_detail", args=[application.pk]),
-                dedupe_key=f"application_new:{application.pk}",
-                extra={"region_name": user.get_region_display() or None},
-            )
+            _file_volunteer_application(user, form.cleaned_data.get("motivation", ""))
             messages.success(request, "Аккаунт создан. Заявка на волонтерство отправлена на рассмотрение администратору.")
         else:
             messages.success(request, "Аккаунт создан. Проверьте email для подтверждения.")
@@ -95,7 +101,9 @@ def register_view(request):
         if next_url and next_url.startswith(reverse("create_request")) and form.cleaned_data["role"] != "client":
             return redirect("dashboard")
         return _after_login(request)
-    return render(request, "accounts/register.html", {"form": form, "next": _safe_next(request)})
+    return render(request, "accounts/register.html", {
+        "form": form, "next": _safe_next(request), "google_enabled": google_oauth.is_enabled(),
+    })
 
 
 def _safe_next(request):
@@ -162,7 +170,168 @@ def login_view(request):
         "next": next_url,
         "register_url": _register_link(next_url),
         "wants_help": bool(next_url and next_url.startswith(reverse("create_request"))),
+        "google_enabled": google_oauth.is_enabled(),
     })
+
+
+# --- Continue with Google (accounts/google_oauth.py has the protocol) ---------
+
+GOOGLE_CALLBACK_IP_LIMIT = 30
+GOOGLE_CALLBACK_WINDOW_SECONDS = 15 * 60
+
+
+def _google_redirect_uri(request):
+    # Built from the request, so it is https://khayrkhoh.tj/… in production
+    # (SECURE_PROXY_SSL_HEADER + ALLOWED_HOSTS) and http://127.0.0.1:8000/… in
+    # dev; both must be listed as authorized redirect URIs in Google Console.
+    return request.build_absolute_uri(reverse("google_callback"))
+
+
+def _require_google():
+    if not google_oauth.is_enabled():
+        raise Http404
+
+
+def _login_with_google(request, user):
+    login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+    # A Google sign-in is a deliberate "keep me signed in" — same lifetime as
+    # the password login's "remember me".
+    request.session.set_expiry(settings.SESSION_COOKIE_AGE)
+    logger.info("google login: user=%s", user.pk)
+
+
+def _after_google(next_url, new_role=None):
+    """Where a Google sign-in lands — the same as the password login: the safe
+    ``?next=`` kept since /auth/google/, else the dashboard. A new account that
+    isn't a client can't use the client's request form (like register_view)."""
+    if next_url and new_role and new_role != "client" and next_url.startswith(reverse("create_request")):
+        return redirect("dashboard")
+    return redirect(next_url) if next_url else redirect("dashboard")
+
+
+def google_login_view(request):
+    _require_google()
+    if request.user.is_authenticated:
+        return _after_login(request)
+    # ?next= is checked now (same-site only) and kept server-side in the flow.
+    flow = google_oauth.start_flow(request.session, next_url=_safe_next(request))
+    return redirect(google_oauth.authorization_url(flow, _google_redirect_uri(request)))
+
+
+def google_callback_view(request):
+    _require_google()
+    if request.user.is_authenticated:
+        return redirect("dashboard")
+    if request.GET.get("error"):
+        # The user pressed "Cancel" on Google's screen (access_denied) or similar.
+        request.session.pop(google_oauth.SESSION_FLOW_KEY, None)
+        messages.info(request, "Вход через Google отменён")
+        return redirect("login")
+
+    ip_key = f"google_callback:ip:{_client_ip(request)}"
+    if _too_many_attempts(ip_key, GOOGLE_CALLBACK_IP_LIMIT):
+        logger.warning("google callback throttled: ip=%s", _client_ip(request))
+        messages.error(request, "Слишком много попыток. Попробуйте снова через несколько минут.")
+        return redirect("login")
+    _register_attempt(ip_key, GOOGLE_CALLBACK_WINDOW_SECONDS)
+
+    flow = google_oauth.pop_flow(request.session, request.GET.get("state"))
+    code = request.GET.get("code")
+    if not flow or not code:
+        messages.error(request, "Сессия входа через Google истекла. Попробуйте ещё раз.")
+        return redirect("login")
+    id_token = google_oauth.exchange_code(code, flow["verifier"], _google_redirect_uri(request))
+    identity = google_oauth.verify_id_token(id_token, flow["nonce"]) if id_token else None
+    if identity is None:
+        messages.error(request, "Не удалось войти через Google. Попробуйте ещё раз.")
+        return redirect("login")
+
+    user = Users.objects.filter(google_sub=identity.sub).first()
+    if user is None and identity.email_verified:
+        # An existing password account with the same (Google-verified) email:
+        # link it. Whoever controls that mailbox could reset the password
+        # anyway, so this grants nothing new.
+        user = Users.objects.filter(email=identity.email).first()
+        if user is not None:
+            if user.google_sub:
+                # Already tied to a *different* Google account — don't silently re-link.
+                messages.error(request, "Этот email уже привязан к другому Google-аккаунту. Войдите по паролю.")
+                return redirect("login")
+            user.google_sub = identity.sub
+            fields = ["google_sub"]
+            if not user.is_email_verified:
+                user.is_email_verified = True
+                user.email_verification_token = None
+                user.email_verification_token_created_at = None
+                fields += ["is_email_verified", "email_verification_token",
+                           "email_verification_token_created_at"]
+            user.save(update_fields=fields)
+            logger.info("google account linked: user=%s", user.pk)
+
+    if user is not None:
+        if not user.is_active:
+            messages.error(request, "Аккаунт отключён. Обратитесь к администратору.")
+            return redirect("login")
+        _login_with_google(request, user)
+        messages.success(request, f"Добро пожаловать, {user.username}!")
+        return _after_google(flow.get("next"))
+
+    if not identity.email_verified:
+        messages.error(request, "Email этого Google-аккаунта не подтверждён. Зарегистрируйтесь обычным способом.")
+        return redirect("register")
+    request.session[google_oauth.SESSION_PENDING_KEY] = {**identity.to_session(), "next": flow.get("next")}
+    return redirect("google_signup")
+
+
+def google_signup_view(request):
+    """Finish a new account after Google: pick a role, username and region."""
+    _require_google()
+    if request.user.is_authenticated:
+        return redirect("dashboard")
+    pending = request.session.get(google_oauth.SESSION_PENDING_KEY)
+    identity = google_oauth.GoogleIdentity.from_session(pending)
+    if identity is None:
+        request.session.pop(google_oauth.SESSION_PENDING_KEY, None)
+        messages.error(request, "Сессия входа через Google истекла. Попробуйте ещё раз.")
+        return redirect("login")
+    if Users.objects.filter(email=identity.email).exists() or Users.objects.filter(google_sub=identity.sub).exists():
+        # Created meanwhile (another tab) — the normal Google login handles it now.
+        request.session.pop(google_oauth.SESSION_PENDING_KEY, None)
+        return redirect("google_login")
+
+    initial = {"username": google_oauth.suggest_username(
+        identity, lambda name: Users.objects.filter(username=name).exists())}
+    form = GoogleSignupForm(request.POST or None, initial=initial)
+    if request.method == "POST" and form.is_valid():
+        data = form.cleaned_data
+        try:
+            with transaction.atomic():
+                user = Users.objects.create_user(
+                    username=data["username"],
+                    email=identity.email,
+                    password=None,  # unusable — "Forgot password?" can set one later
+                    region=data["region"],
+                    is_client=data["role"] == "client",
+                    is_email_verified=True,
+                    google_sub=identity.sub,
+                )
+                if identity.name:
+                    Profile.objects.filter(user=user, full_name="").update(
+                        full_name=identity.name[:Users.FULL_NAME_MAX_LENGTH])
+                if data["role"] == "volunteer":
+                    _file_volunteer_application(user, data.get("motivation", ""))
+        except IntegrityError:
+            # Lost a race on the username (or email/sub) unique index.
+            form.add_error("username", ValidationError("Такой username уже занят", code="username_taken"))
+        else:
+            request.session.pop(google_oauth.SESSION_PENDING_KEY, None)
+            _login_with_google(request, user)
+            if data["role"] == "volunteer":
+                messages.success(request, "Аккаунт создан. Заявка на волонтерство отправлена на рассмотрение администратору.")
+            else:
+                messages.success(request, "Аккаунт создан.")
+            return _after_google(pending.get("next"), new_role=data["role"])
+    return render(request, "accounts/google_signup.html", {"form": form, "google_email": identity.email})
 
 
 @require_POST

@@ -95,6 +95,8 @@
             </button>
         </form>
 
+        {% include "partials/_google_button.html" %}
+
         <p class="auth-footer-text">
             <span data-i18n="reg.has_account">Already have an account?</span>
             <a href="{% url 'login' %}{% if next %}?next={{ next|urlencode }}{% endif %}" data-i18n="login.btn">Login</a>

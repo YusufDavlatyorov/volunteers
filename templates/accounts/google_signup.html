@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% load static form_i18n assets %}
+{% block title %}KhayrKhoh{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% asset 'css/auth.css' %}">{% endblock %}
+{% block content %}
+<section class="auth-shell">
+    <div class="auth-card auth-card--wide reveal">
+        <div class="auth-brand">
+            <span class="auth-logo" aria-hidden="true"><img class="brand-logo brand-logo--light" src="{% static 'img/logo-mark.svg' %}" alt="" width="44" height="44"><img class="brand-logo brand-logo--dark" src="{% static 'img/logo-mark-white.svg' %}" alt="" width="44" height="44"></span>
+        </div>
+        <span class="eyebrow" data-i18n="gsignup.eyebrow">Almost done</span>
+        <h1 class="auth-title" data-i18n="gsignup.heading">Finish signing up</h1>
+        <p class="auth-subtitle" data-i18n="gsignup.desc">Your Google account is confirmed. Choose how you will use KhayrKhoh — no password needed.</p>
+
+        <p class="google-email">
+            <svg viewBox="0 0 48 48" width="16" height="16" aria-hidden="true" focusable="false"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+            <span>{{ google_email }}</span>
+        </p>
+
+        {% if form.non_field_errors %}
+            <div class="auth-alert" role="alert"{% error_i18n_attrs form.non_field_errors %}>{{ form.non_field_errors.0 }}</div>
+        {% endif %}
+
+        <form method="post" class="auth-form" id="googleSignupForm">
+            {% csrf_token %}
+
+            <div class="role-picker">
+                <label class="role-option">
+                    <input type="radio" name="role" value="volunteer" data-role-input {% if form.role.value == "volunteer" %}checked{% endif %}>
+                    <span class="role-option-card">
+                        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.8 1-1a5.5 5.5 0 0 0 0-7.6Z"></path></svg>
+                        <strong data-i18n="reg.role_volunteer_title">I want to volunteer</strong>
+                        <span class="role-desc" data-i18n="reg.role_volunteer_desc">Help elderly people in your region. Your application is reviewed by our team.</span>
+                    </span>
+                </label>
+                <label class="role-option">
+                    <input type="radio" name="role" value="client" data-role-input {% if form.role.value == "client" %}checked{% endif %}>
+                    <span class="role-option-card">
+                        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 12h4a2 2 0 1 0 0-4h-3l-3.5-2A3 3 0 0 0 4 8.6V12"></path><path d="M2 12h2v7H2zM6 12l3 2h5a2 2 0 1 1 0 4H8"></path></svg>
+                        <strong data-i18n="reg.role_client_title">I need help</strong>
+                        <span class="role-desc" data-i18n="reg.role_client_desc">Request assistance from a volunteer near you.</span>
+                    </span>
+                </label>
+            </div>
+            <span class="field-error"{% error_i18n_attrs form.role.errors %}>{{ form.role.errors.0 }}</span>
+
+            <div class="field-group">
+                <label for="{{ form.username.id_for_label }}" data-i18n="field.username">Username</label>
+                {{ form.username }}
+                <span class="field-error"{% error_i18n_attrs form.username.errors %}>{{ form.username.errors.0 }}</span>
+            </div>
+
+            <div class="field-group">
+                <label for="{{ form.region.id_for_label }}" data-i18n="field.region">Region</label>
+                {{ form.region }}
+                <span class="field-error"{% error_i18n_attrs form.region.errors %}>{{ form.region.errors.0 }}</span>
+            </div>
+
+            <div class="field-group" data-motivation-group>
+                <label for="{{ form.motivation.id_for_label }}" data-i18n="reg.motivation_label">Why do you want to volunteer?</label>
+                {{ form.motivation }}
+                <span class="field-hint" data-i18n="reg.motivation_hint">Tell us a little about yourself — this is only reviewed if you apply as a volunteer.</span>
+                <span class="field-error"{% error_i18n_attrs form.motivation.errors %}>{{ form.motivation.errors.0 }}</span>
+            </div>
+
+            <button class="primary auth-submit" type="submit" data-submit-btn>
+                <span class="btn-label" data-i18n="gsignup.btn">Create account</span>
+                <span class="btn-spinner" aria-hidden="true"></span>
+            </button>
+        </form>
+
+        <p class="auth-footer-text">
+            <span data-i18n="reg.has_account">Already have an account?</span>
+            <a href="{% url 'login' %}" data-i18n="login.btn">Login</a>
+        </p>
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+    var motivationGroup = document.querySelector('[data-motivation-group]');
+    function syncMotivation() {
+        var checked = document.querySelector('[data-role-input]:checked');
+        if (!motivationGroup) return;
+        motivationGroup.style.display = (checked && checked.value === 'client') ? 'none' : 'block';
+    }
+    document.querySelectorAll('[data-role-input]').forEach(function(input) {
+        input.addEventListener('change', syncMotivation);
+    });
+    syncMotivation();
+
+    var form = document.getElementById('googleSignupForm');
+    var submitBtn = document.querySelector('[data-submit-btn]');
+    if (form && submitBtn) {
+        form.addEventListener('submit', function() {
+            submitBtn.classList.add('is-loading');
+            submitBtn.disabled = true;
+        });
+    }
+})();
+</script>
+{% endblock %}

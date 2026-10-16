@@ -164,6 +164,28 @@ Locally, use a **separate test bot** from @BotFather — never the production to
 process with the same token steals the production bot's updates). Step-by-step for the owner:
 `docs/TEST_BOT.md`. A DEBUG run with a bot token or SMTP login in `.env` prints a warning banner.
 
+### 8. (Optional) Sign in with Google
+
+The login and registration pages show **«Войти через Google»** once both
+`GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET` are set (unset = no button, the
+`/auth/google/…` routes answer 404). One-time setup in [Google Cloud Console](https://console.cloud.google.com/):
+
+1. Create a project → **APIs & Services → OAuth consent screen**: External, app name
+   KhayrKhoh, support email, authorized domain `khayrkhoh.tj`, scopes `openid`, `email`,
+   `profile` (no verification review is needed for these). Publish the app (status
+   "In production"), otherwise only listed test users can sign in.
+2. **Credentials → Create credentials → OAuth client ID → Web application.**
+   Authorized redirect URIs: `https://khayrkhoh.tj/auth/google/callback/` and, for local
+   development, `http://127.0.0.1:8000/auth/google/callback/`.
+3. Put the client ID and secret into `.env` and restart:
+   `sudo systemctl restart khayrkhoh-web` (production).
+
+How it behaves (`accounts/google_oauth.py`): a returning Google user is matched by their Google
+account id (`Users.google_sub`); an existing password account with the same **Google-verified**
+email is linked and keeps its password; anyone else finishes a short form (role, username,
+region) — choosing "volunteer" files a `VolunteerApplication` exactly like the normal
+registration. Google accounts have no password; "Forgot password?" can set one later.
+
 ## Background jobs (production)
 
 Scheduling has **no Celery beat** — scheduled work is plain management

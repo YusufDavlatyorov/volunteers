@@ -576,6 +576,23 @@ fallback.
   evaluated and deliberately **not** added (Stage 8) — don't introduce one without a concrete
   requirement it can't meet.
 
+### Sign in with Google (`accounts/google_oauth.py`)
+
+OpenID Connect authorization-code flow with PKCE, hand-rolled on `requests` (no allauth — one
+provider, and the custom `Users` model / role flags / `VolunteerApplication` sign-up would all need
+adapters). Routes `/auth/google/` → Google → `/auth/google/callback/` (single-use `state` + `nonce`
+in the session, per-IP throttle, ID token claims checked: iss/aud/exp/iat/nonce) →
+login by `Users.google_sub`, else link an existing account by **Google-verified** email (never
+re-links an email already tied to another `google_sub`), else `/auth/google/signup/` (role /
+username / region; the identity waits in the session, nothing is written before the form).
+Google-created accounts have an unusable password and `is_email_verified=True`. Lands like the
+password login: the safe `?next=` (checked at `/auth/google/`, kept in the session flow; the button
+carries it) else `dashboard`; a new non-client never lands on the request form. Its flash texts
+are in `FLASH_KEYS` (`flash.google_*`). Migration `accounts/0014_users_google_sub`. Off unless
+`GOOGLE_OAUTH_CLIENT_ID` + `_SECRET` are set (button hidden, routes 404); `manage.py test`
+blanks both. Tests (`accounts/tests_google.py`) mock `accounts.google_oauth.requests.post`.
+`/auth/` is in `ROBOTS_DISALLOW`.
+
 ### Telegram account linking
 
 Binding a Telegram chat to an account is a verified round-trip, not a form field. The logged-in

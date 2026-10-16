@@ -98,6 +98,37 @@ class RegistrationForm(forms.ModelForm):
         return user
 
 
+class GoogleSignupForm(forms.Form):
+    """The rest of a sign-up after "Continue with Google": the email comes from
+    Google (verified) and there is no password, so only role / username /
+    region (+ motivation for volunteers) are asked. Same role semantics as
+    RegistrationForm — "volunteer" only files a VolunteerApplication."""
+
+    role = forms.ChoiceField(choices=RegistrationForm.ROLE_CHOICES, widget=forms.RadioSelect)
+    username = forms.CharField(max_length=Users.USERNAME_MAX_LENGTH, widget=forms.TextInput(
+        attrs={"placeholder": "username", "maxlength": Users.USERNAME_MAX_LENGTH}))
+    region = forms.ChoiceField(
+        choices=[("", "Выберите регион")] + REGION_CHOICES,
+        widget=forms.Select(choices=[("", "Выберите регион")] + REGION_CHOICES),
+    )
+    motivation = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 3, "placeholder": "Необязательно, только для волонтеров"}),
+    )
+
+    I18N = {
+        "region": REGION_FIELD_I18N,
+        "motivation": {"ph": "form.optional_volunteers_ph"},
+    }
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("label_suffix", "")
+        super().__init__(*args, **kwargs)
+        localize(self, self.I18N)
+
+    clean_username = RegistrationForm.clean_username
+
+
 class LoginForm(forms.Form):
     username = forms.CharField(widget=forms.TextInput(attrs={
         "placeholder": "Username",

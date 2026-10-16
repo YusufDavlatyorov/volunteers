@@ -118,6 +118,10 @@ class Users(AbstractBaseUser, PermissionsMixin):
     is_client = models.BooleanField(default=False)
 
     telegram_id = models.BigIntegerField(unique=True, null=True, blank=True)
+    # Google account id (the OpenID Connect "sub" claim) once the user has signed
+    # in with Google — stable for life, unlike the Google email address, so a
+    # later Google login matches by this first (accounts/google_oauth.py).
+    google_sub = models.CharField(max_length=255, unique=True, null=True, blank=True)
     region = models.CharField(max_length=100, choices=REGION_CHOICES, blank=True)
 
     email_verification_token = models.CharField(max_length=100, null=True, blank=True)

@@ -98,6 +98,7 @@ ROBOTS_DISALLOW = [
     "/reset-password/",
     "/confirm-email/",
     "/logout/",
+    "/auth/",
 ]
 
 

@@ -148,3 +148,31 @@ fieldset.role-picker { border: 0; padding: 0; min-width: 0; margin-inline: 0; }
 @media (max-width: 480px) {
     .auth-card { padding: 1.5rem; }
 }
+
+/* --- "Continue with Google" (partials/_google_button.html) ----------------
+   Google's branding rules: the multicolour G on a white (light) / dark-grey
+   (dark) plate, the label in the plate's own ink — never recoloured. */
+.auth-divider {
+    display: flex; align-items: center; gap: var(--space-3);
+    margin: var(--space-4) 0; color: var(--muted); font-size: 0.85rem;
+}
+.auth-divider::before, .auth-divider::after {
+    content: ""; flex: 1; height: 1px; background: var(--card-border);
+}
+.google-btn {
+    display: flex; align-items: center; justify-content: center; gap: 0.65rem;
+    width: 100%; min-height: 2.7rem; padding: 0 1rem;
+    border: 1px solid #747775; border-radius: 999px;
+    background: #ffffff; color: #1f1f1f;
+    font-weight: 600; font-size: 0.95rem; text-decoration: none;
+    transition: background-color 0.15s ease, box-shadow 0.15s ease;
+}
+.google-btn:hover { background: #f7f8f8; box-shadow: 0 1px 3px rgba(60, 64, 67, 0.25); }
+.google-btn:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; }
+.google-btn__logo { flex: none; }
+[data-theme="dark"] .google-btn { background: #131314; color: #e3e3e3; border-color: #8e918f; }
+[data-theme="dark"] .google-btn:hover { background: #1f1f20; }
+.google-email {
+    display: flex; align-items: center; gap: 0.5rem; justify-content: center;
+    margin: 0 0 var(--space-4); color: var(--text-2); font-size: 0.92rem; overflow-wrap: anywhere;
+}

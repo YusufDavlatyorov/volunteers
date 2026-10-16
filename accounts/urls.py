@@ -13,12 +13,18 @@ from .views import (
     update_profile,
     set_language_view,
     profile_location_view,
+    google_login_view,
+    google_callback_view,
+    google_signup_view,
 )
 
 urlpatterns = [
     path('login/', login_view, name='login'),
     path('register/', register_view, name='register'),
     path('logout/', logout_view, name='logout'),
+    path('auth/google/', google_login_view, name='google_login'),
+    path('auth/google/callback/', google_callback_view, name='google_callback'),
+    path('auth/google/signup/', google_signup_view, name='google_signup'),
 
     path('profile/', profile_view, name='profile'),
     path('profile/edit/', edit_profile_view, name='edit_profile'),
