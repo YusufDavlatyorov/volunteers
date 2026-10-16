@@ -2,14 +2,16 @@
 {% load static form_i18n assets %}
 {% block extra_css %}<link rel="stylesheet" href="{% asset 'css/auth.css' %}">{% endblock %}
 {% block content %}
-<section class="auth-shell">
-    <div class="auth-card auth-card--wide reveal">
+<section class="auth-shell auth-scene">
+    {# Falling leaves (light) / stars (dark) behind the card — static/js/auth-bg.js. #}
+    <canvas class="auth-bg" data-auth-bg aria-hidden="true"></canvas>
+    <div class="auth-card auth-card--register reveal">
         <div class="auth-brand">
-            <span class="auth-logo" aria-hidden="true"><img class="brand-logo brand-logo--light" src="{% static 'img/logo-mark.svg' %}" alt="" width="44" height="44"><img class="brand-logo brand-logo--dark" src="{% static 'img/logo-mark-white.svg' %}" alt="" width="44" height="44"></span>
+            <span class="auth-logo" aria-hidden="true"><img class="brand-logo brand-logo--light" src="{% static 'img/logo-mark.svg' %}" alt="" width="40" height="40"><img class="brand-logo brand-logo--dark" src="{% static 'img/logo-mark-white.svg' %}" alt="" width="40" height="40"></span>
+            <span class="auth-brand__name" data-i18n="brand.name">KhayrKhoh</span>
         </div>
-        <span class="eyebrow" data-i18n="reg.eyebrow">Two ways to help</span>
-        <h1 class="auth-title" data-i18n="reg.heading">Join KhayrKhoh</h1>
-        <p class="auth-subtitle" data-i18n="reg.desc">Help people. Build your community. Make an impact — or ask for a hand when you need one.</p>
+        <h1 class="auth-title" data-i18n="reg.welcome">Create an account</h1>
+        <p class="auth-subtitle" data-i18n="reg.sub">It is free and takes a couple of minutes</p>
 
         {% if form.non_field_errors %}
             <div class="auth-alert" role="alert"{% error_i18n_attrs form.non_field_errors %}>{{ form.non_field_errors.0 }}</div>
@@ -64,7 +66,7 @@
                 <span class="field-error"{% error_i18n_attrs form.motivation.errors %}>{{ form.motivation.errors.0 }}</span>
             </div>
 
-            <div class="field-row">
+            <div class="field-stack">
                 <div class="field-group">
                     <label for="{{ form.password.id_for_label }}" data-i18n="field.password">Password</label>
                     <div class="password-field">
@@ -106,6 +108,7 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="{% asset 'js/auth-bg.js' %}" defer></script>
 <script>
 (function() {
     document.querySelectorAll('[data-password-toggle]').forEach(function(toggle) {

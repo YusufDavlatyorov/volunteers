@@ -43,6 +43,11 @@ const T = {
     "login.help_register": "I'm new — create an account",
     "reg.role_legend": "How do you want to use KhayrKhoh?",
     "reg.btn_client": "Create account",
+    // Login / register redesign, 2026-10-16.
+    "login.welcome": "Welcome back",
+    "login.sub": "Sign in to continue",
+    "reg.welcome": "Create an account",
+    "reg.sub": "It is free and takes a couple of minutes",
     // Client-worded request status, 2026-10-15.
     "task.client_status_pending": "Looking for a volunteer",
     "task.client_status_active": "A volunteer is helping",
@@ -1403,6 +1408,11 @@ const T = {
     "login.help_register": "Я здесь впервые — создать аккаунт",
     "reg.role_legend": "Как вы хотите участвовать в KhayrKhoh?",
     "reg.btn_client": "Создать аккаунт",
+    // Login / register redesign, 2026-10-16.
+    "login.welcome": "С возвращением",
+    "login.sub": "Войдите, чтобы продолжить",
+    "reg.welcome": "Создать аккаунт",
+    "reg.sub": "Это бесплатно и займёт пару минут",
     // Client-worded request status, 2026-10-15.
     "task.client_status_pending": "Ищем волонтёра",
     "task.client_status_active": "Волонтёр помогает",
@@ -2763,6 +2773,11 @@ const T = {
     "login.help_register": "Ман нав омадам — ҳисоб сохтан",
     "reg.role_legend": "Шумо дар KhayrKhoh чӣ тавр иштирок кардан мехоҳед?",
     "reg.btn_client": "Ҳисоб сохтан",
+    // Login / register redesign, 2026-10-16.
+    "login.welcome": "Боз хуш омадед",
+    "login.sub": "Барои идома ворид шавед",
+    "reg.welcome": "Ҳисоб созед",
+    "reg.sub": "Ин ройгон аст ва якчанд дақиқа вақт мегирад",
     // Client-worded request status, 2026-10-15.
     "task.client_status_pending": "Ихтиёрӣ ҷустуҷӯ мешавад",
     "task.client_status_active": "Ихтиёрӣ кӯмак мекунад",

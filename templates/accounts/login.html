@@ -2,14 +2,16 @@
 {% load static assets form_i18n %}
 {% block extra_css %}<link rel="stylesheet" href="{% asset 'css/auth.css' %}">{% endblock %}
 {% block content %}
-<section class="auth-shell">
+<section class="auth-shell auth-scene">
+    {# Falling leaves (light) / stars (dark) behind the card — static/js/auth-bg.js. #}
+    <canvas class="auth-bg" data-auth-bg aria-hidden="true"></canvas>
     <div class="auth-card reveal">
         <div class="auth-brand">
-            <span class="auth-logo" aria-hidden="true"><img class="brand-logo brand-logo--light" src="{% static 'img/logo-mark.svg' %}" alt="" width="44" height="44"><img class="brand-logo brand-logo--dark" src="{% static 'img/logo-mark-white.svg' %}" alt="" width="44" height="44"></span>
+            <span class="auth-logo" aria-hidden="true"><img class="brand-logo brand-logo--light" src="{% static 'img/logo-mark.svg' %}" alt="" width="40" height="40"><img class="brand-logo brand-logo--dark" src="{% static 'img/logo-mark-white.svg' %}" alt="" width="40" height="40"></span>
+            <span class="auth-brand__name" data-i18n="brand.name">KhayrKhoh</span>
         </div>
-        <span class="eyebrow" data-i18n="login.eyebrow">Volunteer Platform</span>
-        <h1 class="auth-title" data-i18n="login.heading">Sign In</h1>
-        <p class="auth-subtitle" data-i18n="login.desc">Log into your profile to accept a request, create help, open AI assistant or view admin panel.</p>
+        <h1 class="auth-title" data-i18n="login.welcome">Welcome back</h1>
+        <p class="auth-subtitle" data-i18n="login.sub">Sign in to continue</p>
 
         {% if wants_help %}
         {# Sent here by "Request help": most such visitors have no account yet — say so plainly. #}
@@ -70,6 +72,7 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="{% asset 'js/auth-bg.js' %}" defer></script>
 <script>
 (function() {
     var toggle = document.querySelector('[data-password-toggle]');

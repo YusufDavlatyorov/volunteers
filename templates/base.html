@@ -6,12 +6,14 @@
     {% block viewport %}<meta name="viewport" content="width=device-width, initial-scale=1">{% endblock %}
     <script>
     /* Applied before first paint so dark-theme visitors don't see a flash
-       of the light theme (and its color/background transition) on load. */
+       of the light theme (and its color/background transition) on load.
+       No saved choice yet → the OS setting (prefers-color-scheme). */
     (function() {
-        try {
-            var saved = localStorage.getItem('gc-theme');
-            if (saved === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
-        } catch (e) {}
+        var saved = null;
+        try { saved = localStorage.getItem('gc-theme'); } catch (e) {}
+        var dark = saved ? saved === 'dark'
+            : !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if (dark) document.documentElement.setAttribute('data-theme', 'dark');
         // Scroll reveal may hide content only when JS runs (style.css .gc-reveal);
         // if the reveal script never starts, show everything after 3 s anyway.
         var root = document.documentElement;
@@ -277,13 +279,20 @@ until closed. Own container: live toasts (live-ui.js) use .toast-stack.
 (function() {
     const html = document.documentElement;
     const toggle = document.getElementById('themeToggle');
-    const saved = localStorage.getItem('gc-theme') || 'light';
-    html.setAttribute('data-theme', saved);
+    const stored = () => { try { return localStorage.getItem('gc-theme'); } catch (e) { return null; } };
+    const scheme = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+    html.setAttribute('data-theme', stored() || (scheme && scheme.matches ? 'dark' : 'light'));
+    // Until the visitor picks a theme, follow the OS when it switches.
+    if (scheme && scheme.addEventListener) {
+        scheme.addEventListener('change', (e) => {
+            if (!stored()) html.setAttribute('data-theme', e.matches ? 'dark' : 'light');
+        });
+    }
 
     toggle.addEventListener('click', () => {
         const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
         html.setAttribute('data-theme', next);
-        localStorage.setItem('gc-theme', next);
+        try { localStorage.setItem('gc-theme', next); } catch (e) {}
     });
 })();
 

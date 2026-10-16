@@ -819,6 +819,13 @@ and `ai_assistant.html` were left alone (test-coupled DOM ids / out of scope) �
 - Staff `.data-table`s on phones: label beside value (floated into the cell padding).
 - New TJ strings of this pass: `docs/TJ_REVIEW_UX_2026-10-15.md` (for a native speaker's check).
 
+**Login / register scene (2026-10-16)**: `login.html` / `register.html` wrap their card in
+`.auth-scene` — own warm palette as `--auth-*` tokens on `:root` in `static/css/auth.css` (light
+`#FAF7F2` + accent `#D97A3E` with dark ink on the fill; dark `#0B1020` gradient + `#C9B8FF`), a 360/400px
+frosted card, and `static/js/auth-bg.js` (canvas: leaves / shooting stars, follows `data-theme` live,
+still under reduced motion, paused when hidden). Forgot/reset/google-signup keep the older auth.css
+rules. The site theme now defaults to `prefers-color-scheme` until the visitor picks one (`gc-theme`).
+
 **Template comments:** `{# … #}` is single-line in Django — a multi-line one is printed on the
 page as text (it leaked on About, 2026-10-14). Multi-line notes use `{% comment %}…{% endcomment %}`;
 `TemplateCommentLeakTests` (myapp/tests_about_sections.py) scans every template for it.
