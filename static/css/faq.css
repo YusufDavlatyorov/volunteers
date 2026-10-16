@@ -1,0 +1,188 @@
+/* ===== faq.css — the FAQ page (templates/myapp/faq.html) =====
+   Same look as the login / register scene: the --auth-* palette
+   (auth-tokens.css, loaded first), Inter, 14px card radius, light/dark via
+   [data-theme]. One centred 720px column. */
+
+.faq-scene {
+    min-height: calc(100vh - var(--nav-h));
+    padding: 2.5rem 1rem 3.5rem;
+    background: var(--auth-bg-glow), var(--auth-bg);
+    color: var(--auth-text);
+}
+.faq-wrap { max-width: 720px; margin: 0 auto; }
+
+/* Language: every text is rendered in ru / tj / en; show the one of <html lang>
+   (Russian for anything else — it is what the server renders). */
+html:not([lang="en"]):not([lang="tj"]) .faq-scene [data-faq-lang]:not([data-faq-lang="ru"]),
+html[lang="en"] .faq-scene [data-faq-lang]:not([data-faq-lang="en"]),
+html[lang="tj"] .faq-scene [data-faq-lang]:not([data-faq-lang="tj"]) { display: none; }
+
+/* Header + search */
+.faq-head { margin-bottom: 1.5rem; text-align: center; }
+.faq-title {
+    margin: 0;
+    font-size: 1.6rem;
+    font-weight: 700;
+    line-height: 1.25;
+    letter-spacing: -0.01em;
+    color: var(--auth-text);
+}
+.faq-lead { margin: 0.4rem 0 1.25rem; font-size: 0.9rem; color: var(--auth-muted); }
+.faq-search { position: relative; max-width: 480px; margin: 0 auto; }
+.faq-search__icon {
+    position: absolute;
+    top: 50%;
+    left: 0.85rem;
+    transform: translateY(-50%);
+    color: var(--auth-muted);
+    pointer-events: none;
+}
+.faq-scene .faq-search input {
+    min-height: 2.6rem;
+    padding: 0.55rem 0.9rem 0.55rem 2.5rem;
+    border: 1px solid var(--auth-line);
+    border-radius: 10px;
+    background: var(--auth-input);
+    color: var(--auth-text);
+    font-size: 0.875rem;
+    transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.faq-scene .faq-search input::placeholder { color: var(--auth-muted); opacity: 0.85; }
+.faq-scene .faq-search input:focus {
+    outline: none;
+    border-color: var(--auth-accent);
+    box-shadow: 0 0 0 3px var(--auth-glow), 0 0 14px var(--auth-glow);
+}
+
+/* Categories */
+.faq-cat { margin-top: 1.5rem; }
+.faq-cat[hidden] { display: none; }
+.faq-cat__title {
+    margin: 0 0 0.6rem;
+    padding-left: 0.2rem;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--auth-accent-ink);
+}
+.faq-items {
+    border: 1px solid var(--auth-card-border);
+    border-radius: 14px;
+    background: var(--auth-card);
+    -webkit-backdrop-filter: blur(14px) saturate(1.15);
+    backdrop-filter: blur(14px) saturate(1.15);
+    box-shadow: var(--auth-shadow);
+    overflow: hidden;
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .faq-items { background: var(--auth-card-solid); }
+}
+
+/* Accordion: <details>/<summary> */
+.faq-item + .faq-item { border-top: 1px solid var(--auth-line); }
+.faq-item[hidden] { display: none; }
+.faq-q {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    min-height: 3rem;
+    padding: 0.8rem 1.1rem;
+    cursor: pointer;
+    list-style: none;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    line-height: 1.4;
+    color: var(--auth-text);
+    transition: background-color 0.18s ease;
+}
+.faq-q::-webkit-details-marker { display: none; }
+.faq-q::marker { content: ""; }
+.faq-q:hover { background: var(--auth-glow); }
+.faq-q:focus-visible { outline: 2px solid var(--auth-accent); outline-offset: -2px; border-radius: 10px; }
+.faq-q__text { flex: 1; min-width: 0; }
+
+/* + / − : two bars, the vertical one folds away when open. */
+.faq-icon {
+    position: relative;
+    flex: none;
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 50%;
+    background: var(--auth-glow);
+    color: var(--auth-accent-ink);
+}
+.faq-icon::before,
+.faq-icon::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0.6rem;
+    height: 2px;
+    margin: -1px 0 0 -0.3rem;
+    border-radius: 2px;
+    background: currentColor;
+    transition: transform 0.22s ease;
+}
+.faq-icon::after { transform: rotate(90deg); }
+.faq-item[open] .faq-icon::after { transform: rotate(90deg) scaleX(0); }
+
+.faq-a { overflow: hidden; }
+.faq-a__text {
+    padding: 0 1.1rem 1rem;
+    font-size: 0.875rem;
+    line-height: 1.6;
+    color: var(--auth-muted);
+}
+.faq-a__text p { margin: 0 0 0.6rem; }
+.faq-a__text p:last-child { margin-bottom: 0; }
+
+/* Empty states */
+.faq-empty { margin: 0; font-size: 0.9rem; text-align: center; color: var(--auth-muted); }
+.faq-empty > span { display: block; padding-top: 1.5rem; }
+.faq-empty > span[hidden] { display: none; }
+.faq-empty--none { margin-top: 1.5rem; }
+
+/* "Didn't find an answer?" */
+.faq-help {
+    margin-top: 2.25rem;
+    padding: 1.25rem 1.25rem 1.1rem;
+    border: 1px solid var(--auth-card-border);
+    border-radius: 14px;
+    background: var(--auth-card);
+    text-align: center;
+}
+.faq-help__title { margin: 0; font-size: 1.05rem; font-weight: 700; color: var(--auth-text); }
+.faq-help__text { margin: 0.3rem 0 0.9rem; font-size: 0.875rem; color: var(--auth-muted); }
+.faq-help__links { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.5rem; }
+.faq-help__link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    min-height: 2.4rem;
+    padding: 0.45rem 0.9rem;
+    border: 1px solid var(--auth-line);
+    border-radius: 10px;
+    background: var(--auth-input);
+    color: var(--auth-accent-ink);
+    font-size: 0.875rem;
+    font-weight: 600;
+    transition: border-color 0.18s ease, background-color 0.18s ease;
+}
+.faq-help__link:hover { border-color: var(--auth-accent); background: var(--auth-glow); }
+.faq-help__link:focus-visible { outline: 2px solid var(--auth-accent); outline-offset: 2px; }
+
+@media (max-width: 560px) {
+    .faq-scene { padding: 1.5rem 1rem 2.5rem; }
+    .faq-title { font-size: 1.4rem; }
+    .faq-q { padding: 0.75rem 0.9rem; font-size: 0.9rem; }
+    .faq-a__text { padding: 0 0.9rem 0.9rem; }
+    .faq-scene .faq-search input { font-size: 1rem; }   /* iOS doesn't zoom on focus */
+    .faq-help__link { flex: 1 1 100%; justify-content: center; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .faq-q, .faq-icon::before, .faq-icon::after,
+    .faq-scene .faq-search input, .faq-help__link { transition: none; }
+}

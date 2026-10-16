@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% load assets %}
+{% comment %}
+FAQ (/faq/, myapp/views_faq.py). Content comes from the Django admin
+(FAQCategory / FAQItem). Every question / answer / category name is rendered in
+all three UI languages (Russian fallback) and faq.css shows the one matching
+<html lang>, so the i18n.js switcher re-labels the page without a reload.
+Accordion = <details>/<summary> (keyboard + screen readers for free); faq.js only
+animates it and filters the list as you type. Public page: no title block here,
+server/seo.py PUBLIC_PAGES supplies title / description / canonical.
+{% endcomment %}
+{% block extra_css %}<link rel="stylesheet" href="{% asset 'css/auth-tokens.css' %}"><link rel="stylesheet" href="{% asset 'css/faq.css' %}">{% endblock %}
+{% block structured_data %}{{ block.super }}{% if faq_json_ld %}<script type="application/ld+json">{{ faq_json_ld }}</script>{% endif %}{% endblock %}
+{% block content %}
+<section class="faq-scene">
+    <div class="faq-wrap">
+        <header class="faq-head">
+            <h1 class="faq-title" data-i18n="faq.title">Frequently asked questions</h1>
+            <p class="faq-lead" data-i18n="faq.lead">Short answers about how KhayrKhoh works.</p>
+            {% if categories %}
+            <div class="faq-search" role="search">
+                <svg class="faq-search__icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+                <label class="visually-hidden" for="faqSearch" data-i18n="faq.search_label">Search the questions</label>
+                <input id="faqSearch" type="search" autocomplete="off" enterkeyhint="search" placeholder="Find a question…" data-i18n-ph="faq.search_ph" data-faq-search>
+            </div>
+            {% endif %}
+        </header>
+
+        {% if categories %}
+        <div class="faq-list">
+            {% for category in categories %}
+            <section class="faq-cat" data-faq-cat aria-labelledby="faq-cat-{{ category.id }}">
+                <h2 class="faq-cat__title" id="faq-cat-{{ category.id }}">{% for lang, text in category.names %}<span data-faq-lang="{{ lang }}" lang="{% if lang == 'tj' %}tg{% else %}{{ lang }}{% endif %}">{{ text }}</span>{% endfor %}</h2>
+                <div class="faq-items">
+                    {% for item in category.items %}
+                    <details class="faq-item" id="q-{{ item.id }}" data-faq-item>
+                        <summary class="faq-q">
+                            <span class="faq-q__text">{% for lang, text in item.questions %}<span data-faq-lang="{{ lang }}" lang="{% if lang == 'tj' %}tg{% else %}{{ lang }}{% endif %}">{{ text }}</span>{% endfor %}</span>
+                            <span class="faq-icon" aria-hidden="true"></span>
+                        </summary>
+                        <div class="faq-a" data-faq-answer>
+                            {% for lang, text in item.answers %}<div class="faq-a__text" data-faq-lang="{{ lang }}" lang="{% if lang == 'tj' %}tg{% else %}{{ lang }}{% endif %}">{{ text|linebreaks }}</div>{% endfor %}
+                        </div>
+                    </details>
+                    {% endfor %}
+                </div>
+            </section>
+            {% endfor %}
+        </div>
+        {# Live region stays in the DOM; faq.js only toggles the text inside, so the change is announced. #}
+        <p class="faq-empty" role="status" aria-live="polite" data-faq-empty><span data-i18n="faq.nothing" hidden>Nothing found</span></p>
+        {% else %}
+        <p class="faq-empty faq-empty--none" data-i18n="faq.no_items">No questions yet.</p>
+        {% endif %}
+
+        <aside class="faq-help" aria-labelledby="faq-help-title">
+            <h2 class="faq-help__title" id="faq-help-title" data-i18n="faq.help_title">Didn't find an answer?</h2>
+            <p class="faq-help__text" data-i18n="faq.help_text">Call or write to us — we will answer and help.</p>
+            <div class="faq-help__links">
+                <a class="faq-help__link" href="tel:{{ contact_phone_href }}">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.68 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.32 1.85.55 2.81.68A2 2 0 0 1 22 16.92Z"/></svg>
+                    <span>{{ contact_phone }}</span>
+                </a>
+                <a class="faq-help__link" href="mailto:main@khayrkhoh.tj">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+                    <span>main@khayrkhoh.tj</span>
+                </a>
+                {% if telegram_bot %}
+                <a class="faq-help__link" href="https://t.me/{{ telegram_bot|urlencode }}" target="_blank" rel="noopener">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+                    <span data-i18n="faq.help_telegram">Telegram bot</span>
+                </a>
+                {% endif %}
+            </div>
+        </aside>
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}{% if categories %}<script src="{% asset 'js/faq.js' %}" defer></script>{% endif %}{% endblock %}

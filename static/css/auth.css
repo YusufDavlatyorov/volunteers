@@ -181,49 +181,8 @@ fieldset.role-picker { border: 0; padding: 0; min-width: 0; margin-inline: 0; }
    accounts/login.html + register.html only (wrapper .auth-scene): a small
    frosted card over an animated canvas (static/js/auth-bg.js — falling leaves
    in the light theme, shooting stars in the dark one). Its own warm palette
-   lives in --auth-* tokens; forgot/reset/google-signup keep the rules above.
-   Text pairs are ≥ 4.5:1 (the accent fill carries dark ink, not white). */
-:root, [data-theme="light"] {
-    --auth-bg: #FAF7F2;
-    --auth-bg-glow: radial-gradient(120% 70% at 50% 0%, #FFF1DF 0%, rgba(255, 241, 223, 0) 70%);
-    --auth-card: rgba(246, 236, 222, 0.66);
-    --auth-card-solid: #F6ECDE;
-    --auth-card-border: rgba(140, 100, 60, 0.16);
-    --auth-shadow: 0 12px 32px rgba(84, 52, 20, 0.10), 0 1px 2px rgba(84, 52, 20, 0.06);
-    --auth-text: #2A2118;
-    --auth-muted: #6B5E50;
-    --auth-line: rgba(90, 64, 40, 0.24);
-    --auth-input: rgba(255, 252, 247, 0.88);
-    --auth-accent: #D97A3E;
-    --auth-accent-hover: #C86C32;
-    --auth-accent-ink: #A44E1C;   /* accent as text on the light card */
-    --auth-on-accent: #1F1207;
-    --auth-glow: rgba(217, 122, 62, 0.24);
-    --auth-error: #B3352B;
-    --auth-error-bg: rgba(179, 53, 43, 0.08);
-    --auth-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231F1207' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
-}
-[data-theme="dark"] {
-    --auth-bg: #0B1020;
-    --auth-bg-glow: radial-gradient(130% 80% at 50% 0%, #1B2246 0%, #121834 38%, #0B1020 75%);
-    --auth-card: rgba(18, 23, 44, 0.62);
-    --auth-card-solid: #141A33;
-    --auth-card-border: rgba(201, 184, 255, 0.14);
-    --auth-shadow: 0 16px 40px rgba(0, 0, 0, 0.45), 0 1px 2px rgba(0, 0, 0, 0.3);
-    --auth-text: #E9E9F4;
-    --auth-muted: #A6AAC4;
-    --auth-line: rgba(201, 200, 230, 0.2);
-    --auth-input: rgba(10, 14, 30, 0.55);
-    --auth-accent: #C9B8FF;
-    --auth-accent-hover: #B7A2FF;
-    --auth-accent-ink: #C9B8FF;
-    --auth-on-accent: #0B1020;
-    --auth-glow: rgba(201, 184, 255, 0.22);
-    --auth-error: #FF9C92;
-    --auth-error-bg: rgba(255, 120, 108, 0.1);
-    --auth-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230B1020' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
-}
-
+   lives in --auth-* tokens (static/css/auth-tokens.css, loaded first);
+   forgot/reset/google-signup keep the rules above. */
 .auth-scene {
     isolation: isolate;
     overflow: hidden;

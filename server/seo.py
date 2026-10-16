@@ -74,6 +74,15 @@ PUBLIC_PAGES = {
         "canonical": "register",
         "sitemap": {"priority": 0.8, "changefreq": "monthly"},
     },
+    "faq": {
+        "title": "Частые вопросы — KhayrKhoh",
+        "description": (
+            "Ответы на частые вопросы о KhayrKhoh: как попросить помощь для "
+            "пожилого человека, как стать волонтёром и как работает платформа."
+        ),
+        "canonical": "faq",
+        "sitemap": {"priority": 0.5, "changefreq": "monthly"},
+    },
     "login": {
         "title": "Вход в личный кабинет — KhayrKhoh",
         "description": (

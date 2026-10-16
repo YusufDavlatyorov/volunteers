@@ -1,4 +1,5 @@
 from django.contrib import admin, messages
+from django.db.models import Count, Q
 from django.urls import reverse
 
 from .models import (
@@ -6,6 +7,8 @@ from .models import (
     Donation,
     EmergencyReport,
     Event,
+    FAQCategory,
+    FAQItem,
     HelpRequest,
     PetReport,
     PhotoReport,
@@ -261,3 +264,63 @@ class UserAchievementAdmin(admin.ModelAdmin):
             _ach_logger.info("achievement removed award=%s user=%s code=%s by=%s",
                              obj.pk, obj.user_id, obj.achievement.code, request.user.pk)
         super().delete_queryset(request, queryset)
+
+
+# --- FAQ (/faq/) ---------------------------------------------------------------
+# Order is edited as a number right in the lists (no drag-and-drop dependency);
+# the page shows only active categories that have at least one active question.
+class FAQItemInline(admin.StackedInline):
+    model = FAQItem
+    extra = 0
+    ordering = ("order", "id")
+    fieldsets = (
+        (None, {"fields": (("order", "is_active"),)}),
+        ("Русский", {"fields": ("question_ru", "answer_ru")}),
+        ("Тоҷикӣ", {"fields": ("question_tj", "answer_tj"), "classes": ("collapse",)}),
+        ("English", {"fields": ("question_en", "answer_en"), "classes": ("collapse",)}),
+    )
+
+
+@admin.register(FAQCategory)
+class FAQCategoryAdmin(admin.ModelAdmin):
+    list_display = ("name_ru", "order", "is_active", "items_total", "items_active")
+    list_display_links = ("name_ru",)
+    list_editable = ("order", "is_active")
+    list_filter = ("is_active",)
+    search_fields = ("name_ru", "name_tj", "name_en")
+    ordering = ("order", "id")
+    fields = ("name_ru", "name_tj", "name_en", ("order", "is_active"))
+    inlines = [FAQItemInline]
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).annotate(
+            _total=Count("items", distinct=True),
+            _active=Count("items", filter=Q(items__is_active=True), distinct=True),
+        )
+
+    @admin.display(description="Вопросов", ordering="_total")
+    def items_total(self, obj):
+        return obj._total
+
+    @admin.display(description="Активных", ordering="_active")
+    def items_active(self, obj):
+        return obj._active
+
+
+@admin.register(FAQItem)
+class FAQItemAdmin(admin.ModelAdmin):
+    list_display = ("question_ru", "category", "order", "is_active", "updated_at")
+    list_display_links = ("question_ru",)
+    list_editable = ("order", "is_active")
+    list_filter = ("category", "is_active")
+    list_select_related = ("category",)
+    search_fields = ("question_ru", "question_tj", "question_en")
+    ordering = ("category__order", "category_id", "order", "id")
+    readonly_fields = ("created_at", "updated_at")
+    fieldsets = (
+        (None, {"fields": ("category", ("order", "is_active"))}),
+        ("Русский", {"fields": ("question_ru", "answer_ru")}),
+        ("Тоҷикӣ", {"fields": ("question_tj", "answer_tj")}),
+        ("English", {"fields": ("question_en", "answer_en")}),
+        ("Даты", {"fields": (("created_at", "updated_at"),), "classes": ("collapse",)}),
+    )

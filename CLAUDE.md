@@ -820,11 +820,20 @@ and `ai_assistant.html` were left alone (test-coupled DOM ids / out of scope) �
 - New TJ strings of this pass: `docs/TJ_REVIEW_UX_2026-10-15.md` (for a native speaker's check).
 
 **Login / register scene (2026-10-16)**: `login.html` / `register.html` wrap their card in
-`.auth-scene` — own warm palette as `--auth-*` tokens on `:root` in `static/css/auth.css` (light
+`.auth-scene` — own warm palette as `--auth-*` tokens on `:root` in `static/css/auth-tokens.css` (light
 `#FAF7F2` + accent `#D97A3E` with dark ink on the fill; dark `#0B1020` gradient + `#C9B8FF`), a 360/400px
 frosted card, and `static/js/auth-bg.js` (canvas: leaves / shooting stars, follows `data-theme` live,
 still under reduced motion, paused when hidden). Forgot/reset/google-signup keep the older auth.css
 rules. The site theme now defaults to `prefers-color-scheme` until the visitor picks one (`gc-theme`).
+
+**FAQ (`/faq/`, 2026-10-16)**: `myapp/models/faq.py` (`FAQCategory` / `FAQItem`) edited in the Django
+admin (questions inline in the category, `order` / `is_active` editable in the lists). **Translated DB
+text = one column per UI language** (`*_ru` required, `*_tj` / `*_en` optional → Russian fallback) — no
+modeltranslation / gettext; the page renders all three and `faq.css` shows the one matching `html[lang]`,
+so the i18n.js switch needs no reload. `services/faq.py`: only active categories with ≥ 1 active
+question (2 queries), FAQPage JSON-LD (Russian, `seo._json_ld` escaping). Public page in `PUBLIC_PAGES`
+(sitemap + robots Allow). `<details>` accordion + live search in `static/js/faq.js`. Tests:
+`myapp/tests_faq.py`.
 
 **Template comments:** `{# … #}` is single-line in Django — a multi-line one is printed on the
 page as text (it leaked on About, 2026-10-14). Multi-line notes use `{% comment %}…{% endcomment %}`;

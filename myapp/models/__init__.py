@@ -71,6 +71,7 @@ from .chat import (
     ChatReadState,
     ChatReport,
 )
+from .faq import FAQ_LANGUAGES, FAQCategory, FAQItem
 from .feedback import REVIEW_COMMENT_MAX_LENGTH, REVIEW_TAGS, TaskReview
 from .photo_reports import PhotoReport
 from .tracking import TRACKING_SOURCE_CHOICES, TaskLocationPoint
@@ -139,4 +140,8 @@ __all__ = [
     # notifications (Feature Pack v2, feature 11)
     "Notification",
     "NotificationPreference",
+    # faq (public /faq/ page)
+    "FAQCategory",
+    "FAQItem",
+    "FAQ_LANGUAGES",
 ]

@@ -101,7 +101,7 @@ class SitemapTests(TestCase):
     def test_only_public_pages_as_absolute_https_urls(self):
         self.assertEqual(
             sorted(self._entries()),
-            sorted([f"{SITE}/", f"{SITE}{reverse('rating')}", f"{SITE}/login/", f"{SITE}/register/"]),
+            sorted([f"{SITE}/", f"{SITE}{reverse('rating')}", f"{SITE}/login/", f"{SITE}/register/", f"{SITE}/faq/"]),
         )
 
     def test_about_is_not_listed_but_canonicalizes_to_home_and_stays_crawlable(self):
@@ -147,7 +147,7 @@ class SitemapRobotsConsistencyTests(TestCase):
         parser.parse(robots.splitlines())
         root = ElementTree.fromstring(self.client.get("/sitemap.xml").content)
         locs = [loc.text for loc in root.findall("sm:url/sm:loc", SitemapTests.NS)]
-        self.assertEqual(len(locs), 4)
+        self.assertEqual(len(locs), 5)
         for loc in locs:
             path = loc[len(SITE):]
             with self.subTest(url=loc):
