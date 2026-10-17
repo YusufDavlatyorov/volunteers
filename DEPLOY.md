@@ -191,8 +191,8 @@ sudo certbot renew --dry-run   # renewal runs from certbot's systemd timer
 Then the final config — [`deploy/nginx/khayrkhoh.conf`](deploy/nginx/khayrkhoh.conf):
 `https://khayrkhoh.tj` as the one canonical host (HTTP and `www` 301 there),
 gzip + brotli, year-long immutable cache for hashed `/static/` names, `/media/`
-for 30 days with `nosniff`, `/ws/` upgraded to WebSocket, private chat photos
-(`/media/chat/` → 404, served only via the `internal` `/protected-media/`):
+for 30 days with `nosniff`, `/ws/` upgraded to WebSocket, private chat and donation photos
+(`/media/chat/`, `/media/donations/` → 404, served only via the `internal` `/protected-media/`):
 
 ```bash
 sudo cp deploy/nginx/khayrkhoh.conf /etc/nginx/sites-available/khayrkhoh

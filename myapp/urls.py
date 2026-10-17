@@ -23,7 +23,9 @@ from .views import (
     create_request_view,
     crm_tasks_view,
     crm_volunteer_detail_view,
+    donate_goods_view,
     donate_view,
+    donation_photo_view,
     donation_detail_view,
     donation_update_view,
     donations_admin_view,
@@ -146,6 +148,8 @@ urlpatterns = [
 
     # In-kind donations — material assistance (no money)
     path('donate/', donate_view, name='donate'),
+    path('donate/goods/', donate_goods_view, name='donate_goods'),
+    path('donations/photos/<int:pk>/', donation_photo_view, name='donation_photo'),
     path('donations/', my_donations_view, name='my_donations'),
     path('donations/assigned/', my_assigned_donations_view, name='assigned_donations'),
     path('donations/manage/', donations_admin_view, name='donations_admin'),

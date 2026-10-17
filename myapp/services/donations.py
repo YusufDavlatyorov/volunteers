@@ -22,10 +22,14 @@ from django.db.models import Count, Q, Sum
 
 from ..models import (
     DONATION_CATEGORY_CHOICES,
+    DONATION_CONDITION_CHOICES,
     DONATION_DONOR_TYPE_CHOICES,
     DONATION_FULFILMENT_CHOICES,
+    MAX_DONATION_PHOTOS,
     MAX_DONATION_QUANTITY,
     Donation,
+    DonationPhoto,
+    HelpRequest,
     Product,
 )
 from ..models.donations import DONOR_TYPE_BUSINESS, FULFILMENT_PICKUP
@@ -35,6 +39,7 @@ logger = logging.getLogger(__name__)
 _CATEGORY_KEYS = {value for value, _ in DONATION_CATEGORY_CHOICES}
 _DONOR_TYPE_KEYS = {value for value, _ in DONATION_DONOR_TYPE_CHOICES}
 _FULFILMENT_KEYS = {value for value, _ in DONATION_FULFILMENT_CHOICES}
+_CONDITION_KEYS = {value for value, _ in DONATION_CONDITION_CHOICES}
 
 
 def _validate_quantity(quantity):
@@ -62,6 +67,9 @@ def create_offer(
     location="",
     region="",
     message="",
+    condition="",
+    contact_phone="",
+    photos=(),
 ):
     """Create a ``pending`` offer of goods and return it.
 
@@ -69,6 +77,9 @@ def create_offer(
       * **catalogue** — pass ``product``; ``category`` / ``unit`` default to the
         product's when not given, ``item_name`` is left blank.
       * **free-text** — pass ``item_name`` (+ ``category`` / ``unit``).
+
+    ``photos`` are already metadata-free uploads (``images.clean_original``),
+    at most ``MAX_DONATION_PHOTOS``; they are stored in the same transaction.
 
     The active-product check and the insert are one atomic unit so a product
     deactivated mid-request can't slip through.
@@ -83,6 +94,11 @@ def create_offer(
     location = (location or "").strip()[:255]
     description = (description or "").strip()[:2000]
     message = (message or "").strip()[:1000]
+    condition = condition if condition in _CONDITION_KEYS else ""
+    contact_phone = (contact_phone or "").strip()
+    photos = list(photos or ())
+    if len(photos) > MAX_DONATION_PHOTOS:
+        raise ValidationError(f"Не больше {MAX_DONATION_PHOTOS} фото.")
 
     with transaction.atomic():
         if product is not None:
@@ -114,10 +130,14 @@ def create_offer(
             location=location,
             region=region or "",
             message=message,
+            condition=condition,
+            contact_phone=contact_phone,
             status=Donation.PENDING,
         )
         offer.full_clean(exclude=["donor"])  # backstop the model-level rules
         offer.save()
+        for photo in photos:
+            DonationPhoto.objects.create(donation=offer, image=photo)
     return offer
 
 
@@ -223,6 +243,22 @@ def pending_offers():
         .select_related("donor", "product")
         .order_by("created_at")
     )
+
+
+def last_contact_phone(user):
+    """The phone to pre-fill on a new offer — accounts carry no phone, so the
+    one the user last gave us: their latest offer, else their latest help
+    request (a client's own number). "" when there is none."""
+    phone = (
+        Donation.objects.filter(donor=user).exclude(contact_phone="")
+        .order_by("-created_at").values_list("contact_phone", flat=True).first()
+    )
+    if phone:
+        return phone
+    return (
+        HelpRequest.objects.filter(client=user).exclude(phone="")
+        .order_by("-created_at").values_list("phone", flat=True).first()
+    ) or ""
 
 
 def active_products():

@@ -86,6 +86,7 @@ FLASH_KEYS = [
     ("Неизвестное действие.", "flash.unknown_action"),
     # donations
     ("Спасибо! Предложение записано и ожидает проверки координатором.", "flash.donation_created"),
+    ("Спасибо! Пожертвование отправлено — координатор свяжется с вами.", "flash.donation_goods_created"),
     ("Волонтёр не найден.", "flash.volunteer_not_found"),
     ("Сейчас нельзя назначить волонтёра для этого предложения.", "flash.donation_cant_assign"),
     ("Волонтёр обновлён.", "flash.donation_volunteer_set"),

@@ -1,5 +1,5 @@
 /* ===== auth-tokens.css — the warm palette of the login / register scene =====
-   Shared by accounts/login.html, accounts/register.html (auth.css .auth-scene)
+   Shared by accounts/login.html, accounts/register.html, myapp/donate_goods.html (auth.css .auth-scene)
    and the FAQ page (faq.css). Loaded before those files. Light: #FAF7F2 ground,
    accent #D97A3E; dark: #0B1020 gradient, accent #C9B8FF. Text pairs are
    ≥ 4.5:1 — the accent fill carries dark ink (--auth-on-accent), not white. */

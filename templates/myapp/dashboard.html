@@ -68,6 +68,7 @@ card, activity calendar, badges, saved location, community) is the profile page,
                 {% if user.is_client %}
                     <a class="dash-action" href="{% url 'create_request' %}"><span class="dash-action__icon">{% include "myapp/dashboard/_icon.html" with name="plus" %}</span><span class="dash-action__label" data-i18n="profile.create_req">Create Request</span></a>
                 {% endif %}
+                <a class="dash-action" href="{% url 'donate_goods' %}"><span class="dash-action__icon">{% include "myapp/dashboard/_icon.html" with name="gift" %}</span><span class="dash-action__label" data-i18n="gd.title">Пожертвовать вещи</span></a>
                 <a class="dash-action" href="{% url 'notifications' %}"><span class="dash-action__icon">{% include "myapp/dashboard/_icon.html" with name="bell" %}</span><span class="dash-action__label" data-i18n="bell.label">Notifications</span></a>
                 <a class="dash-action" href="{% url 'notification_preferences' %}"><span class="dash-action__icon">{% include "myapp/dashboard/_icon.html" with name="settings" %}</span><span class="dash-action__label" data-i18n="ntf.preferences">Notification settings</span></a>
                 <a class="dash-action" href="{% url 'ai_assistant' %}"><span class="dash-action__icon">{% include "myapp/dashboard/_icon.html" with name="chat" %}</span><span class="dash-action__label" data-i18n="profile.ai">AI Assistant</span></a>

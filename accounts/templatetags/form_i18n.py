@@ -50,6 +50,11 @@ ERROR_I18N_KEYS = {
     # myapp/forms.py DonationForm
     "donation_item_required": "err.donation_item_required",
     "organization_required": "err.organization_required",
+    # myapp/forms.py DonationGoodsForm (the "Donate goods" page)
+    "photos_too_many": "err.photos_too_many",
+    "photo_too_large": "err.photo_too_large",
+    "photo_format": "err.photo_format",
+    "address_required": "err.address_required",
     # accounts/views.py login_view
     "login_failed": "err.login_failed",
     "login_throttled": "err.login_throttled",

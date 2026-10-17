@@ -426,6 +426,14 @@ Business logic that needs to be unit-testable without the ORM or network lives h
   `@role_required("admin", "curator")` — **curators review offers, approve, and assign
   volunteers**. `assigned_donations` (`/myapp/donations/assigned/`) is the volunteer's delivery
   queue. `ProductAdmin`/`DonationAdmin` in Django admin stay read-only for `Donation`.
+  **"Donate goods" page** (`/myapp/donate/goods/`, `donate_goods_view` + `DonationGoodsForm`,
+  2026-10-17; the navbar's "Donate goods" link + a dashboard Quick Action point here, the older
+  `/donate/` catalogue form still exists) uses the login/register `.auth-scene` look and creates an
+  ordinary `Donation` through `create_offer` (+ `condition`, `contact_phone`, up to
+  `MAX_DONATION_PHOTOS` = 5 `DonationPhoto`s — migration 0027). Statuses as above (new = pending,
+  accepted = approved, handed over = distributed). Donation photos are **private** like chat photos:
+  metadata-free `<uuid>.<ext>` under `donations/`, nginx refuses `/media/donations/`, served only by
+  `donation_photo_view` behind `_can_view_donation`. Tests: `myapp/tests_donate_goods.py`.
 - **`pets.py`** — the Lost & Found board (`myapp/models/pets.py::PetReport`: a `lost`/`found`
   flag, optional photo + location, lifecycle `open → matched → resolved`/`closed` via model
   methods `mark_matched` / `reopen` / `resolve` / `close`, `ValueError` on an illegal move).

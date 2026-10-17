@@ -1,0 +1,224 @@
+{% extends "base.html" %}
+{% load static form_i18n assets %}
+{% block title %}Пожертвовать вещи - KhayrKhoh{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% asset 'css/auth-tokens.css' %}"><link rel="stylesheet" href="{% asset 'css/auth.css' %}">{% endblock %}
+{% block content %}
+{% comment %}
+"Donate goods" — the login/register scene (auth.css .auth-scene) around
+DonationGoodsForm. Creates an ordinary Donation (services.donations.create_offer).
+{% endcomment %}
+<section class="auth-shell auth-scene">
+    {# Falling leaves (light) / stars (dark) behind the card — static/js/auth-bg.js. #}
+    <canvas class="auth-bg" data-auth-bg aria-hidden="true"></canvas>
+    <div class="auth-card auth-card--register auth-card--donate reveal">
+        <div class="auth-brand">
+            <span class="auth-logo" aria-hidden="true"><img class="brand-logo brand-logo--light" src="{% static 'img/logo-mark.svg' %}" alt="" width="40" height="40"><img class="brand-logo brand-logo--dark" src="{% static 'img/logo-mark-white.svg' %}" alt="" width="40" height="40"></span>
+            <span class="auth-brand__name" data-i18n="brand.name">KhayrKhoh</span>
+        </div>
+        <h1 class="auth-title" data-i18n="gd.title">Пожертвовать вещи</h1>
+        <p class="auth-subtitle" data-i18n="gd.sub">Одежда, продукты, гигиена — координатор договорится о передаче. Никаких денег.</p>
+
+        {% if form.non_field_errors %}
+            <div class="auth-alert" role="alert"{% error_i18n_attrs form.non_field_errors %}>{{ form.non_field_errors.0 }}</div>
+        {% endif %}
+
+        <form method="post" enctype="multipart/form-data" class="auth-form" id="donateGoodsForm">
+            {% csrf_token %}
+
+            <div class="field-group">
+                <label for="{{ form.category.id_for_label }}" data-i18n="gd.field_category">Категория</label>
+                {{ form.category }}
+                <span class="field-error"{% error_i18n_attrs form.category.errors %}>{{ form.category.errors.0 }}</span>
+            </div>
+
+            <div class="field-group">
+                <label for="{{ form.item_name.id_for_label }}" data-i18n="gd.field_item">Название / краткое описание</label>
+                {{ form.item_name }}
+                <span class="field-error"{% error_i18n_attrs form.item_name.errors %}>{{ form.item_name.errors.0 }}</span>
+            </div>
+
+            <div class="field-group">
+                <label for="{{ form.description.id_for_label }}"><span data-i18n="gd.field_description">Подробное описание</span> <span class="auth-optional" data-i18n="gd.optional">необязательно</span></label>
+                {{ form.description }}
+                <span class="field-error"{% error_i18n_attrs form.description.errors %}>{{ form.description.errors.0 }}</span>
+            </div>
+
+            <div class="field-group">
+                <label for="{{ form.quantity.id_for_label }}" data-i18n="gd.field_quantity">Количество</label>
+                {{ form.quantity }}
+                <span class="field-error"{% error_i18n_attrs form.quantity.errors %}>{{ form.quantity.errors.0 }}</span>
+            </div>
+
+            <fieldset class="role-picker">
+                <legend class="auth-legend" data-i18n="gd.condition_legend">Состояние</legend>
+                <label class="role-option">
+                    <input type="radio" name="condition" value="new" {% if form.condition.value == "new" %}checked{% endif %}>
+                    <span class="role-option-card">
+                        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4z"></path><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"></path></svg>
+                        <strong data-i18n="gd.condition_new">Новое</strong>
+                        <span class="role-desc" data-i18n="gd.condition_new_desc">Не использовалось, в упаковке или с бирками</span>
+                    </span>
+                </label>
+                <label class="role-option">
+                    <input type="radio" name="condition" value="used_good" {% if form.condition.value == "used_good" %}checked{% endif %}>
+                    <span class="role-option-card">
+                        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.4 12.6a8.5 8.5 0 0 1-15.3 4.1"></path><path d="M3.6 11.4a8.5 8.5 0 0 1 15.3-4.1"></path><path d="M19 3v4.5h-4.5"></path><path d="M5 21v-4.5h4.5"></path></svg>
+                        <strong data-i18n="gd.condition_used_good">Б/у, в хорошем состоянии</strong>
+                        <span class="role-desc" data-i18n="gd.condition_used_good_desc">Чистое, целое, можно сразу пользоваться</span>
+                    </span>
+                </label>
+            </fieldset>
+            <span class="field-error"{% if form.condition.errors %} role="alert"{% endif %}{% error_i18n_attrs form.condition.errors %}>{{ form.condition.errors.0 }}</span>
+
+            <div class="field-group">
+                <label for="{{ form.photos.id_for_label }}"><span data-i18n="gd.field_photos">Фото</span> <span class="auth-optional" data-i18n="gd.optional">необязательно</span></label>
+                {{ form.photos }}
+                <label class="auth-upload" for="{{ form.photos.id_for_label }}">
+                    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h3l1.5-2h7L17 7h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1Z"></path><circle cx="12" cy="13" r="3.5"></circle></svg>
+                    <span class="auth-upload__title" data-i18n="gd.photos_cta">Добавить фото</span>
+                    <span class="auth-upload__hint" data-i18n="gd.photos_hint" data-i18n-args='{"limit_value": {{ max_photos }}}'>До {{ max_photos }} фото · JPEG, PNG или WebP, до 5 МБ каждое</span>
+                </label>
+                <p class="auth-upload__count" data-photo-count hidden></p>
+                <ul class="auth-upload__previews" data-photo-previews hidden></ul>
+                <span class="field-hint" data-i18n="gd.photos_private">Их видят только координаторы и назначенный волонтёр.</span>
+                <span class="field-error" data-photo-error{% error_i18n_attrs form.photos.errors %}>{{ form.photos.errors.0 }}</span>
+            </div>
+
+            <div class="field-group">
+                <label for="{{ form.region.id_for_label }}" data-i18n="field.region">Регион</label>
+                {{ form.region }}
+                <span class="field-error"{% error_i18n_attrs form.region.errors %}>{{ form.region.errors.0 }}</span>
+            </div>
+
+            <fieldset class="role-picker">
+                <legend class="auth-legend" data-i18n="gd.fulfilment_legend">Способ передачи</legend>
+                <label class="role-option">
+                    <input type="radio" name="fulfilment" value="pickup" data-fulfilment-input {% if form.fulfilment.value == "pickup" %}checked{% endif %}>
+                    <span class="role-option-card">
+                        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h11v10H3z"></path><path d="M14 9h4l3 3v4h-7"></path><circle cx="7" cy="18" r="2"></circle><circle cx="17" cy="18" r="2"></circle></svg>
+                        <strong data-i18n="gd.fulfilment_pickup">Заберите у меня</strong>
+                        <span class="role-desc" data-i18n="gd.fulfilment_pickup_desc">Волонтёр приедет по вашему адресу</span>
+                    </span>
+                </label>
+                <label class="role-option">
+                    <input type="radio" name="fulfilment" value="dropoff" data-fulfilment-input {% if form.fulfilment.value == "dropoff" %}checked{% endif %}>
+                    <span class="role-option-card">
+                        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8 12 3 3 8v8l9 5 9-5z"></path><path d="M3 8l9 5 9-5"></path><path d="M12 13v8"></path></svg>
+                        <strong data-i18n="gd.fulfilment_dropoff">Привезу сам</strong>
+                        <span class="role-desc" data-i18n="gd.fulfilment_dropoff_desc">Координатор подскажет, куда и когда</span>
+                    </span>
+                </label>
+            </fieldset>
+            <span class="field-error"{% if form.fulfilment.errors %} role="alert"{% endif %}{% error_i18n_attrs form.fulfilment.errors %}>{{ form.fulfilment.errors.0 }}</span>
+
+            <div class="field-group">
+                <label for="{{ form.location.id_for_label }}"><span data-i18n="gd.field_address">Адрес</span> <span class="auth-optional" data-address-optional data-i18n="gd.optional" hidden>необязательно</span></label>
+                {{ form.location }}
+                <span class="field-hint" data-i18n="gd.address_hint">Нужен, если мы забираем вещи у вас.</span>
+                <span class="field-error"{% error_i18n_attrs form.location.errors %}>{{ form.location.errors.0 }}</span>
+            </div>
+
+            <div class="field-group">
+                <label for="{{ form.contact_phone.id_for_label }}" data-i18n="gd.field_phone">Телефон для связи</label>
+                {{ form.contact_phone }}
+                <span class="field-hint" data-i18n="gd.phone_hint">Координатор позвонит, чтобы договориться о передаче.</span>
+                <span class="field-error"{% error_i18n_attrs form.contact_phone.errors %}>{{ form.contact_phone.errors.0 }}</span>
+            </div>
+
+            <button class="primary auth-submit" type="submit" data-submit-btn>
+                <span class="btn-label" data-i18n="gd.submit">Отправить пожертвование</span>
+                <span class="btn-spinner" aria-hidden="true"></span>
+            </button>
+        </form>
+
+        <p class="auth-footer-text">
+            <span data-i18n="gd.my_prompt">Уже отправляли?</span>
+            <a href="{% url 'my_donations' %}" data-i18n="gd.my_link">Мои пожертвования</a>
+        </p>
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% asset 'js/auth-bg.js' %}" defer></script>
+<script>
+(function() {
+    function t(key, fallback, args) {
+        var table = (window.T && window.T[document.documentElement.lang]) || {};
+        var text = table[key] || fallback;
+        Object.keys(args || {}).forEach(function(name) { text = text.split('{' + name + '}').join(args[name]); });
+        return text;
+    }
+
+    // Photos: thumbnails of the chosen files + the same limit the server checks.
+    var input = document.getElementById('{{ form.photos.id_for_label }}');
+    var previews = document.querySelector('[data-photo-previews]');
+    var count = document.querySelector('[data-photo-count]');
+    var error = document.querySelector('[data-photo-error]');
+    var maxPhotos = {{ max_photos }};
+    var urls = [];
+    if (input && previews && count && error) {
+        input.addEventListener('change', function() {
+            urls.forEach(function(url) { URL.revokeObjectURL(url); });
+            urls = [];
+            previews.textContent = '';
+            var files = Array.prototype.slice.call(input.files || []);
+            files.forEach(function(file) {
+                if (!/^image\//.test(file.type)) return;
+                var url = URL.createObjectURL(file);
+                urls.push(url);
+                var li = document.createElement('li');
+                var img = document.createElement('img');
+                img.src = url;
+                img.alt = '';
+                li.appendChild(img);
+                previews.appendChild(li);
+            });
+            previews.hidden = !urls.length;
+            count.hidden = !files.length;
+            count.setAttribute('data-i18n', 'gd.photos_selected');
+            count.setAttribute('data-i18n-args', JSON.stringify({count: files.length}));
+            count.textContent = t('gd.photos_selected', 'Выбрано фото: {count}', {count: files.length});
+            error.removeAttribute('data-i18n');
+            error.removeAttribute('data-i18n-args');
+            error.textContent = '';
+            if (files.length > maxPhotos) {
+                error.setAttribute('data-i18n', 'err.photos_too_many');
+                error.setAttribute('data-i18n-args', JSON.stringify({limit_value: maxPhotos}));
+                error.textContent = t('err.photos_too_many', 'Можно приложить не больше {limit_value} фото.', {limit_value: maxPhotos});
+            }
+        });
+    }
+
+    // The address is needed only when a volunteer collects the goods.
+    var optionalMark = document.querySelector('[data-address-optional]');
+    function syncAddress() {
+        var checked = document.querySelector('[data-fulfilment-input]:checked');
+        if (optionalMark) optionalMark.hidden = !(checked && checked.value === 'dropoff');
+    }
+    document.querySelectorAll('[data-fulfilment-input]').forEach(function(radio) {
+        radio.addEventListener('change', syncAddress);
+    });
+    syncAddress();
+
+    var form = document.getElementById('donateGoodsForm');
+    var submitBtn = document.querySelector('[data-submit-btn]');
+    if (form && submitBtn) {
+        form.addEventListener('submit', function(event) {
+            if (input && input.files && input.files.length > maxPhotos) {
+                event.preventDefault();
+                input.focus();
+                return;
+            }
+            submitBtn.classList.add('is-loading');
+            submitBtn.disabled = true;
+        });
+        // Back button (bfcache) must not leave a dead, spinning button.
+        window.addEventListener('pageshow', function() {
+            submitBtn.classList.remove('is-loading');
+            submitBtn.disabled = false;
+        });
+    }
+})();
+</script>
+{% endblock %}

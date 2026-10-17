@@ -1,10 +1,12 @@
 from django.contrib import admin, messages
 from django.db.models import Count, Q
 from django.urls import reverse
+from django.utils.html import format_html
 
 from .models import (
     Broadcast,
     Donation,
+    DonationPhoto,
     EmergencyReport,
     Event,
     FAQCategory,
@@ -66,14 +68,36 @@ class ProductAdmin(admin.ModelAdmin):
     readonly_fields = ("created_at", "updated_at")
 
 
+class DonationPhotoInline(admin.TabularInline):
+    """The offer's photos, read-only. Private files: the preview goes through
+    the permission-checked donation_photo view, never a /media/ URL."""
+
+    model = DonationPhoto
+    extra = 0
+    can_delete = False
+    fields = ("preview", "created_at")
+    readonly_fields = ("preview", "created_at")
+
+    @admin.display(description="Фото")
+    def preview(self, obj):
+        if not obj.pk:
+            return "—"
+        url = reverse("donation_photo", args=[obj.pk])
+        return format_html('<a href="{}" target="_blank" rel="noopener"><img src="{}" alt="" style="max-height:120px;border-radius:6px"></a>', url, url)
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
 @admin.register(Donation)
 class DonationAdmin(admin.ModelAdmin):
     list_display = (
         "id", "donor", "donor_type", "category", "quantity", "status",
         "assigned_volunteer", "created_at",
     )
-    list_filter = ("status", "category", "donor_type", "region", "created_at")
-    search_fields = ("donor__username", "donor__email", "organization_name", "item_name", "message")
+    list_filter = ("status", "category", "region", "condition", "fulfilment", "donor_type", "created_at")
+    search_fields = ("donor__username", "donor__email", "organization_name", "item_name", "message", "contact_phone")
+    inlines = (DonationPhotoInline,)
     # A coordination record: the Django admin is read-only. Status changes go
     # through the app (services.donations, which enforces the transition rules);
     # offers are only ever created by the donate flow.

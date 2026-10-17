@@ -1,6 +1,7 @@
 /* ===== auth.css — login / register / password-reset pages =====
    Consumers: accounts/login.html, accounts/register.html,
-   accounts/forgot_password.html, accounts/reset_password_confirm.html.
+   accounts/forgot_password.html, accounts/reset_password_confirm.html,
+   myapp/donate_goods.html (the login/register scene).
    Loaded after style.css via {% block extra_css %}.
 
    The shared form primitives (.field-group, .field-hint, .field-error,
@@ -178,7 +179,7 @@ fieldset.role-picker { border: 0; padding: 0; min-width: 0; margin-inline: 0; }
 }
 
 /* ===== Login / register scene (2026-10-16) =====
-   accounts/login.html + register.html only (wrapper .auth-scene): a small
+   accounts/login.html + register.html + myapp/donate_goods.html (wrapper .auth-scene): a small
    frosted card over an animated canvas (static/js/auth-bg.js — falling leaves
    in the light theme, shooting stars in the dark one). Its own warm palette
    lives in --auth-* tokens (static/css/auth-tokens.css, loaded first);
@@ -411,6 +412,77 @@ fieldset.role-picker { border: 0; padding: 0; min-width: 0; margin-inline: 0; }
 }
 .auth-scene .role-option input:focus-visible + .role-option-card { outline: 2px solid var(--auth-accent); outline-offset: 2px; }
 .auth-scene .field-stack { display: block; }
+
+/* "Donate goods" (myapp/donate_goods.html) — the same scene and components,
+   plus a visible legend for the radio cards, an "optional" mark and the photo
+   picker. Tokens only, like everything above. */
+.auth-scene .auth-card--donate { max-width: 440px; }
+.auth-scene .auth-legend {
+    margin: 0 0 0.3rem;
+    padding: 0;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--auth-text);
+}
+/* A radio-card group's error sits between the cards and the next field. */
+.auth-scene .role-picker + .field-error:not(:empty) { display: block; margin: -0.5rem 0 0.9rem; }
+.auth-optional { font-weight: 500; color: var(--auth-muted); }
+.auth-optional::before { content: "· "; }
+.auth-optional[hidden] { display: none; }
+
+.auth-scene input.auth-upload-input[type="file"] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    opacity: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+}
+.auth-scene .auth-upload {
+    display: grid;
+    justify-items: center;
+    gap: 0.2rem;
+    margin: 0;
+    padding: 0.9rem 0.75rem;
+    border: 1.5px dashed var(--auth-line);
+    border-radius: 10px;
+    background: var(--auth-input);
+    color: var(--auth-accent-ink);
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+}
+.auth-scene .auth-upload:hover { border-color: var(--auth-accent); background: var(--auth-glow); }
+.auth-scene input.auth-upload-input:focus-visible + .auth-upload {
+    border-color: var(--auth-accent);
+    box-shadow: 0 0 0 3px var(--auth-glow), 0 0 14px var(--auth-glow);
+}
+.auth-scene .field-group:has(.field-error:not(:empty)) .auth-upload { border-color: var(--auth-error); }
+.auth-upload__title { font-size: 0.875rem; font-weight: 700; color: var(--auth-accent-ink); }
+.auth-upload__hint { font-size: 0.8125rem; font-weight: 500; line-height: 1.4; color: var(--auth-muted); }
+.auth-upload__count { margin: 0.45rem 0 0; font-size: 0.8125rem; color: var(--auth-muted); }
+.auth-upload__previews {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.4rem;
+    margin: 0.45rem 0 0;
+    padding: 0;
+    list-style: none;
+}
+.auth-upload__previews img {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1;
+    object-fit: cover;
+    border: 1px solid var(--auth-card-border);
+    border-radius: 8px;
+}
+.auth-upload__count[hidden],
+.auth-upload__previews[hidden] { display: none; }
 
 /* Phones: full-width card with 16px gutters; 16px inputs so iOS doesn't zoom on focus. */
 @media (max-width: 560px) {

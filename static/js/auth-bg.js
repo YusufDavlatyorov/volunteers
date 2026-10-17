@@ -1,5 +1,5 @@
 /* ===== auth-bg.js — the calm background behind the login / register card =====
-   One <canvas data-auth-bg> inside .auth-scene (accounts/login.html, register.html).
+   One <canvas data-auth-bg> inside .auth-scene (accounts/login.html, register.html, myapp/donate_goods.html).
    Light theme: a few autumn leaves drift down, swaying and turning.
    Dark theme:  still, twinkling stars + a rare shooting star (every 3–6 s).
 

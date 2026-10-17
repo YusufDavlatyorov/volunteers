@@ -1,5 +1,6 @@
 import json
 import logging
+import mimetypes
 from urllib.parse import urlencode
 
 from django.contrib import messages
@@ -9,7 +10,8 @@ from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db.models import Count, Max, Q
-from django.http import Http404, JsonResponse
+from django.conf import settings
+from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -19,6 +21,7 @@ from accounts.models import ABOUT_COMMUNITY_CACHE_KEY, Profile, REGION_CHOICES, 
 from .forms import (
     BroadcastForm,
     DonationForm,
+    DonationGoodsForm,
     EventForm,
     HelpRequestFilterForm,
     HelpRequestForm,
@@ -29,6 +32,8 @@ from .forms import (
 from .models import (
     Broadcast,
     Donation,
+    DonationPhoto,
+    MAX_DONATION_PHOTOS,
     DONATION_STATUS_CHOICES,
     EmergencyReport,
     Event,
@@ -1521,6 +1526,80 @@ def _can_view_donation(offer, user):
     )
 
 
+def _notify_new_donation(offer):
+    """Curators + admins hear about a new offer (in-app, email, Telegram)."""
+    notify(
+        staff_recipients(), "donation_new",
+        params={"donation_id": offer.id, "item_label": offer.item_label,
+                "quantity": offer.quantity, "donor_label": offer.donor_label},
+        link=reverse("donation_detail", args=[offer.id]),
+        dedupe_key=f"donation_new:{offer.id}",
+    )
+
+
+@login_required
+def donate_goods_view(request):
+    """"Donate goods" — the login/register-style page. Makes an ordinary
+    ``Donation`` (the CRM queue, dashboards and analytics see it as any other
+    offer), with photos, condition and a contact phone."""
+    if request.method == "POST":
+        form = DonationGoodsForm(request.POST, request.FILES)
+        if form.is_valid():
+            cd = form.cleaned_data
+            try:
+                offer = donations.create_offer(
+                    donor=request.user,
+                    item_name=cd["item_name"],
+                    category=cd["category"],
+                    quantity=cd["quantity"],
+                    description=cd.get("description", ""),
+                    condition=cd["condition"],
+                    fulfilment=cd["fulfilment"],
+                    location=cd.get("location", ""),
+                    region=cd["region"],
+                    contact_phone=cd["contact_phone"],
+                    photos=cd.get("photos") or [],
+                )
+            except ValidationError as exc:
+                form.add_error(None, exc)
+            else:
+                logger.info("donation #%s created by user #%s (goods page, photos=%s)",
+                            offer.pk, request.user.pk, len(cd.get("photos") or []))
+                _notify_new_donation(offer)
+                messages.success(request, "Спасибо! Пожертвование отправлено — координатор свяжется с вами.")
+                return redirect("profile")
+    else:
+        form = DonationGoodsForm(initial={
+            "region": request.user.region,
+            "contact_phone": donations.last_contact_phone(request.user),
+        })
+    return render(request, "myapp/donate_goods.html", {"form": form, "max_photos": MAX_DONATION_PHOTOS})
+
+
+@login_required
+@require_GET
+def donation_photo_view(request, pk):
+    """A donation photo, only for those who may see the offer (donor, assigned
+    volunteer, staff). Production hands the file to nginx (X-Accel-Redirect to
+    the `internal` /protected-media/; /media/donations/ itself is refused)."""
+    photo = get_object_or_404(DonationPhoto.objects.select_related("donation"), pk=pk)
+    if not _can_view_donation(photo.donation, request.user):
+        raise Http404
+    path = photo.image.name
+    content_type = mimetypes.guess_type(path)[0] or "application/octet-stream"
+    if getattr(settings, "MEDIA_X_ACCEL", False):
+        response = HttpResponse(content_type=content_type)
+        response["X-Accel-Redirect"] = "/protected-media/" + path
+    else:
+        storage = photo.image.storage
+        if not storage.exists(path):
+            raise Http404
+        response = FileResponse(storage.open(path, "rb"), content_type=content_type)
+    response["Cache-Control"] = "private, max-age=3600"
+    response["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
 @login_required
 def donate_view(request):
     """Offer physical goods — pick a needed catalogue item or describe your own."""
@@ -1547,13 +1626,7 @@ def donate_view(request):
             except ValidationError as exc:
                 form.add_error(None, exc)
             else:
-                notify(
-                    staff_recipients(), "donation_new",
-                    params={"donation_id": offer.id, "item_label": offer.item_label,
-                            "quantity": offer.quantity, "donor_label": offer.donor_label},
-                    link=reverse("donation_detail", args=[offer.id]),
-                    dedupe_key=f"donation_new:{offer.id}",
-                )
+                _notify_new_donation(offer)
                 messages.success(
                     request,
                     "Спасибо! Предложение записано и ожидает проверки координатором.",

@@ -5,11 +5,13 @@ from accounts.models import REGION_CHOICES
 from .models import (
     Broadcast,
     DONATION_CATEGORY_CHOICES,
+    DONATION_CONDITION_CHOICES,
     DONATION_DONOR_TYPE_CHOICES,
     DONATION_FULFILMENT_CHOICES,
     Event,
     HELP_TYPE_CHOICES,
     HelpRequest,
+    MAX_DONATION_PHOTOS,
     MAX_DONATION_QUANTITY,
     PetReport,
     PhotoReport,
@@ -408,6 +410,119 @@ class DonationForm(forms.Form):
             )
         if cleaned.get("donor_type") == "business" and not (cleaned.get("organization_name") or "").strip():
             self.add_error("organization_name", forms.ValidationError("Укажите название организации.", code="organization_required"))
+        return cleaned
+
+
+# The categories the "Donate goods" page offers, in its order (a subset of
+# DONATION_CATEGORY_CHOICES — same keys, so the CRM, admin and analytics need
+# nothing new).
+GOODS_CATEGORY_KEYS = ("clothing", "footwear", "food", "hygiene", "school", "blankets", "water", "other")
+
+
+class MultipleImageInput(forms.ClearableFileInput):
+    allow_multiple_selected = True
+
+
+class MultipleImageField(forms.FileField):
+    """Several files from one <input type=file multiple> (Django's documented
+    pattern). Each is checked by ``images.clean_original`` in the form."""
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("widget", MultipleImageInput(attrs={
+            "accept": "image/jpeg,image/png,image/webp", "class": "auth-upload-input",
+        }))
+        super().__init__(*args, **kwargs)
+
+    def clean(self, data, initial=None):
+        if isinstance(data, (list, tuple)):
+            return [f for f in (super(MultipleImageField, self).clean(d, initial) for d in data) if f]
+        single = super().clean(data, initial)
+        return [single] if single else []
+
+
+class DonationGoodsForm(forms.Form):
+    """The "Donate goods" page (myapp/donate_goods.html, the login/register
+    look). Creates an ordinary ``Donation`` through
+    ``services.donations.create_offer`` — the same offer the CRM reviews.
+    Every error carries a code that ``error_i18n_attrs`` translates."""
+
+    category = forms.ChoiceField(
+        label="Категория",
+        choices=[("", "Выберите категорию")]
+        + [(k, v) for k, v in DONATION_CATEGORY_CHOICES if k in GOODS_CATEGORY_KEYS],
+    )
+    item_name = forms.CharField(
+        label="Название / краткое описание",
+        max_length=200,
+        widget=forms.TextInput(attrs={"placeholder": "Тёплые куртки, мешок риса…", "maxlength": 200}),
+    )
+    description = forms.CharField(
+        label="Подробное описание",
+        required=False,
+        max_length=2000,
+        widget=forms.Textarea(attrs={"rows": 3, "placeholder": "Размер, срок годности — всё, что поможет", "maxlength": 2000}),
+    )
+    quantity = forms.IntegerField(
+        label="Количество",
+        min_value=1,
+        max_value=MAX_DONATION_QUANTITY,
+        initial=1,
+        widget=forms.NumberInput(attrs={"min": 1, "max": MAX_DONATION_QUANTITY, "inputmode": "numeric"}),
+    )
+    condition = forms.ChoiceField(label="Состояние", choices=DONATION_CONDITION_CHOICES, widget=forms.RadioSelect)
+    photos = MultipleImageField(label="Фото", required=False)
+    region = forms.ChoiceField(label="Регион", choices=[("", "Выберите регион")] + list(REGION_CHOICES))
+    location = forms.CharField(
+        label="Адрес",
+        required=False,
+        max_length=255,
+        widget=forms.TextInput(attrs={"placeholder": "Улица, дом, ориентир", "maxlength": 255, "autocomplete": "street-address"}),
+    )
+    fulfilment = forms.ChoiceField(
+        label="Способ передачи", choices=DONATION_FULFILMENT_CHOICES, initial="pickup", widget=forms.RadioSelect,
+    )
+    contact_phone = forms.CharField(label="Телефон для связи", max_length=30, widget=TelInput())
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        localize(self, {
+            "category": {"choices": "don.category_", "empty": "gd.category_empty"},
+            "item_name": {"ph": "gd.item_ph"},
+            "description": {"ph": "gd.description_ph"},
+            "region": {"choices": "region.", "empty": "choice.select_region"},
+            "location": {"ph": "gd.address_ph"},
+        })
+
+    def clean_contact_phone(self):
+        return normalize_tj_phone(self.cleaned_data.get("contact_phone"))
+
+    def clean_photos(self):
+        from .services import images
+
+        uploads = self.cleaned_data.get("photos") or []
+        if len(uploads) > MAX_DONATION_PHOTOS:
+            raise forms.ValidationError(
+                "Можно приложить не больше %(limit_value)s фото.",
+                code="photos_too_many", params={"limit_value": MAX_DONATION_PHOTOS},
+            )
+        codes = {
+            images.ERR_TOO_LARGE: ("Фото больше 5 МБ.", "photo_too_large"),
+            images.ERR_FORMAT: ("Фото должны быть в формате JPEG, PNG или WebP.", "photo_format"),
+        }
+        cleaned = []
+        for upload in uploads:
+            content, err = images.clean_original(upload)
+            if err:
+                message, code = codes.get(err, ("Файл не похож на изображение.", "invalid_image"))
+                raise forms.ValidationError(message, code=code)
+            cleaned.append(content)
+        return cleaned
+
+    def clean(self):
+        cleaned = super().clean()
+        if cleaned.get("fulfilment") == "pickup" and not (cleaned.get("location") or "").strip():
+            self.add_error("location", forms.ValidationError(
+                "Укажите адрес, откуда забрать вещи.", code="address_required"))
         return cleaned
 
 

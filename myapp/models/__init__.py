@@ -20,12 +20,15 @@ from .donations import (
     DONATION_ALLOWED_TRANSITIONS,
     DONATION_ASSIGNABLE_STATUSES,
     DONATION_CATEGORY_CHOICES,
+    DONATION_CONDITION_CHOICES,
     DONATION_DONOR_TYPE_CHOICES,
     DONATION_FULFILMENT_CHOICES,
     DONATION_OPEN_STATUSES,
     DONATION_STATUS_CHOICES,
+    MAX_DONATION_PHOTOS,
     MAX_DONATION_QUANTITY,
     Donation,
+    DonationPhoto,
     Product,
 )
 from .emergency import (
@@ -129,14 +132,17 @@ __all__ = [
     # donations (in-kind / material assistance)
     "Product",
     "Donation",
+    "DonationPhoto",
     "DONATION_STATUS_CHOICES",
     "DONATION_OPEN_STATUSES",
     "DONATION_ALLOWED_TRANSITIONS",
     "DONATION_ASSIGNABLE_STATUSES",
     "DONATION_CATEGORY_CHOICES",
+    "DONATION_CONDITION_CHOICES",
     "DONATION_DONOR_TYPE_CHOICES",
     "DONATION_FULFILMENT_CHOICES",
     "MAX_DONATION_QUANTITY",
+    "MAX_DONATION_PHOTOS",
     # notifications (Feature Pack v2, feature 11)
     "Notification",
     "NotificationPreference",

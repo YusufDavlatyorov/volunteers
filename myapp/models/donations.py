@@ -26,7 +26,9 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
 
-from accounts.models import REGION_CHOICES, Users
+from accounts.models import REGION_CHOICES, Users, validate_file_size
+
+from ..validators import normalize_tj_phone, validate_tj_phone
 
 # What a donor can offer. Shared by Product.category and Donation.category.
 DONATION_CATEGORY_CHOICES = [
@@ -56,6 +58,18 @@ DONATION_FULFILMENT_CHOICES = [
     (FULFILMENT_PICKUP, "Забрать у донора"),
     (FULFILMENT_DROPOFF, "Донор привезёт сам"),
 ]
+
+# State of the goods (the "Donate goods" page asks; older offers left it blank).
+CONDITION_NEW = "new"
+CONDITION_USED_GOOD = "used_good"
+DONATION_CONDITION_CHOICES = [
+    (CONDITION_NEW, "Новое"),
+    (CONDITION_USED_GOOD, "Б/у, в хорошем состоянии"),
+]
+
+# Photos of one offer (DonationPhoto) — enough to show the goods, bounded so
+# one form can't fill the disk.
+MAX_DONATION_PHOTOS = 5
 
 # Generous but finite — a guard rail for a foundation with no approval gate on
 # creation. "50 loaves", "30 packages" — five digits is plenty.
@@ -155,12 +169,16 @@ class Donation(models.Model):
     )
     unit = models.CharField(max_length=40, blank=True)
     description = models.TextField(blank=True)
+    condition = models.CharField(max_length=20, choices=DONATION_CONDITION_CHOICES, blank=True)
 
     fulfilment = models.CharField(
         max_length=20, choices=DONATION_FULFILMENT_CHOICES, default=FULFILMENT_PICKUP
     )
     location = models.CharField(max_length=255, blank=True)
     region = models.CharField(max_length=100, choices=REGION_CHOICES, blank=True)
+    # How the coordinator reaches the donor about the handover. Staff, the
+    # donor and the assigned volunteer only (the donation_detail gate).
+    contact_phone = models.CharField(max_length=30, blank=True, validators=[validate_tj_phone])
 
     status = models.CharField(
         max_length=20, choices=DONATION_STATUS_CHOICES, default=DONATION_PENDING, db_index=True
@@ -205,6 +223,9 @@ class Donation(models.Model):
             raise ValidationError("Укажите товар из каталога или название предмета.")
         if self.donor_type == DONOR_TYPE_BUSINESS and not (self.organization_name or "").strip():
             raise ValidationError({"organization_name": "Укажите название организации."})
+        # validate_tj_phone already rejected anything that can't normalize.
+        if self.contact_phone:
+            self.contact_phone = normalize_tj_phone(self.contact_phone)
 
     # --- display helpers ---------------------------------------------------
 
@@ -289,3 +310,22 @@ class Donation(models.Model):
         self.assigned_volunteer = volunteer
         self.reviewed_by = actor
         self.updated_at = now
+
+
+class DonationPhoto(models.Model):
+    """A photo of the offered goods. **Private**: it can show the donor's home,
+    so it is never served from /media/ (nginx refuses /media/donations/) — only
+    through ``donation_photo_view`` behind the same gate as the offer itself.
+    Stored metadata-free as ``<uuid>.<ext>`` (``services.images.clean_original``)."""
+
+    donation = models.ForeignKey(Donation, on_delete=models.CASCADE, related_name="photos")
+    image = models.ImageField(upload_to="donations/%Y/%m/", validators=[validate_file_size])
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Фото пожертвования"
+        verbose_name_plural = "Фото пожертвований"
+        ordering = ["id"]
+
+    def __str__(self):
+        return f"Фото #{self.pk} к предложению #{self.donation_id}"
