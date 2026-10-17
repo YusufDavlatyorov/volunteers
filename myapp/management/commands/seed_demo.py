@@ -539,5 +539,8 @@ class Command(BaseCommand):
                     "region": region,
                     "event": events[idx % len(events)],
                     "help_request": requests[idx % len(requests)],
+                    # Demo reports stand for already-reviewed ones (the landing
+                    # page shows approved reports only).
+                    "status": PhotoReport.APPROVED,
                 },
             )

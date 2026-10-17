@@ -161,6 +161,11 @@ TEXTS = {
                            "en": "Complete request #{task_id}? The client will be notified and can rate the help."},
     "v.completed": {"ru": "Запрос завершён. Спасибо за помощь! 🤍", "tj": "Дархост анҷом ёфт. Ташаккур барои кумак! 🤍",
                     "en": "Request completed. Thank you for helping! 🤍"},
+    "v.completed_pending": {
+        "ru": "Запрос завершён. Спасибо за помощь! 🤍\nЗагрузите фотоотчёт на сайте — баллы начислятся после его проверки: {site}",
+        "tj": "Дархост анҷом ёфт. Ташаккур барои кумак! 🤍\nДар сайт фотоҳисобот бор кунед — холҳо пас аз санҷиши он дода мешаванд: {site}",
+        "en": "Request completed. Thank you for helping! 🤍\nUpload a photo report on the website — points are added once it is reviewed: {site}",
+    },
     "v.complete_already": {"ru": "Этот запрос уже завершён.", "tj": "Ин дархост аллакай анҷом ёфтааст.",
                            "en": "This request is already completed."},
     "v.route": {"ru": "🗺 Маршрут", "tj": "🗺 Хатсайр", "en": "🗺 Route"},

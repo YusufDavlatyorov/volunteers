@@ -22,6 +22,7 @@ from PIL import Image
 from accounts.models import Profile, Users
 from myapp.testing import TempMediaRoot
 from myapp.models import (
+    PhotoReport,
     ChatMessage,
     Donation,
     EmergencyReport,
@@ -223,6 +224,8 @@ class VolunteerTests(BotBase):
 
     def test_stage_complete_and_points(self):
         task = self._active()
+        # Points are paid with an approved photo report (services/photo_reports).
+        PhotoReport.objects.create(author=self.vol, title="Готово", image="reports/done.jpg", help_request=task, status="approved")
         my = self.press(self.vol, "my").replies[0]
         result = self.press(self.vol, _data(my, "vs|"))
         task.refresh_from_db()

@@ -3,11 +3,12 @@ The /panel/ hero's secondary actions, written once: icon buttons in one row
 (cls="panel-icon-btn" label_cls="visually-hidden" — the label is the tooltip
 + screen-reader text) or the labelled list of the "More" menu on narrow
 screens (cls="panel-more__item" label_cls="panel-more__label"). "Check overdue"
-stays a POST form with csrf in both.
+stays a POST form with csrf in both. Photo reports → the CRM review list, with
+the number still waiting for review (photo_reports_pending) as a badge.
 {% endcomment %}
 <a class="{{ cls }}" href="{% url 'broadcast' %}" title="Отправить сообщение волонтёрам" data-i18n-title="admin.broadcast">{% include "myapp/dashboard/_icon.html" with name="send" %}<span class="{{ label_cls }}" data-i18n="admin.broadcast">Send Message to Volunteers</span></a>
 <a class="{{ cls }}" href="{% url 'create_event' %}" title="Создать акцию" data-i18n-title="admin.create_event">{% include "myapp/dashboard/_icon.html" with name="calendar" %}<span class="{{ label_cls }}" data-i18n="admin.create_event">Create Event</span></a>
-<a class="{{ cls }}" href="{% url 'photo_reports' %}" title="Фотоотчёты" data-i18n-title="admin.photo_reports">{% include "myapp/dashboard/_icon.html" with name="image" %}<span class="{{ label_cls }}" data-i18n="admin.photo_reports">Photo Reports</span></a>
+<a class="{{ cls }}" href="{% url 'crm_photo_reports' %}" title="Фотоотчёты" data-i18n-title="admin.photo_reports">{% include "myapp/dashboard/_icon.html" with name="image" %}<span class="{{ label_cls }}" data-i18n="admin.photo_reports">Photo Reports</span>{% if photo_reports_pending %}<span class="panel-badge" title="На проверке" data-i18n-title="pr.status_pending">{{ photo_reports_pending }}</span>{% endif %}</a>
 <a class="{{ cls }}" href="{% url 'rating' %}" title="Рейтинг" data-i18n-title="admin.rating">{% include "myapp/dashboard/_icon.html" with name="medal" %}<span class="{{ label_cls }}" data-i18n="admin.rating">Rating</span></a>
 <a class="{{ cls }}" href="{% url 'crm_reviews' %}" title="Отзывы" data-i18n-title="review.crm_title">{% include "myapp/dashboard/_icon.html" with name="star" %}<span class="{{ label_cls }}" data-i18n="review.crm_title">Reviews</span></a>
 <a class="{{ cls }}" href="{% url 'crm_analytics' %}" title="Аналитика" data-i18n-title="an.open">{% include "myapp/dashboard/_icon.html" with name="chart" %}<span class="{{ label_cls }}" data-i18n="an.open">Analytics</span></a>

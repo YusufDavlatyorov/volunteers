@@ -1,0 +1,8 @@
+{% comment %}
+Photo-report review status pill (.tag.* in style.css): pending → accent ·
+approved → success · rejected → urgent.
+Usage: {% include "myapp/_photo_report_status_tag.html" with status=report.status status_display=report.get_status_display %}
+{% endcomment %}
+{% if status == "approved" %}<span class="tag success" data-i18n="pr.status_approved">{{ status_display }}</span>
+{% elif status == "rejected" %}<span class="tag urgent" data-i18n="pr.status_rejected">{{ status_display }}</span>
+{% else %}<span class="tag accent" data-i18n="pr.status_pending">{{ status_display }}</span>{% endif %}

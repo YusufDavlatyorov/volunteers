@@ -321,19 +321,63 @@ class UserUpdateForm(forms.ModelForm):
         model = Users
         # telegram_id is managed separately via the verified Telegram-linking
         # flow (accounts.views.telegram_link_view), never edited free-form here.
-        fields = ["email", "region"]
+        fields = ["username", "email", "region"]
         labels = {
+            "username": "Имя пользователя",
             "email": "Email",
             "region": "Регион",
         }
+        help_texts = {"username": "Используется для входа. После смены входите с новым именем."}
         widgets = {
+            "username": forms.TextInput(attrs={"maxlength": Users.USERNAME_MAX_LENGTH, "autocomplete": "username"}),
             "email": forms.EmailInput(),
             "region": forms.Select(choices=[("", "Выберите регион")] + REGION_CHOICES),
         }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        localize(self, {"email": {"label": "field.email"}, "region": REGION_FIELD_I18N})
+        # The same limit as registration (RegistrationForm), not the wider column.
+        self.fields["username"].max_length = Users.USERNAME_MAX_LENGTH
+        self.fields["username"].widget.attrs["maxlength"] = Users.USERNAME_MAX_LENGTH
+        # Not posted at all (older clients) = unchanged; posted empty = "required".
+        self.fields["username"].required = False
+        self.fields["username"].widget.attrs["required"] = True
+        localize(self, {
+            "username": {"label": "field.username", "help": "edit.username_hint"},
+            "email": {"label": "field.email"},
+            "region": REGION_FIELD_I18N,
+        })
+
+    def clean_username(self):
+        """The registration rules (RegistrationForm.clean_username: trimmed,
+        4–30 characters), but unique **ignoring case** among other accounts.
+        An unchanged username passes as it is — a legacy name outside today's
+        rules must not block saving the email / region."""
+        if "username" not in self.data:
+            return self.initial["username"]
+        username = (self.cleaned_data.get("username") or "").strip()
+        if username == self.initial["username"]:
+            return username
+        if not username:
+            raise forms.ValidationError(self.fields["username"].error_messages["required"], code="required")
+        if len(username) < 4:
+            raise forms.ValidationError("Username должен быть минимум 4 символа", code="username_too_short")
+        if Users.objects.filter(username__iexact=username).exclude(pk=self.instance.pk).exists():
+            raise forms.ValidationError("Такой username уже занят", code="username_taken")
+        return username
+
+    def _get_validation_exclusions(self):
+        # An unchanged username skips the model checks too (its 30-character
+        # validator would reject a legacy longer name the user didn't touch).
+        exclude = super()._get_validation_exclusions()
+        if not self.username_changed:
+            exclude.add("username")
+        return exclude
+
+    @property
+    def username_changed(self):
+        cleaned = getattr(self, "cleaned_data", {})
+        return "username" in cleaned and cleaned["username"] != self.initial["username"]
 
     def clean_email(self):
         email = self.cleaned_data["email"].strip().lower()

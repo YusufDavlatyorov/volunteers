@@ -15,7 +15,7 @@ from django.views.decorators.http import require_POST
 
 from . import google_oauth
 from .forms import ForgotPasswordForm, GoogleSignupForm, LoginForm, ProfileForm, RegistrationForm, ResetPasswordForm, UserUpdateForm
-from .models import Profile, REGION_CHOICES, Users, hash_token, validate_file_size
+from .models import Profile, REGION_CHOICES, Users, clear_rating_cache, hash_token, validate_file_size
 from myapp.models import VolunteerApplication
 from myapp.notifications import queue_email
 from myapp.services.notify import notify
@@ -389,7 +389,20 @@ def edit_profile_view(request):
         else:
             profile_form.instance.image = clean
     if request.method == "POST" and user_form.is_valid() and profile_form.is_valid():
-        user_form.save()
+        try:
+            with transaction.atomic():
+                user_form.save()
+        except IntegrityError:
+            # Lost a race on the username (or email) unique index after the check.
+            request.user.refresh_from_db()
+            user_form.add_error("username", ValidationError("Такой username уже занят", code="username_taken"))
+            return render(request, "accounts/edit_profile.html", {"user_form": user_form, "profile_form": profile_form})
+        if user_form.username_changed:
+            # The rating and the About leaders cache display names (full name
+            # or username) — rebuild them with the new one. Everything else
+            # (login, chats, reviews, Telegram binding) is keyed by the user id.
+            clear_rating_cache()
+            logger.info("user #%s changed their username", request.user.pk)
         profile = profile_form.save()
         images.queue_variants(profile)
         messages.success(request, "Профиль обновлен")

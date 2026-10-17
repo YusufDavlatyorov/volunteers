@@ -188,6 +188,8 @@ class ImageUploadTests(TestCase):
         self.assertEqual(response.status_code, 302)
         report = PhotoReport.objects.get()
         self.assert_clean_with_variants(report)
+        self.assertEqual(report.status, PhotoReport.PENDING)
+        report.approve(None)  # the landing page shows approved reports only (the reviewer doesn't matter here)
         self.client.logout()
         cache.clear()
         html = self.client.get(reverse("about")).content.decode()

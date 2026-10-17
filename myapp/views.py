@@ -53,7 +53,7 @@ from .notifications import staff_recipients, volunteer_queryset_for_region
 from .realtime import publish
 from .services import achievements, activity, cancellation, chat, community, feedback, network, presence, rating, task_actions, tracking
 from .services.notify import notify
-from .services import access, analytics, dashboard, dispatch, donations, emergency, images, maps, overdue, pets, profile_location, stale
+from .services import access, analytics, dashboard, dispatch, donations, emergency, images, maps, overdue, pets, photo_reports, profile_location, stale
 from .services.ai import build_user_context, confirm_action, run_conversation
 from .services.ai import actions as ai_actions
 from .services.ai.prompts import detect_lang
@@ -151,7 +151,7 @@ def about_view(request):
     # cache (DB cache in production) instead of four COUNTs per hit.
     stats = cache.get_or_set(ABOUT_STATS_CACHE_KEY, _about_stats, ABOUT_STATS_TTL)
     community = cache.get_or_set(ABOUT_COMMUNITY_CACHE_KEY, _about_community, ABOUT_STATS_TTL)
-    reports = PhotoReport.objects.select_related("author").all()[:6]
+    reports = photo_reports.public_reports().select_related("author")[:6]  # approved only
     # Every real help type (HELP_TYPE_CHOICES), so a new one shows up here too.
     help_types = [
         {"key": key, "label": label, "url": _request_help_url(request, key)}
@@ -237,6 +237,7 @@ def admin_panel_view(request):
         "stats": analytics.dashboard_stats(),
         "recent_activity": analytics.recent_activity(limit=8),
         "open_emergencies": emergency.open_reports()[:limit],
+        "photo_reports_pending": photo_reports.pending_count(),  # the CRM menu badge
     }
     if request.user.is_superuser:
         context["recent_applications"] = VolunteerApplication.objects.select_related("user").order_by("-created_at")[:limit]
@@ -605,6 +606,10 @@ def complete_task_view(request, pk):
     if not outcome.ok:
         messages.info(request, "Этот запрос уже завершён.")
         return redirect("task_list")
+    if outcome.reward_pending:
+        # Points + badges wait for an approved photo report (services/photo_reports).
+        messages.success(request, "Запрос завершён. Загрузите фотоотчёт — баллы начислятся после его проверки.")
+        return redirect(reverse("photo_reports") + f"?task={task.pk}#report-form")
     messages.success(request, "Запрос завершен, рейтинг обновлен.")
     return redirect("task_list")
 
@@ -830,7 +835,9 @@ def broadcast_view(request):
 
 @login_required
 def photo_reports_view(request):
-    reports_qs = PhotoReport.objects.select_related("author", "event", "help_request")
+    # Approved reports + the viewer's own (with their review status); the
+    # rest waits for the CRM review (myapp/views_photo_reports.py).
+    reports_qs = photo_reports.visible_to(request.user).select_related("author", "event", "help_request")
     can_create = request.user.is_superuser or request.user.is_curator or request.user.is_volunteer
     if request.method == "POST":
         if not can_create:
@@ -849,10 +856,14 @@ def photo_reports_view(request):
                 report.image = clean
                 report.save()
                 images.queue_variants(report)
-                messages.success(request, "Фотоотчет добавлен.")
+                messages.success(request, "Фотоотчёт отправлен на проверку координатору.")
                 return redirect("photo_reports")
     else:
-        form = PhotoReportForm(user=request.user)
+        # ?task=<id> (the "upload a report" links after completing / a rejection)
+        # pre-selects the task — only one the form's scoped queryset offers.
+        task_id = request.GET.get("task", "")
+        initial = {"help_request": int(task_id)} if task_id.isdigit() else {}
+        form = PhotoReportForm(user=request.user, initial=initial)
     # Visible to every authenticated user and grows without bound — paginate.
     page_obj = Paginator(reports_qs, PHOTO_REPORTS_PAGE_SIZE).get_page(request.GET.get("page"))
     return render(request, "myapp/photo_reports.html", {

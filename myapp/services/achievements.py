@@ -17,7 +17,12 @@ Public API:
 * ``evaluate(user, *, send_notifications=True) -> list[UserAchievement]`` —
   award every newly met badge. Idempotent via the (user, achievement) unique
   constraint: a concurrent evaluation never awards (or notifies) twice.
-  Volunteers only. Never revokes (owner decision).
+  Volunteers only. Never revokes (owner decision) — the one exception is
+  ``revoke_lost``.
+* ``revoke_lost(user, before)`` — staff deleted the approved photo report that
+  paid a task (services/photo_reports.revoke_task_reward): drop the counter
+  badges that ``before`` (the counters while the task still counted) met and
+  the current counters don't — exactly what that task earned, nothing else.
 * ``award_safely(user, event)`` — what event sites call (task completed,
   review saved / unhidden, donation delivered, pet report resolved). Never
   raises into the caller; ID-only log on failure.
@@ -106,7 +111,9 @@ def counters(user) -> dict:
     now = timezone.now()
     good = _good_task_q()
     month = TruncMonth("completed_at", tzinfo=LOCAL_TZ)
-    tasks = HelpRequest.objects.filter(volunteer_id=uid, status="completed").aggregate(
+    # reward_pending: a completed task counts only once its photo report is
+    # approved (services/photo_reports.credit_task).
+    tasks = HelpRequest.objects.filter(volunteer_id=uid, status="completed", reward_pending=False).aggregate(
         tasks=Count("id", filter=good),
         help_types=Count("help_type", filter=good, distinct=True),
         months=Count(month, filter=good & Q(completed_at__isnull=False), distinct=True),
@@ -194,6 +201,26 @@ def _notify(user, achievement):
         )
     except Exception:  # noqa: BLE001 — the badge is saved; a fan-out hiccup must not undo it
         logger.exception("achievement notify failed user=%s code=%s", user.pk, achievement.code)
+
+
+def revoke_lost(user, before) -> list:
+    """Revoke the counter badges ``user`` held thanks to a task that no longer
+    counts: met by ``before`` (counters taken while it still counted), not met
+    now. Hand-given badges and everything else stay. Returns the codes."""
+    after = counters(user)
+    lost = [
+        achievement for achievement in Achievement.objects.filter(code__in=COUNTER_FOR)
+        if is_met(achievement, before) and not is_met(achievement, after)
+    ]
+    if not lost:
+        return []
+    revoked = list(
+        UserAchievement.objects.filter(user=user, achievement__in=lost).values_list("achievement__code", flat=True)
+    )
+    UserAchievement.objects.filter(user=user, achievement__in=lost).delete()
+    for code in revoked:
+        logger.info("achievement revoked user=%s code=%s", user.pk, code)
+    return revoked
 
 
 def award_manual(staff, user, code, *, send_notifications=True):

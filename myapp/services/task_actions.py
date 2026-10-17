@@ -9,7 +9,8 @@ unchanged). One copy of each rule:
   active task" rule, conditional ``UPDATE … WHERE status='pending'``.
 * ``complete(volunteer, task)`` — conditional ``UPDATE … WHERE status='active'``
   (a double tap can't complete twice or award points twice), then tracking end,
-  chat close, presence, points, client notice, review prompt, badges.
+  chat close, presence, client notice, review prompt; points + badges only
+  with an approved photo report (else ``reward_pending``, services/photo_reports).
 * ``assign(staff, task, volunteer, confirm_away=False)`` — direct dispatch with
   the same guard as accept; a do-not-disturb volunteer needs ``confirm_away``.
 * ``approve_application`` / ``reject_application`` — admin review.
@@ -27,8 +28,6 @@ from dataclasses import dataclass
 from django.core.cache import cache
 from django.urls import reverse
 from django.utils import timezone
-
-from accounts.models import Profile
 
 from ..models import Broadcast, HelpRequest, VolunteerApplication
 from ..notifications import volunteer_queryset_for_region
@@ -60,6 +59,7 @@ class Outcome:
     code: str
     task: HelpRequest | None = None
     override: bool = False
+    reward_pending: bool = False  # complete(): points/badges wait for an approved photo report
 
 
 def _ping_region(task):
@@ -127,11 +127,16 @@ def accept(volunteer, task) -> Outcome:
 
 
 def complete(volunteer, task) -> Outcome:
-    from . import achievements, chat, feedback, tracking
+    """Complete an active task. The reward (points + badges) is paid now only
+    when an approved photo report already exists; otherwise the task waits with
+    ``reward_pending`` and ``photo_reports.credit_task`` pays on approval.
+    ``Outcome.reward_pending`` tells the caller which happened."""
+    from . import chat, feedback, photo_reports, tracking
 
     now = timezone.now()
+    approved = photo_reports.has_approved_report(task, volunteer)
     completed = HelpRequest.objects.filter(pk=task.pk, volunteer=volunteer, status="active").update(
-        status="completed", completed_at=now, updated_at=now
+        status="completed", completed_at=now, updated_at=now, reward_pending=True
     )
     if not completed:
         return Outcome(False, NOT_ACTIVE, task)
@@ -142,15 +147,17 @@ def complete(volunteer, task) -> Outcome:
     chat.close(task)  # the task chat becomes read-only (system message)
     presence.on_task_change(task)
     publish.task_changed(task)
-    profile, _ = Profile.objects.get_or_create(user=volunteer)
-    profile.add_points(5 if task.is_urgent else 3)
     notify(
         [task.client], "task_completed", params={"task_id": task.id},
         link=reverse("task_detail", args=[task.id]), dedupe_key=f"task_completed:{task.id}",
     )
     feedback.review_request(task)  # "Оцените помощь" prompt to the client
-    achievements.award_safely(volunteer, "task_completed")  # never raises
-    return Outcome(True, OK, task)
+    # Re-checked after the UPDATE too: a report approved between the check
+    # above and the UPDATE found the task still active and credited nothing.
+    if approved or photo_reports.has_approved_report(task, volunteer):
+        photo_reports.credit_task(task)  # points + "task_completed" badges, once
+    task.refresh_from_db(fields=["reward_pending"])
+    return Outcome(True, OK, task, reward_pending=task.reward_pending)
 
 
 def assign(staff, task, volunteer, *, confirm_away=False) -> Outcome:

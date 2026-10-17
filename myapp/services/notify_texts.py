@@ -269,6 +269,44 @@ CHANNEL_TEXTS = {
         "en": ("New offer of help",
                "Offer #{donation_id}: {item_label} ×{quantity} from {donor_label}. Awaiting coordinator review."),
     },
+    "photo_report_approved": {
+        "ru": ("Фотоотчёт одобрен", "Ваш фотоотчёт «{title}» одобрен координатором. Спасибо за помощь!"),
+        "tj": ("Фотоҳисобот тасдиқ шуд", "Фотоҳисоботи шумо «{title}» аз ҷониби ҳамоҳангсоз тасдиқ шуд. Ташаккур барои кумак!"),
+        "en": ("Photo report approved", "Your photo report “{title}” was approved by a coordinator. Thank you for helping!"),
+    },
+    "photo_report_rejected": {
+        "ru": ("Фотоотчёт отклонён",
+               "Ваш фотоотчёт «{title}» отклонён координатором.\nПричина: {message}\nЗагрузите новый фотоотчёт на сайте."),
+        "tj": ("Фотоҳисобот рад шуд",
+               "Фотоҳисоботи шумо «{title}» аз ҷониби ҳамоҳангсоз рад шуд.\nСабаб: {message}\nДар сайт фотоҳисоботи нав бор кунед."),
+        "en": ("Photo report rejected",
+               "Your photo report “{title}” was rejected by a coordinator.\nReason: {message}\nPlease upload a new photo report on the website."),
+    },
+    "photo_report_deleted": {
+        "ru": ("Фотоотчёт удалён",
+               "Ваш фотоотчёт «{title}» удалён администратором. Если за него были начислены баллы, они отменены — "
+               "загрузите новый фотоотчёт на сайте."),
+        "tj": ("Фотоҳисобот нест карда шуд",
+               "Фотоҳисоботи шумо «{title}» аз ҷониби маъмур нест карда шуд. Агар барои он хол дода шуда бошад, "
+               "он бекор шуд — дар сайт фотоҳисоботи нав бор кунед."),
+        "en": ("Photo report deleted",
+               "Your photo report “{title}” was deleted by an administrator. Any points it earned were withdrawn — "
+               "please upload a new photo report on the website."),
+        # A bulk delete: one message per volunteer, with the count.
+        "variants": {
+            "many": {
+                "ru": ("Фотоотчёты удалены",
+                       "Администратор удалил ваши фотоотчёты: {count}. Если за них были начислены баллы, они отменены — "
+                       "загрузите новые фотоотчёты на сайте."),
+                "tj": ("Фотоҳисоботҳо нест карда шуданд",
+                       "Маъмур фотоҳисоботҳои шуморо нест кард: {count}. Агар барои онҳо хол дода шуда бошад, "
+                       "он бекор шуд — дар сайт фотоҳисоботҳои нав бор кунед."),
+                "en": ("Photo reports deleted",
+                       "An administrator deleted your photo reports: {count}. Any points they earned were withdrawn — "
+                       "please upload new photo reports on the website."),
+            },
+        },
+    },
     "donation_assigned": {
         "ru": ("Вам назначено предложение помощи",
                "Предложение #{donation_id}: {item_label} ×{quantity}. Откройте детали, чтобы согласовать передачу."),
@@ -574,6 +612,28 @@ INAPP_TEXTS = {
         "en": ("New offer of help", "Offer #{donation_id} is waiting for review."),
         "ru": ("Новое предложение помощи", "Предложение #{donation_id} ожидает проверки."),
         "tj": ("Пешниҳоди нави кумак", "Пешниҳоди #{donation_id} интизори санҷиш аст."),
+    },
+    "photo_report_approved": {
+        "en": ("Photo report approved", "“{title}” was approved by a coordinator."),
+        "ru": ("Фотоотчёт одобрен", "«{title}» одобрен координатором."),
+        "tj": ("Фотоҳисобот тасдиқ шуд", "«{title}» аз ҷониби ҳамоҳангсоз тасдиқ шуд."),
+    },
+    "photo_report_rejected": {
+        "en": ("Photo report rejected", "“{title}”: {message}. Upload a new report."),
+        "ru": ("Фотоотчёт отклонён", "«{title}»: {message}. Загрузите новый отчёт."),
+        "tj": ("Фотоҳисобот рад шуд", "«{title}»: {message}. Фотоҳисоботи нав бор кунед."),
+    },
+    "photo_report_deleted": {
+        "en": ("Photo report deleted", "“{title}” was deleted by an administrator. Upload a new report."),
+        "ru": ("Фотоотчёт удалён", "«{title}» удалён администратором. Загрузите новый отчёт."),
+        "tj": ("Фотоҳисобот нест карда шуд", "«{title}» аз ҷониби маъмур нест карда шуд. Фотоҳисоботи нав бор кунед."),
+        "variants": {
+            "many": {
+                "en": ("Photo reports deleted", "An administrator deleted your photo reports: {count}. Upload new reports."),
+                "ru": ("Фотоотчёты удалены", "Администратор удалил ваши фотоотчёты: {count}. Загрузите новые отчёты."),
+                "tj": ("Фотоҳисоботҳо нест карда шуданд", "Маъмур фотоҳисоботҳои шуморо нест кард: {count}. Фотоҳисоботҳои нав бор кунед."),
+            },
+        },
     },
     "donation_assigned": {
         "en": ("Offer assigned to you", "Offer #{donation_id}: arrange the handover."),
@@ -887,6 +947,9 @@ TYPE_LABELS = {
     "application_approved": {"en": "Application approved", "ru": "Заявка одобрена", "tj": "Ариза тасдиқ шуд"},
     "application_rejected": {"en": "Application declined", "ru": "Заявка отклонена", "tj": "Ариза рад шуд"},
     "donation_new": {"en": "New offers of help", "ru": "Новые предложения помощи", "tj": "Пешниҳодҳои нави кумак"},
+    "photo_report_approved": {"en": "Photo report approved", "ru": "Фотоотчёт одобрен", "tj": "Фотоҳисобот тасдиқ шуд"},
+    "photo_report_rejected": {"en": "Photo report rejected", "ru": "Фотоотчёт отклонён", "tj": "Фотоҳисобот рад шуд"},
+    "photo_report_deleted": {"en": "Photo report deleted", "ru": "Фотоотчёт удалён", "tj": "Фотоҳисобот нест карда шуд"},
     "donation_assigned": {"en": "Offers assigned to me", "ru": "Назначенные мне предложения", "tj": "Пешниҳодҳои ба ман таъиншуда"},
     "donation_status": {"en": "My offers' status", "ru": "Статус моих предложений", "tj": "Ҳолати пешниҳодҳои ман"},
     "pet_new": {"en": "New pet reports", "ru": "Новые объявления о животных", "tj": "Эълонҳои нав дар бораи ҳайвонҳо"},

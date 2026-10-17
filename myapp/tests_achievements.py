@@ -21,6 +21,7 @@ from django.utils import timezone
 
 from accounts.models import Profile, Users
 from myapp.models import (
+    PhotoReport,
     Achievement,
     Donation,
     HelpRequest,
@@ -227,6 +228,8 @@ class RuleTests(AchievementBase):
                                           address="a", phone="+992901234567", region="dushanbe")
         HelpRequest.objects.filter(pk=task.pk).update(status="active", volunteer=self.vol,
                                                       accepted_at=timezone.now())
+        # Badges come with an approved photo report (services/photo_reports).
+        PhotoReport.objects.create(author=self.vol, title="Готово", image="reports/done.jpg", help_request=task, status="approved")
         self.client.force_login(self.vol)
         self.client.post(reverse("complete_task", args=[task.pk]))
         self.assertIn("first_help", self.codes())

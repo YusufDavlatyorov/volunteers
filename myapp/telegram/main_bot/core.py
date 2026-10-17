@@ -617,6 +617,9 @@ def _v_complete(user, lang, event, task_id=""):
     outcome = task_actions.complete(user, task)
     if not outcome.ok:
         return Reply(t(lang, "v.complete_already"), [_menu_row(lang)])
+    if outcome.reward_pending:
+        return [Reply(t(lang, "v.completed_pending", site=_site(reverse("photo_reports") + f"?task={task.pk}"))),
+                main_menu(user, lang)]
     return [Reply(t(lang, "v.completed")), main_menu(user, lang)]
 
 

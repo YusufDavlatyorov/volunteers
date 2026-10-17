@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% load responsive assets %}
+{% block extra_css %}<link rel="stylesheet" href="{% asset 'css/photo-review.css' %}">{% endblock %}
+{% block title %}Photo reports - KhayrKhoh{% endblock %}
+{% block content %}
+<section class="section section-xl">
+    {% url 'admin_panel' as admin_panel_url %}
+    {% include "partials/_page_header.html" with title="Фотоотчёты" title_i18n="pr.crm_title" lede="Проверьте каждый фотоотчёт: баллы и достижения волонтёр получает только после одобрения." lede_i18n="pr.crm_lede" action_url=admin_panel_url action_label="Back to dashboard" action_i18n="crm.back_dashboard" action_class="ghost" %}
+
+    <div class="tab-bar">
+        {% url 'crm_photo_reports' as list_url %}
+        <a href="{{ list_url }}?status=pending" {% if status_filter == "pending" %}aria-current="page"{% endif %}><span data-i18n="pr.status_pending">На проверке</span>{% if pending_count %} <span class="tab-count">{{ pending_count }}</span>{% endif %}</a>
+        <a href="{{ list_url }}?status=approved" {% if status_filter == "approved" %}aria-current="page"{% endif %} data-i18n="pr.status_approved">Одобрен</a>
+        <a href="{{ list_url }}?status=rejected" {% if status_filter == "rejected" %}aria-current="page"{% endif %} data-i18n="pr.status_rejected">Отклонён</a>
+        <a href="{{ list_url }}?status=all" {% if status_filter == "all" %}aria-current="page"{% endif %} data-i18n="va.filter_all">Все</a>
+    </div>
+
+    <form method="get" class="card filter-bar pr-filters">
+        <input type="hidden" name="status" value="{{ status_filter }}">
+        {% include "partials/_field.html" with field=filter_form.date_from %}
+        {% include "partials/_field.html" with field=filter_form.date_to %}
+        {% include "partials/_field.html" with field=filter_form.volunteer %}
+        {% include "partials/_field.html" with field=filter_form.task %}
+        <button class="button primary" type="submit" data-i18n="task.filter">Filter</button>
+        <a class="button ghost" href="{{ list_url }}?status={{ status_filter }}" data-i18n="crm.clear_filters">Clear</a>
+    </form>
+
+    {% if page_obj.object_list %}
+        {# "Delete selected": the row checkboxes join this form via form="prBulkForm" (a row also holds its own delete form, and forms can't nest). #}
+        <form id="prBulkForm" class="pr-bulk" method="post" action="{% url 'crm_photo_reports_bulk_delete' %}" data-confirm-text="Удалить выбранные фотоотчёты ({n})? Это действие нельзя отменить. За одобренные отчёты баллы у волонтёров отменятся.">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <label class="pr-bulk__all"><input type="checkbox" data-pr-select-all> <span data-i18n="pr.bulk_select_all">Выбрать все на странице</span></label>
+            <button class="button danger" type="submit" data-pr-bulk-submit disabled><span data-i18n="pr.bulk_delete">Удалить выбранные</span> <span class="tab-count" data-pr-bulk-count>0</span></button>
+        </form>
+        <div class="table-scroll">
+            <table class="data-table pr-table">
+                <thead>
+                    <tr>
+                        <th class="pr-check"><span class="visually-hidden" data-i18n="pr.bulk_select">Выбрать отчёт</span></th>
+                        <th class="pr-col-photo" data-i18n="pr.col_photo">Фото</th>
+                        <th class="pr-col-title" data-i18n="pr.col_report">Отчёт</th>
+                        <th data-i18n="tbl.task">Task</th>
+                        <th data-i18n="tbl.volunteer">Volunteer</th>
+                        <th data-i18n="tbl.client">Client</th>
+                        <th data-i18n="pr.col_uploaded">Загружен</th>
+                        <th data-i18n="tbl.status">Status</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for report in page_obj %}
+                    <tr>
+                        <td data-label="" class="pr-check"><input type="checkbox" name="ids" value="{{ report.pk }}" form="prBulkForm" data-pr-select aria-label="Выбрать отчёт" data-i18n-aria="pr.bulk_select"></td>
+                        <td data-label="Фото" class="pr-col-photo"><a href="{% url 'crm_photo_report_detail' report.pk %}">{% responsive_image report.image report.image_variants sizes="96px" class="pr-thumb" alt=report.title width=96 height=72 loading="lazy" decoding="async" %}</a></td>
+                        <td data-label="Отчёт" class="pr-col-title"><span class="cell-title truncate" title="{{ report.title }}">{{ report.title }}</span></td>
+                        <td data-label="Task">{% if report.help_request %}<a class="pr-task" href="{% url 'task_detail' report.help_request_id %}">#{{ report.help_request_id }} · <span class="pr-ellipsis" data-i18n="help.{{ report.help_request.help_type }}" title="{{ report.help_request.get_help_type_display }}" data-i18n-title="help.{{ report.help_request.help_type }}">{{ report.help_request.get_help_type_display }}</span></a>{% else %}—{% endif %}</td>
+                        <td data-label="Volunteer">{% if report.author %}{% if report.author.is_volunteer %}<a class="pr-ellipsis" href="{% url 'crm_volunteer_detail' report.author_id %}" title="{{ report.author.username }}">{{ report.author.username }}</a>{% else %}<span class="pr-ellipsis" title="{{ report.author.username }}">{{ report.author.username }}</span>{% endif %}{% else %}—{% endif %}</td>
+                        <td data-label="Client">{% if report.help_request.client %}<span class="pr-ellipsis" title="{{ report.help_request.client.username }}">{{ report.help_request.client.username }}</span>{% else %}—{% endif %}</td>
+                        <td data-label="Загружен" class="col-num pr-col-date">{{ report.created_at|date:"d.m.Y, H:i" }}</td>
+                        <td data-label="Status" class="pr-status">{% include "myapp/_photo_report_status_tag.html" with status=report.status status_display=report.get_status_display %}</td>
+                        <td data-label="" class="col-actions">
+                            <div class="pr-actions">
+                            <a class="button {% if report.status == 'pending' %}primary{% else %}ghost{% endif %}" href="{% url 'crm_photo_report_detail' report.pk %}" data-i18n="{% if report.status == 'pending' %}pr.review{% else %}task.details{% endif %}">{% if report.status == 'pending' %}Проверить{% else %}Details{% endif %}</a>
+                            <form method="post" action="{% url 'crm_photo_report_delete' report.pk %}" data-confirm="pr.delete_confirm">
+                                {% csrf_token %}
+                                <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                                <button class="button danger" type="submit" data-i18n="pr.delete">Удалить</button>
+                            </form>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% include "myapp/_pagination.html" with page_obj=page_obj querystring=querystring %}
+    {% else %}
+        <div class="empty-state">
+            <strong data-i18n="va.empty_title">Nothing here</strong>
+            <p data-i18n="pr.crm_empty">Нет фотоотчётов по этим фильтрам.</p>
+        </div>
+    {% endif %}
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+    var form = document.getElementById('prBulkForm');
+    if (!form) return;
+    var boxes = Array.prototype.slice.call(document.querySelectorAll('[data-pr-select]'));
+    var all = form.querySelector('[data-pr-select-all]');
+    var submit = form.querySelector('[data-pr-bulk-submit]');
+    var count = form.querySelector('[data-pr-bulk-count]');
+    function checked() { return boxes.filter(function(b) { return b.checked; }).length; }
+    function sync() {
+        var n = checked();
+        count.textContent = n;
+        submit.disabled = n === 0;
+        all.checked = n > 0 && n === boxes.length;
+        all.indeterminate = n > 0 && n < boxes.length;
+    }
+    all.addEventListener('change', function() {
+        boxes.forEach(function(b) { b.checked = all.checked; });
+        sync();
+    });
+    boxes.forEach(function(b) { b.addEventListener('change', sync); });
+    // One confirmation with the count, in the UI language (i18n.js table).
+    form.addEventListener('submit', function(event) {
+        var n = checked();
+        var table = (window.T && window.T[document.documentElement.lang]) || {};
+        var question = (table['pr.bulk_confirm'] || form.dataset.confirmText).replace('{n}', n);
+        if (n === 0 || !window.confirm(question)) event.preventDefault();
+    });
+    sync();
+})();
+</script>
+{% endblock %}

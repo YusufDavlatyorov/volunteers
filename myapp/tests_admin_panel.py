@@ -98,7 +98,7 @@ class PanelAccessAndLayoutTests(TestCase):
             reverse("completed_tasks"), reverse("volunteer_applications"),
         ):
             self.assertIn(f'href="{href}"', html, href)
-        for href in (reverse("crm_tasks"), reverse("broadcast"), reverse("create_event"), reverse("photo_reports"),
+        for href in (reverse("crm_tasks"), reverse("broadcast"), reverse("create_event"), reverse("crm_photo_reports"),
                      reverse("rating"), reverse("crm_reviews"), reverse("crm_analytics")):
             self.assertIn(f'href="{href}"', html, href)
 

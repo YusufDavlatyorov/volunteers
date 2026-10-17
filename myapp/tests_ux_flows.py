@@ -252,7 +252,8 @@ class FlashI18nTests(TestCase):
     def test_every_view_message_is_known(self):
         """A new messages.*("…") literal in a view must get a key here."""
         source = "".join(Path(settings.BASE_DIR, p).read_text() for p in (
-            "myapp/views.py", "myapp/views_feedback.py", "myapp/views_notifications.py", "accounts/views.py"))
+            "myapp/views.py", "myapp/views_feedback.py", "myapp/views_notifications.py", "myapp/views_photo_reports.py",
+            "accounts/views.py"))
         literals = re.findall(r'messages\.(?:success|error|warning|info)\(\s*request,\s*"([^"{]+)"', source)
         self.assertGreater(len(literals), 40)
         for text in literals:

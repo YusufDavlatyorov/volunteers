@@ -129,9 +129,26 @@ class PetReportAdmin(CleanImageAdminMixin, admin.ModelAdmin):
 
 @admin.register(PhotoReport)
 class PhotoReportAdmin(CleanImageAdminMixin, admin.ModelAdmin):
-    list_display = ("title", "author", "region", "created_at")
-    list_filter = ("region", "created_at")
+    list_display = ("title", "author", "status", "region", "created_at")
+    list_filter = ("status", "region", "created_at")
     search_fields = ("title", "description")
+    # The review goes through the CRM (/myapp/crm/photo-reports/ — it notifies
+    # the author and releases the task's reward); a raw admin edit would skip both.
+    readonly_fields = ("status", "reviewed_by", "reviewed_at", "rejection_reason")
+
+    # Deleting here takes the same path as the CRM "Delete" button: files +
+    # WebP variants removed, an approved report's task reward revoked, the
+    # author notified, one ID-only log line (services/photo_reports.delete).
+    def delete_model(self, request, obj):
+        from .services import photo_reports
+
+        photo_reports.delete(obj, actor=request.user)
+
+    def delete_queryset(self, request, queryset):
+        from .services import photo_reports
+
+        for report in queryset:
+            photo_reports.delete(report, actor=request.user)
 
 
 @admin.register(VolunteerApplication)

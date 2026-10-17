@@ -307,3 +307,16 @@ Rollback (until step 12): level 0 (one feature off), level 1 (back to the untouc
 DB back to `0015`/`0007`, restore it into `shared_postgres`, then level 1 without the media restore).
 Later, separately: community bot (`systemctl enable --now khayrkhoh-community-bot`), OSRM (native,
 not Docker), Cloudflare (`docs/CLOUDFLARE.md`).
+
+**Photo-report review (2026-10-17, ships with the next joint deploy via `deploy/deploy.sh`):**
+migration **myapp 0028_photo_report_review** — additive; every existing photo report becomes
+`approved`, every existing task `reward_pending=False` (nothing already earned is taken away).
+Rehearsed on PostgreSQL 16: forward → `migrate myapp 0027` → old code (`d0f0ded`) works → forward.
+Rollback = `manage migrate myapp 0027` with the old code. No one-off command, no new env var / unit /
+cron. **Behaviour change to announce to curators and volunteers:** completing a request no longer pays
+points / badges at once — they come when a curator approves the volunteer's photo report for it
+(CRM → «Фотоотчёты», `/myapp/crm/photo-reports/`); new uploads are hidden from the public pages until
+approved. Same deploy, no migration: staff can **delete** a photo report (CRM list + card; an approved
+one takes the task's points / badges back and the task waits for a new report), and users can change
+their **username** on the edit-profile page. Bulk «Удалить выбранные» in the CRM list (old, pre-review
+reports included). Nothing is deleted at deploy — deletion is only ever a staff action. 1769 tests.

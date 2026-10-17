@@ -143,6 +143,34 @@ On the `pending` side, **`stale_alert_sent`** (a stored boolean) layers on the s
 `alarm_sent` does for overdue: `HelpRequest.is_stale_pending` is `pending` + waiting past
 `STALE_PENDING_THRESHOLD` (48h), derived not stored. See `services/stale.py` below.
 
+**Photo-report review gates the reward (2026-10-17).** `PhotoReport.status` is `pending` (every
+new upload) → `approved` | `rejected` (+ `reviewed_by` / `reviewed_at` / `rejection_reason`, required
+on reject), model methods with the conditional-UPDATE guard; migration 0028 made all older reports
+`approved`. `task_actions.complete` still completes the task (client notice, review prompt, chat
+close) but pays the rating points + `task_completed` badges **only with an approved report by the
+task's volunteer** — otherwise it sets `HelpRequest.reward_pending=True` and
+`services/photo_reports.credit_task` pays once on approval (conditional `UPDATE … WHERE
+reward_pending`). The public rating and the badge counters count completed tasks with
+`reward_pending=False` only (pre-review tasks have False). CRM: `/myapp/crm/photo-reports/`
+(`views_photo_reports.py`, admin + curator; default filter pending, newest first; pending count =
+badge on the panel's "Photo reports" link); the author gets `photo_report_approved` /
+`photo_report_rejected` (site + Telegram, the reason in the text) and sees the status on the
+dashboard + `/myapp/reports/`. Public pages (landing, the reports list, sitemap lastmod) show
+approved reports only (`photo_reports.public_reports()` / `visible_to(user)`). The Django admin keeps
+the review fields read-only. **Delete** (admin + curator, any status, `data-confirm`; list + detail,
+`POST …/<pk>/delete/`; the Django admin's delete goes through the same `photo_reports.delete`): row +
+original + WebP variants gone, author notified `photo_report_deleted` (site + Telegram), one ID-only log
+line. Deleting the approved report that paid its task (and no other approved one by that volunteer
+remains) = `revoke_task_reward`: `reward_pending=True` again (conditional UPDATE), points subtracted
+(floor 0), and `achievements.revoke_lost(user, before)` drops exactly the counter badges that task
+earned — the one exception to "achievements never revoke". **Bulk**: list checkboxes (`form="prBulkForm"`,
+rows keep their own delete form) → `POST crm/photo-reports/delete/` → `photo_reports.delete_many` (each
+report exactly like a single delete, ≤ `BULK_DELETE_MAX` = 100, one JS confirm with the count, ONE notice
+per author — the `many` variant with `{count}` for several). Pre-0028 reports are `approved` and go the
+same way; files are deleted by the row's *current* name (`rename_legacy_uploads` already removed the
+old-named file + variants) — test-locked with a real 0027 → 0028 migration in
+`LegacyReportFromBeforeReviewTests`. Tests: `myapp/tests_photo_report_review.py`.
+
 **Dispatch actions** (all admin/curator, on a `pending` task): `task_recommendations_view`
 returns the ranked JSON shortlist (read-only); `task_notify_volunteer_view` pings one volunteer
 but leaves the task `pending` (they still self-accept); `task_assign_volunteer_view` is the
@@ -264,7 +292,11 @@ A hardening pass added a cross-cutting layer that is easy to regress — keep it
 - **Name limits**: `Users.USERNAME_MAX_LENGTH` = 30, `FULL_NAME_MAX_LENGTH` = 60 (+ form `maxlength`,
   + `update_profile`, whose JSON error carries `error_i18n: err.max_length`). `Profile.full_name` is a
   **60-char column** since accounts 0013 (owner 2026-10-09) — that migration refuses to run (ids only,
-  no truncation) while a longer name exists; `username` keeps its 150 column + a validator. Long names never widen a page: list rows
+  no truncation) while a longer name exists; `username` keeps its 150 column + a validator.
+  **Users change their own username** on edit-profile (`UserUpdateForm`, 2026-10-17): registration's
+  rules (trimmed, 4–30) + unique **ignoring case** (registration itself still checks exactly); an
+  unchanged / not-posted username skips every check (legacy names don't block other edits); the view
+  clears the rating cache. No URL takes a username (test-locked, `accounts/tests_username_change.py`). Long names never widen a page: list rows
   ellipsis (`.row-rank h3`), headings/detail wrap (`overflow-wrap: anywhere`), flex/grid items
   `min-width: 0`, `.request-row` uses `minmax(0, 1fr)`.
 - **`_can_view_task`** (`myapp/views.py`) gates task-detail access: a volunteer sees only their

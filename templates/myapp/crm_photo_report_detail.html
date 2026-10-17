@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% load responsive assets %}
+{% block extra_css %}<link rel="stylesheet" href="{% asset 'css/photo-review.css' %}">{% endblock %}
+{% block title %}Photo report - KhayrKhoh{% endblock %}
+{% block content %}
+<section class="section section-xl">
+    {% url 'crm_photo_reports' as list_url %}
+    {% include "partials/_page_header.html" with title="Фотоотчёт" title_i18n="pr.detail_title" action_url=list_url action_label="Все фотоотчёты" action_i18n="pr.back_to_list" action_class="ghost" %}
+
+    <div class="pr-review">
+        <div class="card pr-review__photo">
+            {# Click (or Enter) opens the original full size in a <dialog>. #}
+            <button type="button" class="pr-zoom" data-pr-zoom aria-haspopup="dialog" aria-label="Увеличить фото" data-i18n-aria="pr.zoom">
+                {% responsive_image report.image report.image_variants sizes="(max-width: 900px) 92vw, 720px" class="pr-photo" alt=report.title width=960 height=720 decoding="async" %}
+            </button>
+            <p class="field-hint" data-i18n="pr.zoom_hint">Нажмите на фото, чтобы увеличить.</p>
+        </div>
+
+        <div class="stack">
+            <div class="card">
+                <div class="section-head">
+                    <h2 class="pr-review__title">{{ report.title }}</h2>
+                    {% include "myapp/_photo_report_status_tag.html" with status=report.status status_display=report.get_status_display %}
+                </div>
+                {% if report.description %}<p class="pr-review__desc">{{ report.description }}</p>{% endif %}
+                <dl class="pr-meta">
+                    <dt data-i18n="tbl.task">Task</dt>
+                    <dd>{% if task %}<a href="{% url 'task_detail' task.pk %}">#{{ task.pk }} · <span data-i18n="help.{{ task.help_type }}">{{ task.get_help_type_display }}</span></a> · {% include "myapp/_task_status_tag.html" with status=task.status status_display=task.get_status_display %}{% else %}<span data-i18n="pr.no_task">Не привязан к запросу</span>{% endif %}</dd>
+                    <dt data-i18n="tbl.volunteer">Volunteer</dt>
+                    <dd>{% if report.author %}{% if report.author.is_volunteer %}<a href="{% url 'crm_volunteer_detail' report.author_id %}">{{ report.author.profile.full_name|default:report.author.username }}</a>{% else %}{{ report.author.username }}{% endif %}{% else %}—{% endif %}</dd>
+                    <dt data-i18n="tbl.client">Client</dt>
+                    <dd>{{ task.client.username|default:"—" }}</dd>
+                    <dt data-i18n="pr.col_uploaded">Загружен</dt>
+                    <dd>{{ report.created_at|date:"d.m.Y, H:i" }}</dd>
+                    <dt data-i18n="field.region">Region</dt>
+                    <dd>{{ report.get_region_display|default:"—" }}</dd>
+                    {% if task and author_is_task_volunteer %}
+                        <dt data-i18n="pr.reward">Баллы за запрос</dt>
+                        <dd>{% if task.status == "completed" and not task.reward_pending %}<span data-i18n="pr.reward_credited">Начислены</span>{% elif task.status == "completed" %}<span data-i18n="pr.reward_waiting">Ждут одобрения отчёта</span>{% else %}<span data-i18n="pr.reward_after_completion">После завершения запроса</span>{% endif %}</dd>
+                    {% elif task %}
+                        <dt data-i18n="pr.reward">Баллы за запрос</dt>
+                        <dd data-i18n="pr.reward_not_volunteer">Автор отчёта — не волонтёр этого запроса, баллы не начисляются</dd>
+                    {% endif %}
+                </dl>
+            </div>
+
+            {% if report.status == "pending" %}
+            <div class="card">
+                <h3 data-i18n="pr.decision">Решение</h3>
+                <form method="post" action="{% url 'crm_photo_report_review' report.pk %}" class="pr-decision">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="approve">
+                    <button class="button primary" type="submit" data-i18n="pr.approve">Одобрить</button>
+                </form>
+                <form method="post" action="{% url 'crm_photo_report_review' report.pk %}" class="pr-decision" data-confirm="pr.reject_confirm">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="reject">
+                    <div class="field-group">
+                        <label for="prReason" data-i18n="pr.reason_label">Причина отклонения</label>
+                        <textarea id="prReason" name="reason" rows="3" required maxlength="{{ reason_max_length }}" class="control" placeholder="Фото размыто, на снимке не видно выполненной работы…" data-i18n-ph="pr.reason_ph" aria-describedby="prReasonHint"></textarea>
+                        <span class="field-hint" id="prReasonHint" data-i18n="pr.reason_hint">Волонтёр увидит причину в уведомлении и сможет загрузить новый отчёт.</span>
+                    </div>
+                    <button class="button danger" type="submit" data-i18n="pr.reject">Отклонить</button>
+                </form>
+            </div>
+            {% else %}
+            <div class="card">
+                <h3 data-i18n="pr.review_result">Результат проверки</h3>
+                <dl class="pr-meta">
+                    <dt data-i18n="pr.reviewed_by">Проверил</dt>
+                    <dd>{{ report.reviewed_by.username|default:"—" }}</dd>
+                    <dt data-i18n="pr.reviewed_at">Когда</dt>
+                    <dd>{% if report.reviewed_at %}{{ report.reviewed_at|date:"d.m.Y, H:i" }}{% else %}<span data-i18n="pr.approved_before_review">Одобрен автоматически (загружен до появления проверки)</span>{% endif %}</dd>
+                    {% if report.status == "rejected" %}
+                        <dt data-i18n="pr.reason_label">Причина отклонения</dt>
+                        <dd class="pr-review__desc">{{ report.rejection_reason }}</dd>
+                    {% endif %}
+                </dl>
+            </div>
+            {% endif %}
+
+            <div class="card">
+                <form method="post" action="{% url 'crm_photo_report_delete' report.pk %}" data-confirm="pr.delete_confirm">
+                    {% csrf_token %}
+                    <button class="button danger" type="submit" data-i18n="pr.delete">Удалить</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <dialog class="pr-lightbox" data-pr-lightbox aria-label="{{ report.title }}">
+        <form method="dialog"><button class="pr-lightbox__close" type="submit" aria-label="Закрыть" data-i18n-aria="common.close">×</button></form>
+        <img src="{{ report.image.url }}" alt="{{ report.title }}" loading="lazy" decoding="async">
+    </dialog>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+    var zoom = document.querySelector('[data-pr-zoom]');
+    var box = document.querySelector('[data-pr-lightbox]');
+    if (!zoom || !box || typeof box.showModal !== 'function') return;
+    zoom.addEventListener('click', function() { box.showModal(); });
+    // A click on the dark backdrop (the <dialog> itself, not the image) closes it.
+    box.addEventListener('click', function(event) { if (event.target === box) box.close(); });
+})();
+</script>
+{% endblock %}

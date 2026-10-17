@@ -33,6 +33,25 @@
 }
 .panel-icon-btn:hover, .panel-icon-btn:focus-visible { border-color: var(--primary); background: var(--primary-glow); color: var(--primary); }
 .panel-icon-btn svg { width: 18px; height: 18px; }
+/* Pending photo reports on the "Photo reports" link: a corner dot on the icon
+   button, an inline pill in the "More" menu. */
+.panel-icon-btn { position: relative; }
+.panel-badge {
+    display: inline-grid;
+    place-items: center;
+    min-width: 1.15rem;
+    height: 1.15rem;
+    padding: 0 0.3rem;
+    border-radius: 999px;
+    background: var(--danger);
+    color: var(--on-primary);
+    font-size: 0.7rem;
+    font-weight: 700;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+}
+.panel-icon-btn .panel-badge { position: absolute; top: -0.4rem; right: -0.4rem; }
+.panel-more__item .panel-badge { margin-left: auto; }
 
 .panel-more { display: none; position: relative; }
 .panel-more > summary { list-style: none; cursor: pointer; }

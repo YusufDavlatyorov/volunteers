@@ -14,6 +14,7 @@ from .models import (
     MAX_DONATION_PHOTOS,
     MAX_DONATION_QUANTITY,
     PetReport,
+    PHOTO_REPORT_STATUS_CHOICES,
     PhotoReport,
     PRIORITY_CHOICES,
     Product,
@@ -524,6 +525,43 @@ class DonationGoodsForm(forms.Form):
             self.add_error("location", forms.ValidationError(
                 "Укажите адрес, откуда забрать вещи.", code="address_required"))
         return cleaned
+
+
+class PhotoReportFilterForm(forms.Form):
+    """CRM photo-report list filters (GET). The view defaults ``status`` to
+    pending; invalid input falls back to that default, never a 500."""
+
+    status = forms.ChoiceField(
+        label="Статус",
+        choices=list(PHOTO_REPORT_STATUS_CHOICES) + [("all", "Все")],
+        required=False,
+        widget=forms.Select(attrs=FIELD_CLASS),
+    )
+    date_from = forms.DateField(label="С даты", required=False, widget=forms.DateInput(attrs={**FIELD_CLASS, "type": "date"}))
+    date_to = forms.DateField(label="По дату", required=False, widget=forms.DateInput(attrs={**FIELD_CLASS, "type": "date"}))
+    volunteer = forms.ModelChoiceField(
+        label="Волонтёр", queryset=PhotoReport.objects.none(), required=False,
+        empty_label="Все волонтёры", widget=forms.Select(attrs=FIELD_CLASS),
+    )
+    task = forms.IntegerField(
+        label="Запрос №", required=False, min_value=1,
+        widget=forms.NumberInput(attrs={**FIELD_CLASS, "placeholder": "123", "inputmode": "numeric"}),
+    )
+
+    def __init__(self, *args, authors=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if authors is not None:
+            self.fields["volunteer"].queryset = authors
+        localize(self, {
+            "status": {"label": "tbl.status", "choices": {
+                "pending": "pr.status_pending", "approved": "pr.status_approved",
+                "rejected": "pr.status_rejected", "all": "va.filter_all",
+            }},
+            "date_from": {"label": "pr.filter_from"},
+            "date_to": {"label": "pr.filter_to"},
+            "volunteer": {"label": "tbl.volunteer", "empty": "pr.filter_all_volunteers"},
+            "task": {"label": "pr.filter_task"},
+        })
 
 
 class HelpRequestFilterForm(forms.Form):

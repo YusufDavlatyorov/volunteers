@@ -6,7 +6,7 @@ as a podium (places 1–3) and a table from place 4 — no search, region filter
 or re-sorting (removed 2026-10-14; such old URL parameters are ignored).
 
 Ranking, always over all time (owner 2026-10-14: no period switch): completed
-requests ↓, then the volunteer's average
+requests ↓ (credited ones — the photo report approved, ``reward_pending=False``), then the volunteer's average
 client rating ↓ (``Profile.review_avg``: visible reviews, all time — the
 denormalised value, so the task COUNT and the review AVG don't share a join and
 inflate each other), then the number of reviews ↓, then user id (stable).
@@ -52,7 +52,9 @@ def ranked_volunteers():
 
 def build() -> dict:
     now = timezone.now()
-    done = Q(volunteer_tasks__status="completed")
+    # A completed request counts once its photo report is approved
+    # (reward_pending cleared by services/photo_reports.credit_task).
+    done = Q(volunteer_tasks__status="completed", volunteer_tasks__reward_pending=False)
     users = (
         ranked_volunteers()
         .select_related("profile")

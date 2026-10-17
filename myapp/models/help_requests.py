@@ -115,6 +115,11 @@ class HelpRequest(models.Model):
     # waited past STALE_PENDING_THRESHOLD without a volunteer is alerted to staff
     # exactly once.
     stale_alert_sent = models.BooleanField(default=False)
+    # A completed task whose reward (rating points + achievements) still waits
+    # for an approved photo report (services/photo_reports.credit_task). Set by
+    # task_actions.complete, cleared once — with the reward — by the approval.
+    # False for every task completed before photo-report review existed.
+    reward_pending = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     accepted_at = models.DateTimeField(null=True, blank=True)

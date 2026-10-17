@@ -175,6 +175,23 @@ urlpatterns += [
     path('crm/reviews/', crm_reviews_view, name='crm_reviews'),
 ]
 
+# Photo-report review in the CRM — myapp/views_photo_reports.py
+from .views_photo_reports import (  # noqa: E402
+    crm_photo_report_delete_view,
+    crm_photo_report_detail_view,
+    crm_photo_report_review_view,
+    crm_photo_reports_bulk_delete_view,
+    crm_photo_reports_view,
+)
+
+urlpatterns += [
+    path('crm/photo-reports/', crm_photo_reports_view, name='crm_photo_reports'),
+    path('crm/photo-reports/delete/', crm_photo_reports_bulk_delete_view, name='crm_photo_reports_bulk_delete'),
+    path('crm/photo-reports/<int:pk>/', crm_photo_report_detail_view, name='crm_photo_report_detail'),
+    path('crm/photo-reports/<int:pk>/review/', crm_photo_report_review_view, name='crm_photo_report_review'),
+    path('crm/photo-reports/<int:pk>/delete/', crm_photo_report_delete_view, name='crm_photo_report_delete'),
+]
+
 # Client <-> volunteer chat (Feature Pack v2, feature 8) — myapp/views_chat.py
 from .views_chat import (  # noqa: E402
     chat_message_hide_view,

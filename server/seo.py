@@ -251,7 +251,10 @@ class PublicPagesSitemap(Sitemap):
         if name == "home":
             from myapp.models import PhotoReport
 
-            latest = PhotoReport.objects.order_by("-created_at").values_list("created_at", flat=True).first()
+            latest = (
+                PhotoReport.objects.filter(status=PhotoReport.APPROVED)  # only approved ones are shown
+                .order_by("-created_at").values_list("created_at", flat=True).first()
+            )
             return latest
         return None
 

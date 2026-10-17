@@ -19,7 +19,7 @@ from django.utils import timezone
 from accounts.models import Profile
 
 from ..models import HELP_TYPE_CHOICES, Donation, EmergencyReport, Event, HelpRequest, PetReport, VolunteerApplication
-from . import analytics, analytics_v2, chat, donations, emergency, feedback, matching, overdue, pets, rating, stale
+from . import analytics, analytics_v2, chat, donations, emergency, feedback, matching, overdue, pets, photo_reports, rating, stale
 
 EVENTS_LIMIT = 3
 LIST_LIMIT = 5
@@ -103,6 +103,8 @@ def _volunteer(user):
         ),
         # In-kind offers this volunteer has been asked to collect or deliver.
         "assigned_donations": list(donations.assigned_to(user)[:LIST_LIMIT]),
+        # Their photo reports with the CRM review status (services/photo_reports).
+        "my_photo_reports": photo_reports.recent_for_author(user, LIST_LIMIT),
         "upcoming_events": _upcoming_events(user.region),
     }
 

@@ -70,6 +70,8 @@ class HelpRequestFlowTests(TestCase):
         self.assertEqual(request.status, "active")
         self.assertEqual(request.volunteer, self.volunteer)
 
+        # Points are paid with an approved photo report (services/photo_reports).
+        PhotoReport.objects.create(author=self.volunteer, title="Готово", image="reports/done.jpg", help_request=request, status="approved")
         self.client.post(reverse("complete_task", args=[request.pk]))
         request.refresh_from_db()
         self.assertEqual(request.status, "completed")
@@ -692,6 +694,8 @@ class WorkStageTests(TestCase):
     def test_complete_still_works_from_any_stage_and_awards_points(self):
         self.task.accept(self.volunteer)
         self.task.advance_work_stage("in_progress")
+        # Points are paid with an approved photo report (services/photo_reports).
+        PhotoReport.objects.create(author=self.volunteer, title="Готово", image="reports/done.jpg", help_request=self.task, status="approved")
         self.client.login(username="ws_vol", password="pass12345")
         self.client.post(reverse("complete_task", args=[self.task.pk]))
         self.task.refresh_from_db()
@@ -4933,6 +4937,8 @@ class CompleteTaskConcurrencyTests(TestCase):
         )
 
     def test_double_complete_awards_points_once(self):
+        # Points are paid with an approved photo report (services/photo_reports).
+        PhotoReport.objects.create(author=self.volunteer, title="Готово", image="reports/done.jpg", help_request=self.task, status="approved")
         self.client.login(username="ct_vol", password="pass12345")
         self.client.post(reverse("complete_task", args=[self.task.pk]))
         self.client.post(reverse("complete_task", args=[self.task.pk]))  # retry

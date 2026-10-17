@@ -85,6 +85,10 @@ NOTIFICATION_TYPES = dict([
     _t("application_approved", ("guest", "volunteer", "client")),
     _t("application_rejected", ("guest", "volunteer", "client")),
     _t("donation_new", STAFF),
+    # The author of a photo report hears the CRM review: site + Telegram.
+    _t("photo_report_approved", ("volunteer",) + STAFF, defaults={TELEGRAM}),
+    _t("photo_report_rejected", ("volunteer",) + STAFF, defaults={TELEGRAM}),
+    _t("photo_report_deleted", ("volunteer",) + STAFF, defaults={TELEGRAM}),
     _t("donation_assigned", ("volunteer",)),
     _t("donation_status", ROLES_ALL),
     _t("pet_new", STAFF),

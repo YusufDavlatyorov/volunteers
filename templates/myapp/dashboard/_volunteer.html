@@ -124,7 +124,24 @@
             {% for task in recent_completed %}
                 <li><a class="dash-list__item" href="{% url 'task_detail' task.id %}">
                     <span class="dash-list__main">{% include "myapp/_task_status_tag.html" with status=task.status status_display=task.get_status_display %} <span data-i18n="help.{{ task.help_type }}">{{ task.get_help_type_display }}</span></span>
-                    <span class="dash-list__meta">{{ task.get_region_display|default:"—" }} · {{ task.completed_at|date:"d.m.Y" }}</span>
+                    <span class="dash-list__meta">{{ task.get_region_display|default:"—" }} · {{ task.completed_at|date:"d.m.Y" }}{% if task.reward_pending %} · <span data-i18n="pr.reward_waiting_short">баллы после проверки фотоотчёта</span>{% endif %}</span>
+                </a></li>
+            {% endfor %}
+        </ul>
+    </section>
+    {% endif %}
+
+    {% if my_photo_reports %}
+    <section class="card dash-card reveal" aria-labelledby="dashPhotoReportsTitle">
+        <div class="dash-card__head">
+            <h2 class="dash-card__title" id="dashPhotoReportsTitle" data-i18n="pr.mine_title">Мои фотоотчёты</h2>
+            <a class="button ghost dash-btn-sm" href="{% url 'photo_reports' %}#report-form" data-i18n="photo.add">Add Report</a>
+        </div>
+        <ul class="dash-list" role="list">
+            {% for report in my_photo_reports %}
+                <li><a class="dash-list__item" href="{% url 'photo_reports' %}{% if report.status == 'rejected' and report.help_request_id %}?task={{ report.help_request_id }}#report-form{% endif %}">
+                    <span class="dash-list__main">{% include "myapp/_photo_report_status_tag.html" with status=report.status status_display=report.get_status_display %} <span class="truncate" title="{{ report.title }}">{{ report.title }}</span></span>
+                    <span class="dash-list__meta">{% if report.status == "rejected" %}<span data-i18n="pr.reason_label">Причина отклонения</span>: {{ report.rejection_reason }}{% else %}{% if report.help_request_id %}#{{ report.help_request_id }} · {% endif %}{{ report.created_at|date:"d.m.Y" }}{% endif %}</span>
                 </a></li>
             {% endfor %}
         </ul>

@@ -1,0 +1,209 @@
+/* ===== photo-review.css — CRM photo-report review =====
+   myapp/crm_photo_reports.html (list thumbnails) and
+   myapp/crm_photo_report_detail.html (large photo, lightbox, decision forms).
+   Loaded after style.css; tokens only. */
+
+.pr-thumb {
+    display: block;
+    width: 96px;
+    height: auto;
+    aspect-ratio: 4 / 3;
+    object-fit: cover;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+}
+
+/* ===== list page: one control size for the whole page =====
+   The filter fields, the filter buttons and "Delete selected" share one
+   height; the row buttons are the compact in-table version of the same. */
+.pr-filters,
+.pr-bulk,
+.pr-table {
+    --pr-control-h: 2.5rem;
+    --pr-row-btn-h: 2rem;
+    --pr-btn-font: 0.82rem;
+}
+
+/* Filters: every field and button the same height, labels on one line, so
+   labels share the top edge and controls + buttons share the bottom one.
+   Below 560px style.css still gives each field / button its own full row. */
+.pr-filters { gap: var(--space-3); align-items: flex-end; }
+/* The form is a .card: style.css gives every child but the last a bottom
+   margin there, which lifted "Filter" above "Clear" and the fields. */
+.pr-filters > * { margin-bottom: 0; }
+.pr-filters .field-group { flex: 1 1 10rem; min-width: 9rem; }
+.pr-filters .field-group > label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.pr-filters input:not([type="hidden"]),
+.pr-filters select {
+    height: var(--pr-control-h);
+    min-height: var(--pr-control-h);
+    padding-top: 0;
+    padding-bottom: 0;
+    line-height: normal;
+}
+.pr-filters button:not(.filter-toggle),
+.pr-filters .button:not(.filter-toggle),
+.pr-bulk .button {
+    height: var(--pr-control-h);
+    min-height: var(--pr-control-h);
+    padding: 0 1.1rem;
+    font-size: var(--pr-btn-font);
+    white-space: nowrap;
+}
+
+/* Row actions side by side (a wrapper, not display:flex on the <td>). */
+.pr-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: flex-end; align-items: center; }
+.pr-actions form { display: contents; }
+
+/* Phones / tablets: the site's standard 44px controls (touch targets), the
+   row buttons left-aligned in their card as before. */
+@media (max-width: 860px) {
+    .pr-filters,
+    .pr-bulk,
+    .pr-table { --pr-control-h: 2.75rem; }
+    .pr-actions { justify-content: flex-start; }
+}
+@media (max-width: 560px) {
+    .pr-filters .field-group { flex-basis: 100%; } /* one field per row, as style.css does for every filter bar */
+}
+
+/* Desktop: each row on one line. Fixed-size columns don't wrap; the report
+   title takes what is left and ends in "…" (full text in its title). The
+   phone card layout (≤ 860px, style.css) is left exactly as it was. */
+@media (min-width: 861px) {
+    .pr-table thead th,
+    .pr-table tbody td { padding: 0.55rem 0.45rem; white-space: nowrap; }
+    .pr-table thead th:first-child,
+    .pr-table tbody td:first-child { padding-left: var(--space-4); }
+    .pr-table thead th:last-child,
+    .pr-table tbody td:last-child { padding-right: var(--space-4); }
+    .pr-table .pr-col-title { width: 100%; max-width: 0; }
+    .pr-table .pr-ellipsis {
+        display: inline-block;
+        max-width: 6.5rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        vertical-align: bottom;
+    }
+    .pr-table .pr-task .pr-ellipsis { max-width: 6rem; }
+    /* min-width: the global img max-width:100% let the auto-width column squeeze it. */
+    .pr-table .pr-thumb { width: 56px; min-width: 56px; border-radius: 6px; }
+    .pr-actions { flex-wrap: nowrap; }
+    .pr-table .pr-actions .button {
+        height: var(--pr-row-btn-h);
+        min-height: var(--pr-row-btn-h);
+        padding: 0 0.75rem;
+        font-size: 0.78rem;
+        white-space: nowrap;
+    }
+}
+
+/* Small laptops (861–1199px): names cut a little earlier so the row still fits. */
+@media (min-width: 861px) and (max-width: 1199px) {
+    .pr-table .pr-ellipsis { max-width: 5rem; }
+    .pr-table .pr-task .pr-ellipsis { max-width: 4.5rem; }
+}
+
+/* "Delete selected" bar + the checkbox column of the list. */
+.pr-bulk {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    margin: 0 0 var(--space-3);
+}
+.pr-bulk__all { display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 600; }
+.data-table .pr-check { width: 2.5rem; text-align: center; }
+.pr-check input, .pr-bulk__all input { width: 1.15rem; height: 1.15rem; margin: 0; }
+
+.pr-review {
+    display: grid;
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+    gap: var(--space-5);
+    align-items: start;
+}
+.pr-review > * { min-width: 0; }
+.pr-review__title { margin: 0; font-size: 1.35rem; line-height: 1.3; overflow-wrap: anywhere; }
+.pr-status .tag { white-space: nowrap; }
+.pr-review__desc { white-space: pre-line; overflow-wrap: anywhere; }
+
+.pr-zoom {
+    display: block;
+    width: 100%;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 12px;
+    background: var(--surface-2);
+    cursor: zoom-in;
+    overflow: hidden;
+}
+.pr-zoom:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; }
+.pr-photo {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: 70vh;
+    object-fit: contain;
+}
+
+.pr-meta {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 0.45rem 1rem;
+    margin: var(--space-4) 0 0;
+}
+.pr-meta dt { color: var(--muted); font-weight: 600; }
+.pr-meta dd { margin: 0; overflow-wrap: anywhere; }
+
+.pr-decision + .pr-decision {
+    margin-top: var(--space-4);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--line);
+}
+
+.pr-lightbox {
+    /* style.css resets every margin — give the modal its centring back. */
+    margin: auto;
+    max-width: min(96vw, 1600px);
+    max-height: 94vh;
+    padding: 0;
+    border: 0;
+    border-radius: 12px;
+    background: var(--card-bg);
+    box-shadow: var(--shadow);
+}
+.pr-lightbox::backdrop { background: rgba(0, 0, 0, 0.75); }
+.pr-lightbox img {
+    display: block;
+    max-width: min(96vw, 1600px);
+    max-height: 94vh;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+}
+.pr-lightbox__close {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    width: 2.5rem;
+    height: 2.5rem;
+    min-height: 0;
+    padding: 0;
+    border-radius: 50%;
+    background: var(--card-bg);
+    color: var(--text);
+    font-size: 1.5rem;
+    line-height: 1;
+    box-shadow: var(--shadow);
+}
+
+@media (max-width: 900px) {
+    .pr-review { grid-template-columns: 1fr; }
+}
