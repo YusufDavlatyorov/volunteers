@@ -600,7 +600,9 @@ class LegacyReportFromBeforeReviewTests(TransactionTestCase):
     (no orphan), revokes the points / badge paid at completion, puts the task
     back to waiting for a report and notifies the volunteer."""
 
-    serialized_rollback = True  # keep the seeded achievements for later tests
+    # No serialized_rollback: restoring the snapshot after another
+    # TransactionTestCase re-inserted content types twice on PostgreSQL. The
+    # badge this test needs is seeded here (0021's own function) instead.
     OLD = [("myapp", "0027_donation_goods_page")]
 
     def _migrate(self, targets):
@@ -623,6 +625,10 @@ class LegacyReportFromBeforeReviewTests(TransactionTestCase):
         from myapp.services import achievements, images
 
         cache.clear()
+        from django.apps import apps as global_apps
+        from importlib import import_module
+
+        import_module("myapp.migrations.0021_achievements").seed_achievements(global_apps, None)
         latest = MigrationLoader(connection).graph.leaf_nodes()
         client_user = _make("lg_client", is_client=True)
         volunteer = _make("lg_vol", is_volunteer=True)
