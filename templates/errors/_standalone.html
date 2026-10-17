@@ -1,0 +1,149 @@
+{% comment %}
+Self-contained error page (500.html, 403_csrf.html). Deliberately does NOT extend
+base.html and loads nothing — no {% static %} (a manifest error must not break the
+error page), no DB, no context processors, no CDN fonts: the logo is inline SVG,
+the CSS is inline. Texts in all three UI languages; the one shown follows the
+site's own choice (localStorage gc-lang, i18n.js) and theme (gc-theme, else the
+OS setting), Russian + light without JS. The palette mirrors style.css tokens.
+
+Child blocks: page_title (Russian <title> without JS), code ("500"), title_ru/_tj/_en,
+body_ru/_tj/_en, optional action_ru/_tj/_en (home button). With JS the tab title is
+the visible heading + the localized brand name. contact_ru/_tj/_en: an optional support line (500.html).
+{% endcomment %}<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>{% block page_title %}{% endblock %} — Хайрхох</title>
+<script>
+  (function () {
+    var root = document.documentElement, lang = null, theme = null;
+    try { lang = localStorage.getItem('gc-lang'); theme = localStorage.getItem('gc-theme'); } catch (e) {}
+    if (lang !== 'tj' && lang !== 'en') lang = 'ru';
+    root.lang = lang;
+    var dark = theme ? theme === 'dark'
+      : !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    if (dark) root.setAttribute('data-theme', 'dark');
+  })();
+</script>
+<style>
+  :root {
+    --bg: #f8f9fc; --surface: #ffffff; --line: #e7eaf2; --text: #1d2433; --muted: #5a6373;
+    --primary: #2A3BA5; --primary-hover: #23318c; --on-primary: #ffffff; --brand-name: #2A3BA5;
+    --shadow: 0 12px 32px rgba(29, 36, 51, 0.08);
+    color-scheme: light;
+  }
+  [data-theme="dark"] {
+    --bg: #18191d; --surface: #212227; --line: rgba(255, 255, 255, 0.08); --text: #eceef2; --muted: #9da2ad;
+    --primary: #93a0f0; --primary-hover: #a6b1f4; --on-primary: #15161a; --brand-name: #b9c1f5;
+    --shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 16px;
+    font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+  }
+  .box {
+    width: 100%;
+    max-width: 460px;
+    text-align: center;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    padding: 40px 28px 36px;
+    box-shadow: var(--shadow);
+  }
+  .brand { display: inline-flex; align-items: center; gap: 10px; margin-bottom: 26px; color: var(--brand-name); text-decoration: none; }
+  .brand svg { width: 44px; height: 44px; flex: none; }
+  .brand-name { font-family: "Cormorant Garamond", Georgia, "Times New Roman", serif; font-style: italic; font-weight: 700; font-size: 1.7rem; line-height: 1; }
+  .logo-dark { display: none; }
+  [data-theme="dark"] .logo-light { display: none; }
+  [data-theme="dark"] .logo-dark { display: block; }
+  .code { font-size: 0.85rem; font-weight: 700; letter-spacing: 0.14em; color: var(--muted); }
+  h1 { font-size: 1.5rem; line-height: 1.3; margin: 6px 0 12px; letter-spacing: -0.01em; }
+  p { color: var(--muted); margin-bottom: 24px; }
+  p a { color: var(--primary); font-weight: 600; }
+  .contact { font-size: 0.9rem; margin: -8px 0 24px; }
+  .button {
+    display: inline-block;
+    min-height: 44px;
+    padding: 11px 26px;
+    border-radius: 999px;
+    background: var(--primary);
+    color: var(--on-primary);
+    font-weight: 700;
+    text-decoration: none;
+  }
+  .button:hover { background: var(--primary-hover); }
+  .button:focus-visible, .brand:focus-visible { outline: 3px solid var(--primary); outline-offset: 3px; }
+  /* One language at a time (html[lang], set above; Russian without JS). */
+  [data-l] { display: none; }
+  html[lang="ru"] [data-l="ru"], html[lang="tj"] [data-l="tj"], html[lang="en"] [data-l="en"] { display: inline; }
+  html[lang="ru"] div[data-l="ru"], html[lang="tj"] div[data-l="tj"], html[lang="en"] div[data-l="en"] { display: block; }
+</style>
+</head>
+<body>
+  <main class="box">
+    <a class="brand" href="/" aria-label="KhayrKhoh">
+      <svg class="logo-light" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+        <defs>
+          <linearGradient id="kk-bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2A3BA5"/><stop offset="1" stop-color="#006a61"/></linearGradient>
+          <clipPath id="kk-heart"><path d="M32 52.5 C32 52.5 11.5 39.8 11.5 25.8 C11.5 19.1 16.6 14 22.9 14 C27 14 30.3 16.3 32 19.6 C33.7 16.3 37 14 41.1 14 C47.4 14 52.5 19.1 52.5 25.8 C52.5 39.8 32 52.5 32 52.5 Z"/></clipPath>
+        </defs>
+        <rect width="64" height="64" rx="15" fill="url(#kk-bg)"/>
+        <path d="M32 52.5 C32 52.5 11.5 39.8 11.5 25.8 C11.5 19.1 16.6 14 22.9 14 C27 14 30.3 16.3 32 19.6 C33.7 16.3 37 14 41.1 14 C47.4 14 52.5 19.1 52.5 25.8 C52.5 39.8 32 52.5 32 52.5 Z" fill="#fff"/>
+        <path d="M6 44 L17.5 33.5 L23 38.5 L32.5 25.5 L40.5 34 L45.5 29.5 L58 42 V58 H6 Z" fill="url(#kk-bg)" clip-path="url(#kk-heart)"/>
+        <path d="M32 52.5 C32 52.5 11.5 39.8 11.5 25.8 C11.5 19.1 16.6 14 22.9 14 C27 14 30.3 16.3 32 19.6 C33.7 16.3 37 14 41.1 14 C47.4 14 52.5 19.1 52.5 25.8 C52.5 39.8 32 52.5 32 52.5 Z" fill="none" stroke="#fff" stroke-width="3.4" stroke-linejoin="round"/>
+      </svg>
+      <svg class="logo-dark" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+        <defs>
+          <linearGradient id="kk-bg-w" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2A3BA5"/><stop offset="1" stop-color="#006a61"/></linearGradient>
+          <clipPath id="kk-heart-w"><path d="M32 52.5 C32 52.5 11.5 39.8 11.5 25.8 C11.5 19.1 16.6 14 22.9 14 C27 14 30.3 16.3 32 19.6 C33.7 16.3 37 14 41.1 14 C47.4 14 52.5 19.1 52.5 25.8 C52.5 39.8 32 52.5 32 52.5 Z"/></clipPath>
+        </defs>
+        <rect width="64" height="64" rx="15" fill="#fff"/>
+        <path d="M32 52.5 C32 52.5 11.5 39.8 11.5 25.8 C11.5 19.1 16.6 14 22.9 14 C27 14 30.3 16.3 32 19.6 C33.7 16.3 37 14 41.1 14 C47.4 14 52.5 19.1 52.5 25.8 C52.5 39.8 32 52.5 32 52.5 Z" fill="url(#kk-bg-w)"/>
+        <path d="M6 44 L17.5 33.5 L23 38.5 L32.5 25.5 L40.5 34 L45.5 29.5 L58 42 V58 H6 Z" fill="#fff" clip-path="url(#kk-heart-w)"/>
+        <path d="M32 52.5 C32 52.5 11.5 39.8 11.5 25.8 C11.5 19.1 16.6 14 22.9 14 C27 14 30.3 16.3 32 19.6 C33.7 16.3 37 14 41.1 14 C47.4 14 52.5 19.1 52.5 25.8 C52.5 39.8 32 52.5 32 52.5 Z" fill="none" stroke="url(#kk-bg-w)" stroke-width="3.4" stroke-linejoin="round"/>
+      </svg>
+      <span class="brand-name"><span data-l="ru">Хайрхох</span><span data-l="tj">Хайрхоҳ</span><span data-l="en">KhayrKhoh</span></span>
+    </a>
+    <p class="code">{% block code %}{% endblock %}</p>
+    <div data-l="ru">
+      <h1>{% block title_ru %}{% endblock %}</h1>
+      <p>{% block body_ru %}{% endblock %}</p>
+      {% block contact_ru %}{% endblock %}
+      <a class="button" href="/">{% block action_ru %}На главную{% endblock %}</a>
+    </div>
+    <div data-l="tj" lang="tg">
+      <h1>{% block title_tj %}{% endblock %}</h1>
+      <p>{% block body_tj %}{% endblock %}</p>
+      {% block contact_tj %}{% endblock %}
+      <a class="button" href="/">{% block action_tj %}Ба саҳифаи асосӣ{% endblock %}</a>
+    </div>
+    <div data-l="en" lang="en">
+      <h1>{% block title_en %}{% endblock %}</h1>
+      <p>{% block body_en %}{% endblock %}</p>
+      {% block contact_en %}{% endblock %}
+      <a class="button" href="/">{% block action_en %}Go to home{% endblock %}</a>
+    </div>
+  </main>
+  <script>
+    (function () {
+      var brand = { ru: 'Хайрхох', tj: 'Хайрхоҳ', en: 'KhayrKhoh' };
+      var lang = document.documentElement.lang;
+      var heading = document.querySelector('div[data-l="' + lang + '"] h1');
+      if (heading && brand[lang]) document.title = heading.textContent.trim() + ' — ' + brand[lang];
+    })();
+  </script>
+</body>
+</html>
