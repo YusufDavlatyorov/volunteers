@@ -178,7 +178,13 @@ def _delete_one(report_id, *, actor):
     from .images import DEFAULT_SIZES, delete_variants, variant_name
 
     with transaction.atomic():
-        row = PhotoReport.objects.select_for_update().select_related("help_request").filter(pk=report_id).first()
+        # of=("self",): lock the report row only. help_request is a nullable FK
+        # (LEFT OUTER JOIN), and PostgreSQL refuses FOR UPDATE on the nullable
+        # side of an outer join (the 2026-10-17 prod 500; SQLite ignores FOR UPDATE).
+        row = (
+            PhotoReport.objects.select_for_update(of=("self",))
+            .select_related("help_request").filter(pk=report_id).first()
+        )
         if row is None:
             return None
         done = _Deleted(row.pk, row.help_request_id, row.author, row.title, False)
