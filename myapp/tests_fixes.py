@@ -255,6 +255,12 @@ class NameLengthLimitTests(TestCase):
 
         guard = importlib.import_module("accounts.migrations.0013_profile_full_name_max_60").refuse_longer_names
         guard(global_apps, None)  # nothing longer than 60 → passes
+        from django.db import connection
+
+        if connection.vendor != "sqlite":
+            # A legacy 61-char row can't even be stored in the 60-char column on
+            # PostgreSQL (that is the point of 0013) — only the pass above applies.
+            self.skipTest("a longer-than-column row can only be simulated on SQLite")
         user = _make("too_long_row", is_volunteer=True)
         profile, _ = Profile.objects.get_or_create(user=user)
         # SQLite ignores the varchar length, so a legacy row can be simulated.

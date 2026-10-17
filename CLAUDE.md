@@ -39,6 +39,22 @@ PostgreSQL 16 / Redis from apt. Concretely:
   rehearsal history in `docs/DEPLOY_FEATURE_PACK_V2.md`) and `deploy/MIGRATION.md`, which moves the
   live server *off* Docker — until its step 12 has run, the old containers still exist there.
 
+## Before every deploy: tests on PostgreSQL 16 — a hard rule
+
+Production runs PostgreSQL; `manage.py test` runs SQLite, which ignores what PostgreSQL enforces
+(`SELECT … FOR UPDATE` on an outer join, varchar lengths, …). A green SQLite suite shipped a
+production 500 on 2026-10-17 (photo-report delete: `select_for_update()` + a nullable
+`select_related` — fixed with `of=("self",)`). So before **every** deploy (owner rule, 2026-10-17):
+
+1. the full suite on SQLite (`python manage.py test --parallel 4`), and
+2. **at least the test modules of every changed part** on PostgreSQL 16:
+   `scripts/test_postgres.sh <labels>` (throw-away Homebrew `postgresql@16` cluster, Unix socket,
+   deleted afterwards; serial — the parallel runner lost its cloned DBs on PostgreSQL). A migration
+   in the change → also run its tests there. Both must be green; report both in the deploy report.
+
+A test that can only simulate its data on SQLite (a row longer than its column) skips that part on
+PostgreSQL (`connection.vendor`), never fails there.
+
 ## Commands
 
 ```bash
@@ -61,6 +77,7 @@ python manage.py test --parallel 4                       # full suite (see FEATU
 python manage.py test myapp.tests.MatchingAlgorithmTests  # one test class
 python manage.py test myapp.tests.MatchingAlgorithmTests.test_closer_volunteer_ranks_higher  # one test
 python manage.py test accounts                           # one app
+scripts/test_postgres.sh myapp.tests_photo_report_review accounts   # the same labels on a throw-away PostgreSQL 16 (Homebrew)
 # Test modules that need a temp MEDIA_ROOT use myapp/testing.py::TempMediaRoot, never mkdtemp + rmtree in
 # tearDownModule: parallel workers share that path and one would delete it under another.
 
