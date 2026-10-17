@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% load static assets %}
+{% block title %}{{ title }}{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% asset 'css/auth-tokens.css' %}"><link rel="stylesheet" href="{% asset 'css/auth.css' %}">{% endblock %}
+{% block content %}
+{% comment %}
+Staff compose pages — "New event" (create_event_view) and "Message to volunteers"
+(broadcast_view) — in the login/register scene (auth.css .auth-scene: background,
+frosted card, fields, labels, hints, errors, submit button). Same forms, fields
+and POST targets as before; every field through partials/_field.html.
+{% endcomment %}
+<section class="auth-shell auth-scene">
+    {# Falling leaves (light) / stars (dark) behind the card — static/js/auth-bg.js. #}
+    <canvas class="auth-bg" data-auth-bg aria-hidden="true"></canvas>
+    <div class="auth-card auth-card--compose reveal">
+        <div class="auth-brand">
+            <span class="auth-logo" aria-hidden="true"><img class="brand-logo brand-logo--light" src="{% static 'img/logo-mark.svg' %}" alt="" width="40" height="40"><img class="brand-logo brand-logo--dark" src="{% static 'img/logo-mark-white.svg' %}" alt="" width="40" height="40"></span>
+            <span class="auth-brand__name" data-i18n="brand.name">KhayrKhoh</span>
+        </div>
+        <h1 class="auth-title" data-i18n="{{ title_i18n }}">{{ title }}</h1>
+        <p class="auth-subtitle" data-i18n="{{ subtitle_i18n }}">{{ subtitle }}</p>
+
+        <form method="post" class="auth-form">
+            {% csrf_token %}
+            {% include "partials/_form.html" with form=form %}
+            <button class="primary auth-submit" type="submit" data-submit-btn>
+                <span class="btn-label" data-i18n="{{ submit_i18n }}">{{ submit_label }}</span>
+                <span class="btn-spinner" aria-hidden="true"></span>
+            </button>
+        </form>
+
+        <p class="auth-footer-text">
+            <a href="{% url 'admin_panel' %}" data-i18n="crm.back_dashboard">Назад к панели</a>
+        </p>
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% asset 'js/auth-bg.js' %}" defer></script>
+<script>
+(function() {
+    // One send per click: a double tap must not notify the volunteers twice.
+    var form = document.querySelector('.auth-form');
+    var submitBtn = document.querySelector('[data-submit-btn]');
+    if (!form || !submitBtn) return;
+    form.addEventListener('submit', function() {
+        submitBtn.classList.add('is-loading');
+        submitBtn.disabled = true;
+    });
+    // Back button (bfcache) must not leave a dead, spinning button.
+    window.addEventListener('pageshow', function() {
+        submitBtn.classList.remove('is-loading');
+        submitBtn.disabled = false;
+    });
+})();
+</script>
+{% endblock %}

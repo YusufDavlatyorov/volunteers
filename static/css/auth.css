@@ -416,7 +416,12 @@ fieldset.role-picker { border: 0; padding: 0; min-width: 0; margin-inline: 0; }
 /* "Donate goods" (myapp/donate_goods.html) — the same scene and components,
    plus a visible legend for the radio cards, an "optional" mark and the photo
    picker. Tokens only, like everything above. */
-.auth-scene .auth-card--donate { max-width: 440px; }
+/* The "Donate goods" page and the staff compose pages (new event, message to volunteers). */
+.auth-scene .auth-card--donate,
+.auth-scene .auth-card--compose { max-width: 440px; }
+/* Chrome gives datetime-local its own inner padding: one line + the shared
+   padding + border, i.e. the same height as a text field (42 / 45 px). */
+.auth-scene .auth-card--compose input[type="datetime-local"] { height: calc(1.6em + 1.1rem + 2px); }
 .auth-scene .auth-legend {
     margin: 0 0 0.3rem;
     padding: 0;

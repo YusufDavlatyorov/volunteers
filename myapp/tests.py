@@ -462,9 +462,9 @@ class MapAndLocationTests(TestCase):
         self.assertEqual(response.status_code, 400)
 
     def test_task_form_without_location_fields_still_renders(self):
-        # create_event/broadcast reuse task_form.html, whose map picker block is
-        # guarded by `{% if form.latitude %}` — EventForm/BroadcastForm have no
-        # such field, so this must render cleanly without it.
+        # create_event/broadcast have no location fields (they render
+        # staff_compose_form.html since 2026-10-17, no map picker) — both must
+        # render cleanly.
         self.client.login(username="map_admin", password="pass12345")
         self.assertEqual(self.client.get(reverse("create_event")).status_code, 200)
         self.assertEqual(self.client.get(reverse("broadcast")).status_code, 200)

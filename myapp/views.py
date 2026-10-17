@@ -814,7 +814,12 @@ def create_event_view(request):
             return redirect("admin_panel")
     else:
         form = EventForm()
-    return render(request, "myapp/task_form.html", {"form": form, "title": "Новая акция", "title_i18n": "form.title_new_event"})
+    return render(request, "myapp/staff_compose_form.html", {
+        "form": form, "title": "Новая акция", "title_i18n": "form.title_new_event",
+        "subtitle": "Уведомление получат волонтёры выбранного региона или всех регионов.",
+        "subtitle_i18n": "form.event_sub",
+        "submit_label": "Создать акцию", "submit_i18n": "admin.create_event",
+    })
 
 
 @role_required("admin", "curator")
@@ -830,7 +835,12 @@ def broadcast_view(request):
             return redirect("admin_panel")
     else:
         form = BroadcastForm()
-    return render(request, "myapp/task_form.html", {"form": form, "title": "Рассылка волонтерам", "title_i18n": "form.title_broadcast"})
+    return render(request, "myapp/staff_compose_form.html", {
+        "form": form, "title": "Рассылка волонтерам", "title_i18n": "form.title_broadcast",
+        "subtitle": "Сообщение получат волонтёры выбранного региона или всех регионов.",
+        "subtitle_i18n": "form.broadcast_sub",
+        "submit_label": "Отправить сообщение волонтёрам", "submit_i18n": "admin.broadcast",
+    })
 
 
 @login_required
