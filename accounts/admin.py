@@ -21,10 +21,10 @@ class MyUserAdmin(CleanImageAdminMixin, admin.ModelAdmin):
     list_filter = (
         'is_volunteer', 'is_client',
         'is_curator', 'is_staff',
-        'is_email_verified', 'region'
+        'is_email_verified', 'region', 'is_demo',
     )
     search_fields = ('username', 'email')
-    readonly_fields = ('date_joined', 'last_login')
+    readonly_fields = ('date_joined', 'last_login', 'is_demo')
 
     fieldsets = (
         (None, {'fields': ('username', 'password')}),
@@ -46,7 +46,7 @@ class MyUserAdmin(CleanImageAdminMixin, admin.ModelAdmin):
                 'reset_password_token'
             )
         }),
-        ('Даты', {'fields': ('last_login', 'date_joined')}),
+        ('Даты', {'fields': ('last_login', 'date_joined', 'is_demo')}),
     )
 
     inlines = (ProfileInline,)

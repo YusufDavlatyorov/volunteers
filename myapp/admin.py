@@ -41,9 +41,9 @@ class EmergencyReportAdmin(admin.ModelAdmin):
 @admin.register(HelpRequest)
 class HelpRequestAdmin(admin.ModelAdmin):
     list_display = ("id", "client", "volunteer", "help_type", "status", "region", "is_urgent", "created_at")
-    list_filter = ("status", "help_type", "region", "is_urgent")
+    list_filter = ("status", "help_type", "region", "is_urgent", "is_demo")
     search_fields = ("client__username", "volunteer__username", "address", "phone")
-    readonly_fields = ("created_at", "updated_at", "accepted_at", "completed_at")
+    readonly_fields = ("created_at", "updated_at", "accepted_at", "completed_at", "is_demo")
 
 
 @admin.register(Event)
@@ -223,7 +223,7 @@ from .services import feedback as feedback_service  # noqa: E402
 @admin.register(TaskReview)
 class TaskReviewAdmin(admin.ModelAdmin):
     list_display = ("id", "task", "volunteer", "client", "stars", "show_on_landing", "hidden_at", "created_at")
-    list_filter = ("stars", "show_on_landing", ("hidden_at", admin.EmptyFieldListFilter), "created_at")
+    list_filter = ("stars", "show_on_landing", ("hidden_at", admin.EmptyFieldListFilter), "is_demo", "created_at")
     search_fields = ("volunteer__username", "client__username")
     list_select_related = ("task", "volunteer", "client")
     # Read-only: stars/comment are the client's words, and a raw edit/delete
@@ -375,3 +375,21 @@ class FAQItemAdmin(admin.ModelAdmin):
         ("English", {"fields": ("question_en", "answer_en")}),
         ("Даты", {"fields": (("created_at", "updated_at"),), "classes": ("collapse",)}),
     )
+
+
+from .models import UserDailyActivity  # noqa: E402
+
+
+@admin.register(UserDailyActivity)
+class UserDailyActivityAdmin(admin.ModelAdmin):
+    """The profile heatmap's per-day counter — read-only (written by
+    DailyActivityMiddleware, backfill_activity and, for demo accounts, seed_demo)."""
+    list_display = ("user", "date", "actions_count", "source", "is_demo")
+    list_filter = ("source", "is_demo", "date")
+    search_fields = ("user__username",)
+    date_hierarchy = "date"
+    list_select_related = ("user",)
+    readonly_fields = ("user", "date", "actions_count", "source", "is_demo")
+
+    def has_add_permission(self, request):
+        return False

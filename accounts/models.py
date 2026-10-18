@@ -110,6 +110,9 @@ class Users(AbstractBaseUser, PermissionsMixin):
     email = models.EmailField(unique=True)
 
     is_email_verified = models.BooleanField(default=False)
+    # Created by `manage.py seed_demo` (a demo stand only, never production).
+    # Demo accounts only ever get demo requests / reviews / activity.
+    is_demo = models.BooleanField(default=False, db_index=True)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
 

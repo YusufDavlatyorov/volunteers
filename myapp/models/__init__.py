@@ -8,6 +8,7 @@ existing imports keep working unchanged:
 New domain areas get their own module in this package plus an entry below.
 """
 
+from .activity import UserDailyActivity
 from .achievements import (
     ACHIEVEMENT_CATEGORY_CHOICES,
     ACHIEVEMENT_TIER_CHOICES,
@@ -88,6 +89,8 @@ from .volunteer_applications import VolunteerApplication
 __all__ = [
     # community (Telegram)
     "CommunityInvite", "CommunityMember", "CommunityPost", "ModerationAction",
+    # activity (profile heatmap)
+    "UserDailyActivity",
     # achievements
     "ACHIEVEMENT_CATEGORY_CHOICES", "ACHIEVEMENT_TIER_CHOICES", "TIER_RANK", "Achievement", "UserAchievement",
     # chat

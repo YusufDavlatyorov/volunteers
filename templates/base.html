@@ -71,6 +71,7 @@
 </head>
 <body{% if user.is_authenticated %} data-language-url="{% url 'profile_language' %}"{% endif %}>
 <a class="skip-link" href="#main-content" data-i18n="a11y.skip">Skip to content</a>
+{% if demo_mode %}<div class="demo-banner" role="note"><span data-i18n="demo.banner">Демонстрационный стенд — все люди и заявки здесь вымышлены</span></div>{% endif %}
 <nav class="topbar{% if not user.is_authenticated %} topbar--guest{% endif %}">
     <div class="container">
         {# Logo + brand name. The name is localized like every other UI string (i18n.js key brand.name: #}

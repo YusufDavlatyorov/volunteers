@@ -35,6 +35,8 @@ class TaskReview(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     hidden_at = models.DateTimeField(null=True, blank=True)
     hidden_by = models.ForeignKey(Users, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    # A review of a demo request (seed_demo / a demo stand).
+    is_demo = models.BooleanField(default=False, db_index=True)
     show_on_landing = models.BooleanField(
         "Показывать на главной", default=False,
         help_text="Отзыв попадёт на страницу «О нас», только если у него 5 звёзд, есть текст и он не скрыт.",

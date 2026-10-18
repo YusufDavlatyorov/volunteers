@@ -214,6 +214,10 @@ class StatisticsUseTheEventDateTests(EventDateTestsBase):
         self.assertNotIn(outside, qs)
 
     def test_activity_calendar_counts_the_event_day(self):
+        # Registered before the event (the calendar starts at registration, 2026-10-18).
+        type(self.volunteer).objects.filter(pk=self.volunteer.pk).update(
+            date_joined=timezone.now() - datetime.timedelta(days=30))
+        self.volunteer.refresh_from_db()
         self._report(_days_ago(6))
         counts = activity.daily_counts(self.volunteer)
         self.assertEqual(counts.get(_days_ago(6), {}).get("photo_report"), 1)

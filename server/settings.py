@@ -55,6 +55,17 @@ if not DEBUG and (not ALLOWED_HOSTS or '*' in ALLOWED_HOSTS):
         "(a wildcard '*' defeats Django's Host-header validation in production)."
     )
 
+# Demo stand (seed_demo, the "Демонстрационный стенд" banner in base.html).
+# Only a local copy or a separate demo stand with its own database turns this
+# on; seed_demo refuses without it, and also when ALLOWED_HOSTS names the
+# production domain or the database is the production one (the names below).
+DEMO_MODE = env_bool('DJANGO_DEMO_MODE', False)
+PRODUCTION_DOMAIN = 'khayrkhoh.tj'
+PRODUCTION_DB_NAMES = frozenset(
+    n.strip() for n in os.getenv('DJANGO_PRODUCTION_DB_NAMES', 'khayrkhoh,khayrkhoh_prod,khayrkhoh_production').split(',')
+    if n.strip()
+)
+
 # Production-only hardening: these would break the plain-HTTP local dev server
 # (forced HTTPS redirect, cookies marked Secure) so they only switch on once
 # DEBUG=False, i.e. once a real deployment sets DJANGO_DEBUG accordingly.
@@ -142,6 +153,7 @@ MIDDLEWARE = [
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'myapp.middleware.PresenceMiddleware',  # availability "seen" (myapp/services/presence.py); throttled, never raises
+    'myapp.middleware.DailyActivityMiddleware',  # UserDailyActivity counter (myapp/services/activity.py); cached, never raises
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -159,6 +171,7 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'myapp.context_processors.maps_config',
+                'myapp.context_processors.demo_mode',
                 'server.seo.seo_context',
             ],
         },
@@ -177,7 +190,9 @@ ASGI_APPLICATION = 'server.asgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'Gen_connect.sqlite3',
+        # DJANGO_SQLITE_PATH: a separate SQLite file, e.g. for a local demo
+        # stand (seed_demo) next to the everyday dev database.
+        'NAME': os.getenv('DJANGO_SQLITE_PATH') or BASE_DIR / 'Gen_connect.sqlite3',
     }
 }
 
@@ -392,7 +407,9 @@ STORAGES = {
 }
 
 MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
+# DJANGO_MEDIA_ROOT: another media folder (e.g. a restored backup copy checked
+# locally); unset = <repo>/media as before.
+MEDIA_ROOT = Path(os.getenv('DJANGO_MEDIA_ROOT')) if os.getenv('DJANGO_MEDIA_ROOT') else BASE_DIR / 'media'
 # Private media (chat photos) are served by a permission-checked view; with
 # this on (production .env) the view only sets X-Accel-Redirect
 # and nginx streams the file from its `internal` /protected-media/ alias.
@@ -457,6 +474,13 @@ if len(sys.argv) > 1 and sys.argv[1] == 'test':
     # Same for Google: tests opt in with override_settings + a mocked token call.
     GOOGLE_OAUTH_CLIENT_ID = ''
     GOOGLE_OAUTH_CLIENT_SECRET = ''
+
+# Per-day activity counter (DailyActivityMiddleware → UserDailyActivity). Off
+# under `manage.py test`: its once-a-day write would make every query-count
+# test depend on the test order; the activity tests opt in with override_settings.
+USER_ACTIVITY_TRACKING = env_bool('DJANGO_USER_ACTIVITY_TRACKING', True)
+if len(sys.argv) > 1 and sys.argv[1] == 'test':
+    USER_ACTIVITY_TRACKING = False
 
 # A local (DEBUG) run must not hold the production SMTP login / bot tokens —
 # shout in the Terminal if it does (names only, never values).

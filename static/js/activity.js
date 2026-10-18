@@ -113,6 +113,11 @@
         totalEl.setAttribute('data-i18n', key);
         totalEl.setAttribute('data-i18n-args', JSON.stringify({ n: num(n) }));
         totalEl.textContent = t(key, { n: num(n) });
+        // "N active days" / "current streak: N days" (data-act-plural = the key base).
+        card.querySelectorAll('[data-act-plural]').forEach((el) => {
+            const count = Number(el.dataset.n || 0);
+            el.textContent = t(pluralKey(el.dataset.actPlural, count), { n: num(count) });
+        });
         if (active) show(active, false);
     }
 

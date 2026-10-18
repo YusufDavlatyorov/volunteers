@@ -327,6 +327,7 @@ def submit_review(client, task, *, stars, comment="", tags=()) -> Outcome:
             review = TaskReview.objects.create(
                 task=task, client=client, volunteer=task.volunteer,
                 stars=stars, comment=comment, tags=tags,
+                is_demo=bool(getattr(task, "is_demo", False)),  # a demo request's review is demo too
             )
     except IntegrityError:
         # A concurrent submit (double click, two tabs) created it first: apply

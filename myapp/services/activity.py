@@ -1,9 +1,21 @@
 """Activity calendar (GitHub-style): what a volunteer or client did, per day,
-over the last 365 days — computed from existing rows, no model of its own.
+from max(``START_DATE`` (1 September 2026), the user's registration day) — at
+most the last 365 days — up to today. Days before registration aren't drawn.
+
+Two sources, merged per day (2026-10-18):
+
+* the rows the user's actions left (below), one query per kind;
+* ``UserDailyActivity.actions_count`` — the per-day counter written by
+  ``DailyActivityMiddleware`` (``record_request``) and, for demo accounts, by
+  ``seed_demo``. One more query.
+
+A day's count is the larger of the two: the counter already includes the site
+actions that left those rows, so they are never counted twice; what the
+counter has on top shows as "other actions on the site" (kind ``site``).
 
 One query per action kind (``TruncDate`` in Asia/Dushanbe + ``Count``), summed
-by date in Python, so the query count is fixed per role (volunteer 7, client 4)
-whatever the number of days. The result is cached for ``CACHE_SECONDS`` per
+by date in Python, so the query count is fixed per role (volunteer 8, client 5,
+the counter included) whatever the number of days. The result is cached for ``CACHE_SECONDS`` per
 user and per local day; a new action shows up within that window.
 
 Action kinds (owner-approved 2026-10-09):
@@ -30,7 +42,7 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db import models
+from django.db import IntegrityError, models, transaction
 from django.db.models import Count, F
 from django.db.models.functions import TruncDate
 from django.utils import timezone
@@ -38,21 +50,25 @@ from django.utils import timezone
 from server.i18n_prerender import translation_table
 
 __all__ = [
-    "TZ", "DAYS", "WEEKS", "CACHE_SECONDS", "KINDS", "shows_calendar", "daily_counts",
-    "level", "plural_category_ru", "calendar", "cache_key",
+    "TZ", "DAYS", "WEEKS", "START_DATE", "CACHE_SECONDS", "KINDS", "shows_calendar", "daily_counts",
+    "level", "plural_category_ru", "calendar", "cache_key", "record_request", "summary",
 ]
 
 TZ = ZoneInfo("Asia/Dushanbe")
 DAYS = 365
-WEEKS = 53
+WEEKS = 53  # at most; fewer while the window starts at START_DATE
+# The heatmap never starts before this day (the platform's demo season).
+START_DATE = datetime.date(2026, 9, 1)
 CACHE_SECONDS = 10 * 60
 LEVELS = 4
 
 # Display order of the per-kind breakdown in tooltips.
 KINDS = (
     "completed", "accepted", "photo_report", "donation_received", "donation_distributed",
-    "request_created", "review", "donation_offered", "pet_report",
+    "request_created", "review", "donation_offered", "pet_report", "site",
 )
+# A day was marked for the user (DailyActivityMiddleware): cache flag lifetime.
+SEEN_FLAG_SECONDS = 36 * 3600
 
 
 def shows_calendar(user) -> bool:
@@ -95,15 +111,19 @@ def local_today(now=None) -> datetime.date:
     return (now or timezone.now()).astimezone(TZ).date()
 
 
-def window(today: datetime.date):
-    """First and last day (inclusive) of the 365-day window ending today."""
-    return today - datetime.timedelta(days=DAYS - 1), today
+def window(today: datetime.date, joined=None):
+    """First and last day (inclusive): from max(START_DATE, the registration
+    day) — at most 365 days back — to today. Nothing before registration."""
+    first = max(today - datetime.timedelta(days=DAYS - 1), START_DATE)
+    if joined is not None:
+        first = max(first, joined.astimezone(TZ).date() if isinstance(joined, datetime.datetime) else joined)
+    return min(first, today), today
 
 
 def daily_counts(user, today: datetime.date | None = None) -> dict:
     """{date: {kind: n}} for the window. One aggregate query per kind."""
     today = today or local_today()
-    first, last = window(today)
+    first, last = window(today, getattr(user, "date_joined", None))
     start = datetime.datetime.combine(first, datetime.time.min, tzinfo=TZ)
     end = datetime.datetime.combine(last + datetime.timedelta(days=1), datetime.time.min, tzinfo=TZ)
     days: dict = defaultdict(dict)
@@ -123,7 +143,16 @@ def daily_counts(user, today: datetime.date | None = None) -> dict:
         for row in rows:
             if row["day"] is not None and row["n"]:
                 days[row["day"]][kind] = days[row["day"]].get(kind, 0) + row["n"]
-    return dict(days)
+    # The per-day counter: whatever it has beyond the rows above is "site".
+    from myapp.models import UserDailyActivity
+
+    for day, n in UserDailyActivity.objects.filter(user=user, date__gte=first, date__lte=last).values_list(
+        "date", "actions_count"
+    ):
+        extra = n - sum(days[day].values()) if day in days else n
+        if extra > 0:
+            days[day]["site"] = extra
+    return {day: kinds for day, kinds in days.items() if kinds}
 
 
 def level(count: int, maximum: int) -> int:
@@ -147,7 +176,49 @@ def plural_category_ru(n: int) -> str:
 
 
 def cache_key(user_id, today) -> str:
-    return f"activity:v1:{user_id}:{today.isoformat()}"
+    return f"activity:v2:{user_id}:{today.isoformat()}"
+
+
+def summary(counts: dict, first: datetime.date, today: datetime.date) -> dict:
+    """``{"active_days", "streak"}`` over the window: days with at least one
+    action, and the current run of such days — ending today, or yesterday
+    while today has nothing yet (the day isn't over)."""
+    active = {day for day, kinds in counts.items() if first <= day <= today and sum(kinds.values()) > 0}
+    day = today if today in active else today - datetime.timedelta(days=1)
+    streak = 0
+    while day in active and day >= first:
+        streak += 1
+        day -= datetime.timedelta(days=1)
+    return {"active_days": len(active), "streak": streak}
+
+
+def record_request(user, *, first_of_day_only=False) -> bool:
+    """Count one action for ``user`` today (UserDailyActivity, local day).
+
+    The first call of the day creates the row (count 1) — a cache flag
+    remembers that, so later page views cost no query at all; a later
+    ``first_of_day_only=False`` call is one ``F()`` UPDATE (+1). A demo
+    account's row is a demo row. Returns True when it wrote."""
+    from myapp.models import UserDailyActivity
+
+    if user is None or not getattr(user, "pk", None):
+        return False
+    today = local_today()
+    flag = f"activity:seen:{user.pk}:{today.isoformat()}"
+    first_time = cache.add(flag, 1, SEEN_FLAG_SECONDS)
+    if not first_time and first_of_day_only:
+        return False
+    if UserDailyActivity.objects.filter(user_id=user.pk, date=today).update(actions_count=F("actions_count") + 1):
+        return True
+    # No row yet (the first action today, or the flag outlived the row).
+    try:
+        with transaction.atomic():
+            UserDailyActivity.objects.create(
+                user_id=user.pk, date=today, actions_count=1, is_demo=bool(getattr(user, "is_demo", False)),
+            )
+    except IntegrityError:  # a parallel request created it first
+        UserDailyActivity.objects.filter(user_id=user.pk, date=today).update(actions_count=F("actions_count") + 1)
+    return True
 
 
 def _text(table, key, **args):
@@ -176,7 +247,8 @@ def _cell_label(table, day, kinds: dict) -> str:
 def calendar(user, now=None) -> dict | None:
     """Everything the template needs, or None for roles without a calendar.
 
-    ``weeks``: 53 columns × 7 days (Monday first); each day is
+    ``weeks``: one column per week from the Monday on/before the first day
+    (at most 53) × 7 days (Monday first); each day is
     ``{date, iso, count, level, label, kinds, out, today}`` — ``out`` marks the
     padding before the window and after today. ``months``: label positions.
     """
@@ -196,14 +268,14 @@ def calendar(user, now=None) -> dict | None:
             pass
 
     table = translation_table(getattr(settings, "SERVER_RENDER_LANGUAGE", "ru"))
-    first, last = window(today)
+    first, last = window(today, getattr(user, "date_joined", None))
     grid_start = first - datetime.timedelta(days=first.weekday())   # the Monday on/before
     maximum = max((sum(k.values()) for k in counts.values()), default=0)
     total = sum(sum(k.values()) for k in counts.values())
 
     weeks, months = [], []
     seen_month = None
-    for w in range(WEEKS):
+    for w in range((last - grid_start).days // 7 + 1):
         column = []
         for d in range(7):
             day = grid_start + datetime.timedelta(days=w * 7 + d)
@@ -237,7 +309,13 @@ def calendar(user, now=None) -> dict | None:
 
     category = plural_category_ru(total)
     role = "volunteer" if user.is_volunteer else "client"
+    stats = summary(counts, first, today)
     return {
+        "active_days": stats["active_days"],
+        "active_days_text": _text(table, f"act.days.{plural_category_ru(stats['active_days'])}", n=stats["active_days"]),
+        "streak": stats["streak"],
+        "streak_text": _text(table, f"act.streak.{plural_category_ru(stats['streak'])}", n=stats["streak"]),
+        "week_count": len(weeks),
         "weeks": weeks,
         "months": months,
         "total": total,
