@@ -77,22 +77,27 @@ class RatingBase(TestCase):
 
 
 class RankingOrderTests(RatingBase):
-    def test_completed_then_average_then_review_count_then_id(self):
+    def test_merit_score_then_id(self):
+        """Merit score (2026-10-18, services/rating.py): completed requests
+        first, the rating weighted by its number of reviews next; on an equal
+        score (no photos, same completeness here) the lower user id first."""
         self.volunteer("rt_a", "Анвар", done=2)
         self.volunteer("rt_b", "Бахтиёр", done=5)
         self.volunteer("rt_c", "Валиджон", done=3, avg="4.00", reviews=9)
-        self.volunteer("rt_d", "Гулнора", done=3, avg="4.80", reviews=1)  # tie on 3: better average wins
-        self.volunteer("rt_e", "Дилшод", done=3, avg="4.00", reviews=12)  # tie on 3 + 4.0: more reviews wins
+        self.volunteer("rt_d", "Гулнора", done=3, avg="4.80", reviews=1)  # 3 done + a good rating
+        self.volunteer("rt_e", "Дилшод", done=3, avg="4.00", reviews=12)  # 4.0 = the prior: same score as Валиджон
         self.volunteer("rt_f", "Ёсуман", done=2)  # full tie with Анвар: lower user id first
         self.volunteer("rt_g", "Жасур", done=0, avg="5.00", reviews=40)  # nothing done: below everyone who did
         rows = rating.cached()["rows"]
-        self.assertEqual(self.names(rows), ["Бахтиёр", "Гулнора", "Дилшод", "Валиджон", "Анвар", "Ёсуман", "Жасур"])
+        self.assertEqual(self.names(rows), ["Бахтиёр", "Гулнора", "Валиджон", "Дилшод", "Анвар", "Ёсуман", "Жасур"])
+        self.assertEqual([row["score"] for row in rows], [50, 32, 30, 30, 20, 20, 9])
         self.assertEqual([row["rank"] for row in rows], list(range(1, 8)))
 
-    def test_no_reviews_ranks_after_reviewed_on_a_tie(self):
+    def test_a_poor_rating_costs_points_a_good_one_adds(self):
         self.volunteer("rt_none", "Без отзывов", done=1)
-        self.volunteer("rt_low", "С отзывом", done=1, avg="2.00", reviews=1)
-        self.assertEqual(self.names(rating.cached()["rows"]), ["С отзывом", "Без отзывов"])
+        self.volunteer("rt_low", "С плохим", done=1, avg="2.00", reviews=1)
+        self.volunteer("rt_good", "С хорошим", done=1, avg="5.00", reviews=1)
+        self.assertEqual(self.names(rating.cached()["rows"]), ["С хорошим", "Без отзывов", "С плохим"])
 
     def test_week_count(self):
         for i in range(3):  # the podium; "+N this week" is a table column
