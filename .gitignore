@@ -40,3 +40,15 @@ strart
 
 # OSRM routing data (old local build output; self-hosted OSRM is not deployed — never committed)
 osrm-data/
+
+# One-off volunteer import (plain-text passwords) — never commit
+/volunteers.json
+/logins.csv
+/import_volunteers.py
+/myapp/management/commands/import_volunteers.py
+/clients.json
+/clients_logins.json
+/import_clients.py
+/myapp/management/commands/import_clients.py
+/volunteers_extra.json
+/volunteers_extra_logins.json

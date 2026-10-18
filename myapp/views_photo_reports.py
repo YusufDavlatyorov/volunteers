@@ -2,25 +2,29 @@
 ``myapp/services/photo_reports.py``; these are thin transports.
 
     GET  /myapp/crm/photo-reports/              list (?status=pending default, from, to, volunteer, task)
+    GET  /myapp/crm/photo-reports/new/          admin only: add a report for any task (?task=<id> pre-selects)
+    POST /myapp/crm/photo-reports/new/          … on behalf of the task's volunteer, or as the admin; approve_now
+                                                (default on) approves at once (403 for anyone else)
     GET  /myapp/crm/photo-reports/<pk>/         the report: large photo, task, volunteer, client
     POST /myapp/crm/photo-reports/<pk>/review/  action=approve | reject (+ reason, required)
     POST /myapp/crm/photo-reports/<pk>/delete/  any status; an approved report's reward is revoked
     POST /myapp/crm/photo-reports/delete/       ids=<pk>&ids=<pk>… — the list's "Delete selected"
 
-Curator + admin only.
+Curator + admin, except "new" — admin only.
 """
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
-from .forms import PhotoReportFilterForm
-from .models import REJECTION_REASON_MAX_LENGTH, PhotoReport
-from .services import photo_reports
+from .forms import AdminPhotoReportForm, PhotoReportFilterForm
+from .models import REJECTION_REASON_MAX_LENGTH, HelpRequest, PhotoReport
+from .services import images, photo_reports
 from .views import role_required
 
 CRM_PHOTO_REPORTS_PAGE_SIZE = 20
@@ -43,6 +47,49 @@ def crm_photo_reports_view(request):
         "querystring": query.urlencode(),
         "status_filter": filters.get("status") or photo_reports.DEFAULT_STATUS_FILTER,
         "pending_count": photo_reports.pending_count(),
+        "can_add": request.user.is_superuser,
+    })
+
+
+@login_required
+def crm_photo_report_create_view(request):
+    # Admin only, and a real 403 for everyone else (role_required would bounce
+    # them to the dashboard): volunteers keep their own form on /reports/,
+    # limited to their own tasks; clients can't publish reports at all.
+    if not request.user.is_superuser:
+        raise PermissionDenied
+    if request.method == "POST":
+        form = AdminPhotoReportForm(request.POST, request.FILES)
+        if form.is_valid():
+            report, err = photo_reports.create(
+                form.save(commit=False), form.cleaned_data["image"],
+                author=form.cleaned_data["volunteer"] or request.user, uploaded_by=request.user,
+            )
+            if err:
+                form.add_error("image", images.UPLOAD_ERROR_TEXT)
+            elif form.cleaned_data["approve_now"]:
+                # "Approve right away": the normal approval — points, badges
+                # and the author's notice exactly as the review button does.
+                photo_reports.approve(report, actor=request.user)
+                messages.success(request, "Фотоотчёт добавлен и одобрен.")
+                return redirect("crm_photo_report_detail", pk=report.pk)
+            else:
+                messages.success(request, "Фотоотчёт добавлен и ждёт проверки — одобрите или отклоните его здесь.")
+                return redirect("crm_photo_report_detail", pk=report.pk)
+    else:
+        initial = {}
+        task_id = request.GET.get("task", "")
+        task = HelpRequest.objects.filter(pk=task_id).first() if task_id.isdigit() else None
+        if task is not None:
+            initial = {"help_request": task.pk, "volunteer": task.volunteer_id}
+        form = AdminPhotoReportForm(initial=initial)
+    return render(request, "myapp/crm_photo_report_create.html", {
+        "form": form, "multipart": True, "back_url": reverse("crm_photo_reports"),
+        "back_label": "Все фотоотчёты", "back_i18n": "pr.back_to_list",
+        "title": "Новый фотоотчёт", "title_i18n": "pr.create_title",
+        "subtitle": "Для любого запроса — от имени назначенного волонтёра или от вашего имени.",
+        "subtitle_i18n": "pr.create_sub",
+        "submit_label": "Добавить фотоотчёт", "submit_i18n": "pr.create_submit",
     })
 
 
@@ -51,7 +98,7 @@ def crm_photo_reports_view(request):
 def crm_photo_report_detail_view(request, pk):
     report = get_object_or_404(
         PhotoReport.objects.select_related(
-            "author", "author__profile", "help_request", "help_request__client", "reviewed_by", "event",
+            "author", "author__profile", "uploaded_by", "help_request", "help_request__client", "reviewed_by", "event",
         ),
         pk=pk,
     )

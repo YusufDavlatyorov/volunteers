@@ -105,6 +105,12 @@
                     {% chat_button task chat_unread "primary" %}
                 </div>
             {% endif %}
+            {% if user.is_superuser %}
+                {# Admin: a photo report for this task, on the volunteer's behalf by default (crm_photo_report_create_view). #}
+                <div class="button-row">
+                    <a class="button ghost" href="{% url 'crm_photo_report_create' %}?task={{ task.id }}" data-i18n="pr.add">Добавить фотоотчёт</a>
+                </div>
+            {% endif %}
             {% if task.status == "completed" %}{% review_entry task as rv %}
                 {% if rv.can_review %}
                     <div class="review-cta" id="reviewCta">

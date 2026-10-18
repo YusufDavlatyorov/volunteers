@@ -207,3 +207,22 @@
 @media (max-width: 900px) {
     .pr-review { grid-template-columns: 1fr; }
 }
+
+/* Admin "Add photo report" (crm_photo_reports.html) + the "added by an
+   administrator" mark next to the volunteer name. */
+.pr-add { margin-bottom: var(--space-3); }
+.pr-admin-mark { margin-left: 0.35rem; text-transform: none; letter-spacing: 0; }
+/* In the desktop list (rows are nowrap, the title column takes what is left)
+   the mark sits under the volunteer name and wraps by words, so it never
+   widens the column and squeezes the title away. */
+@media (min-width: 861px) {
+    .pr-table .pr-admin-mark {
+        display: table;
+        margin: 0.2rem 0 0;
+        padding: 0.12rem 0.4rem;
+        border-radius: 6px;
+        font-size: 0.68rem;
+        line-height: 1.2;
+        white-space: normal;
+    }
+}

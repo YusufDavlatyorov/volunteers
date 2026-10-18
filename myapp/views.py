@@ -855,17 +855,12 @@ def photo_reports_view(request):
             return redirect("photo_reports")
         form = PhotoReportForm(request.POST, request.FILES, user=request.user)
         if form.is_valid():
-            report = form.save(commit=False)
-            report.author = request.user
-            if not report.region:
-                report.region = request.user.region
-            clean, err = images.clean_original(form.cleaned_data["image"])
+            report, err = photo_reports.create(
+                form.save(commit=False), form.cleaned_data["image"], author=request.user, uploaded_by=request.user,
+            )
             if err:
                 form.add_error("image", images.UPLOAD_ERROR_TEXT)
             else:
-                report.image = clean
-                report.save()
-                images.queue_variants(report)
                 messages.success(request, "Фотоотчёт отправлен на проверку координатору.")
                 return redirect("photo_reports")
     else:

@@ -21,7 +21,8 @@ the reward is taken back (``revoke_task_reward``: ``reward_pending`` set again,
 the points subtracted, the badges that task earned revoked) and the task waits
 for a new report — the volunteer is told (site + Telegram).
 
-Curator / admin only — the views gate on ``role_required("admin", "curator")``.
+Review / delete: curator + admin — the views gate on ``role_required("admin", "curator")``.
+Creating (``create``): the author's own form, or the admin-only CRM form.
 Logs carry IDs only.
 """
 
@@ -62,6 +63,38 @@ class Outcome:
     code: str
     credited: bool = False
     reward_revoked: bool = False  # delete(): the task's reward was taken back
+
+
+def create(report, image, *, author, uploaded_by):
+    """The one way a report is created from the site — the volunteer's form
+    (``photo_reports_view``) and the admin's CRM form alike. ``report`` is an
+    unsaved ``PhotoReport`` (title / description / task / …), ``image`` the
+    uploaded file. The photo loses its metadata and gets a ``<uuid>`` name
+    (``images.clean_original``); the report starts ``pending`` and goes through
+    the same review — ``approve`` releases the task's reward only when
+    ``author`` is the task's volunteer, so a report an admin adds as themselves
+    never pays the admin. Returns ``(report, None)`` or ``(None, error)`` when
+    the file is not a usable image. The admin form's "approve right away"
+    then calls ``approve`` — the same approval as the review button."""
+    from . import images
+
+    clean, err = images.clean_original(image)
+    if err:
+        return None, err
+    report.author = author
+    report.uploaded_by = uploaded_by
+    if not report.region:
+        task = report.help_request
+        report.region = (task.region if task else "") or author.region
+    report.image = clean
+    report.status = PhotoReport.PENDING
+    report.save()
+    images.queue_variants(report)
+    logger.info(
+        "photo report #%s (task #%s) uploaded by user #%s for user #%s",
+        report.pk, report.help_request_id, uploaded_by.pk, author.pk,
+    )
+    return report, None
 
 
 def task_reward_points(task) -> int:
@@ -107,7 +140,7 @@ def approve(report, *, actor) -> Outcome:
     logger.info("photo report #%s approved by user #%s", report.pk, actor.pk)
     task = _rewarded_task(report)
     credited = credit_task(task) if task else False
-    if report.author_id:
+    if report.author_id and report.author_id != actor.pk:  # nobody is told about their own decision
         notify(
             [report.author], "photo_report_approved",
             params={"title": report.title, "task_id": report.help_request_id},
@@ -125,7 +158,7 @@ def reject(report, *, actor, reason) -> Outcome:
     except ValueError:
         return Outcome(False, ALREADY_REVIEWED)
     logger.info("photo report #%s rejected by user #%s", report.pk, actor.pk)
-    if report.author_id:
+    if report.author_id and report.author_id != actor.pk:
         upload = reverse("photo_reports")
         if report.help_request_id:
             upload += f"?task={report.help_request_id}"
@@ -295,7 +328,7 @@ def public_reports():
 
 def visible_to(user):
     """The reports list: approved ones + the viewer's own (any status)."""
-    return PhotoReport.objects.filter(Q(status=PhotoReport.APPROVED) | Q(author=user))
+    return PhotoReport.objects.filter(Q(status=PhotoReport.APPROVED) | Q(author=user)).select_related("uploaded_by")
 
 
 def recent_for_author(user, limit):
@@ -307,7 +340,9 @@ def recent_for_author(user, limit):
 def staff_queryset(filters):
     """The CRM list. ``filters``: status ("all" or a status), date_from,
     date_to (Asia/Dushanbe days, inclusive), volunteer (a user), task (an id)."""
-    qs = PhotoReport.objects.select_related("author", "author__profile", "help_request", "help_request__client")
+    qs = PhotoReport.objects.select_related(
+        "author", "author__profile", "uploaded_by", "help_request", "help_request__client"
+    )
     status = filters.get("status") or DEFAULT_STATUS_FILTER
     if status != "all":
         qs = qs.filter(status=status)

@@ -14,6 +14,7 @@
                             <h3>{{ report.title }}</h3>
                             <p>{{ report.description }}</p>
                             <span class="tag muted">{{ report.get_region_display }}</span>
+                            {% include "myapp/_photo_report_admin_mark.html" %}
                             {% if report.author_id == user.id and report.status != "approved" %}
                                 {# Only the author sees their report before / instead of approval. #}
                                 <p>{% include "myapp/_photo_report_status_tag.html" with status=report.status status_display=report.get_status_display %}</p>

@@ -1,5 +1,9 @@
 """Photo reports — what a volunteer (or staff) publishes after helping.
 
+An admin can also add one from the CRM (``/myapp/crm/photo-reports/new/``)
+for any task: on behalf of a volunteer (the task's by default) or as
+themselves; ``uploaded_by`` records who really uploaded it.
+
 Every report is reviewed by a curator / admin in the CRM
 (``/myapp/crm/photo-reports/``): ``pending → approved | rejected``. Only an
 approved report reaches the public pages (landing page, the reports list), and
@@ -33,7 +37,15 @@ class PhotoReport(models.Model):
     APPROVED = PHOTO_REPORT_APPROVED
     REJECTED = PHOTO_REPORT_REJECTED
 
+    # ``author`` is whom the report is for (the reward rule reads it);
+    # ``uploaded_by`` is who actually uploaded it — the author themselves, or
+    # an admin adding it from the CRM on a volunteer's behalf (or as
+    # themselves when the task has no volunteer). Null on reports uploaded
+    # before 2026-10-18 (migration 0029).
     author = models.ForeignKey(Users, on_delete=models.SET_NULL, null=True, related_name="photo_reports")
+    uploaded_by = models.ForeignKey(
+        Users, on_delete=models.SET_NULL, null=True, blank=True, related_name="uploaded_photo_reports"
+    )
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True)
     image = models.ImageField(upload_to="reports/", validators=[validate_file_size])
@@ -71,6 +83,14 @@ class PhotoReport(models.Model):
 
     def __str__(self):
         return self.title
+
+    @property
+    def added_by_admin(self):
+        """The "added by an administrator" mark: uploaded by someone else than
+        the author (only the admin CRM form can do that), or by an admin."""
+        if self.uploaded_by_id is None:
+            return False
+        return self.uploaded_by_id != self.author_id or self.uploaded_by.is_superuser
 
     # --- review (curator / admin) ------------------------------------------
 

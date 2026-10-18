@@ -4,8 +4,9 @@
 {% block extra_css %}<link rel="stylesheet" href="{% asset 'css/auth-tokens.css' %}"><link rel="stylesheet" href="{% asset 'css/auth.css' %}">{% endblock %}
 {% block content %}
 {% comment %}
-Staff compose pages — "New event" (create_event_view) and "Message to volunteers"
-(broadcast_view) — in the login/register scene (auth.css .auth-scene: background,
+Staff compose pages — "New event" (create_event_view), "Message to volunteers"
+(broadcast_view) and "New photo report" (crm_photo_report_create_view, through
+crm_photo_report_create.html: multipart, its own back link) — in the login/register scene (auth.css .auth-scene: background,
 frosted card, fields, labels, hints, errors, submit button). Same forms, fields
 and POST targets as before; every field through partials/_field.html.
 {% endcomment %}
@@ -20,7 +21,7 @@ and POST targets as before; every field through partials/_field.html.
         <h1 class="auth-title" data-i18n="{{ title_i18n }}">{{ title }}</h1>
         <p class="auth-subtitle" data-i18n="{{ subtitle_i18n }}">{{ subtitle }}</p>
 
-        <form method="post" class="auth-form">
+        <form method="post" class="auth-form"{% if multipart %} enctype="multipart/form-data"{% endif %}>
             {% csrf_token %}
             {% include "partials/_form.html" with form=form %}
             <button class="primary auth-submit" type="submit" data-submit-btn>
@@ -30,7 +31,7 @@ and POST targets as before; every field through partials/_field.html.
         </form>
 
         <p class="auth-footer-text">
-            <a href="{% url 'admin_panel' %}" data-i18n="crm.back_dashboard">Назад к панели</a>
+            {% if back_url %}<a href="{{ back_url }}" data-i18n="{{ back_i18n }}">{{ back_label }}</a>{% else %}<a href="{% url 'admin_panel' %}" data-i18n="crm.back_dashboard">Назад к панели</a>{% endif %}
         </p>
     </div>
 </section>
