@@ -16,9 +16,9 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import check_password
 from django.core.management.base import BaseCommand, CommandError
 
-from myapp.management.commands.seed_demo import CLIENTS, CURATORS, PASSWORD as DEMO_PASSWORD, VOLUNTEERS
+from myapp.management.commands.seed_demo import PASSWORD as DEMO_PASSWORD, demo_usernames
 
-DEMO_USERNAMES = frozenset({"admin_demo", *(row[0] for row in (*VOLUNTEERS, *CLIENTS, *CURATORS))})
+DEMO_USERNAMES = frozenset(demo_usernames())
 
 
 def demo_password_accounts():

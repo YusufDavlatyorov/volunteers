@@ -14,7 +14,8 @@ pairs), files on byte-identical content.
 
 Safe on both schemas: only columns that already existed in the code before
 Feature Pack v2 are read, and a table that doesn't exist yet (chat before
-``migrate``) is skipped. Never writes — passwords are compared without
+``migrate``) is skipped — so is an ``is_demo`` column (2026-10-18) or the
+``UserDailyActivity`` table before their migration. Never writes — passwords are compared without
 re-saving the hash (see ``check_demo_password``). Prints counts and row ids
 only, never a name, e-mail, phone or file name. Exit code 1 when anything is
 found, so it can gate a script.
@@ -42,6 +43,8 @@ from myapp.models import (
     PetReport,
     PhotoReport,
     Product,
+    TaskReview,
+    UserDailyActivity,
 )
 
 MAX_IDS = 20
@@ -99,7 +102,21 @@ def collect_findings():
 
     check("help requests with demo text", HelpRequest,
           Q(description__in=[row[1] for row in seed_demo.DEMO_REQUESTS])
+          | Q(description__in=sorted(seed_demo.DEMO_REQUEST_TEXTS))
           | Q(description__startswith=seed_demo.DEMO_HISTORY_PREFIX))
+
+    def flagged(label, model):
+        columns = ({c.name for c in connection.introspection.get_table_description(connection.cursor(), model._meta.db_table)}
+                   if model._meta.db_table in tables else set())
+        if "is_demo" in columns:
+            results.append((label, ids(model.objects.filter(is_demo=True))))
+        else:
+            results.append((label + " (column not created yet — skipped)", []))
+
+    flagged("accounts flagged is_demo", users)
+    flagged("help requests flagged is_demo", HelpRequest)
+    flagged("reviews flagged is_demo", TaskReview)
+    flagged("daily activity rows flagged is_demo", UserDailyActivity)
     pairs = Q(pk__in=[])
     for title, description, _region in seed_demo.DEMO_EVENTS:
         pairs |= Q(title=title, description=description)
