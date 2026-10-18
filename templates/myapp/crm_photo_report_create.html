@@ -1,0 +1,24 @@
+{% extends "myapp/staff_compose_form.html" %}
+{% comment %}
+The admin's "New photo report" (crm_photo_report_create_view): the staff compose
+page with a file field. Picking a task moves "on behalf of" to that task's
+assigned volunteer (each task <option> carries data-volunteer — forms._TaskSelect);
+the admin can still pick another volunteer or none (= as the admin).
+{% endcomment %}
+{% block extra_js %}
+{{ block.super }}
+<script>
+(function() {
+    var task = document.querySelector('[data-pr-task]');
+    var volunteer = document.getElementById('id_volunteer');
+    if (!task || !volunteer) return;
+    task.addEventListener('change', function() {
+        var option = task.options[task.selectedIndex];
+        var id = option ? option.getAttribute('data-volunteer') || '' : '';
+        // An assigned volunteer who is not in the list (inactive) → as the admin.
+        volunteer.value = id;
+        if (volunteer.value !== id) volunteer.value = '';
+    });
+})();
+</script>
+{% endblock %}

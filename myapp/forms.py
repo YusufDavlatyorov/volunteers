@@ -1,7 +1,7 @@
 from django import forms
 
 from accounts.form_i18n import localize
-from accounts.models import REGION_CHOICES
+from accounts.models import REGION_CHOICES, Users
 from .models import (
     Broadcast,
     DONATION_CATEGORY_CHOICES,
@@ -229,6 +229,71 @@ class PhotoReportForm(forms.ModelForm):
             "region": forms.Select(attrs=FIELD_CLASS, choices=[("", "Выберите регион")] + REGION_CHOICES),
             "event": forms.Select(attrs=FIELD_CLASS),
             "help_request": forms.Select(attrs=FIELD_CLASS),
+        }
+
+
+class _TaskSelect(forms.Select):
+    """Each task <option> carries ``data-volunteer`` = its assigned volunteer's
+    id, so the admin form's "on behalf of" select can follow the task."""
+
+    def create_option(self, name, value, label, selected, index, subindex=None, attrs=None):
+        option = super().create_option(name, value, label, selected, index, subindex=subindex, attrs=attrs)
+        task = getattr(value, "instance", None)
+        if task is not None:
+            option["attrs"] = {**option["attrs"], "data-volunteer": task.volunteer_id or ""}
+        return option
+
+
+class AdminPhotoReportForm(forms.ModelForm):
+    """The admin's "Add photo report" in the CRM: any task, on behalf of a
+    volunteer (the task's assigned one by default) or — left empty — as the
+    admin. ``author`` / ``uploaded_by`` are set by the view, never posted."""
+
+    volunteer = forms.ModelChoiceField(
+        label="От имени волонтёра",
+        queryset=Users.objects.none(),
+        required=False,
+        empty_label="— от имени администратора —",
+        help_text="По умолчанию — волонтёр, назначенный на запрос. "
+                  "Баллы получит только волонтёр этого запроса, после одобрения отчёта.",
+        widget=forms.Select(attrs=FIELD_CLASS),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        task_field = self.fields["help_request"]
+        task_field.required = True
+        task_field.empty_label = "Выберите запрос"
+        task_field.queryset = HelpRequest.objects.select_related("client").order_by("-created_at", "-id")
+        task_field.label_from_instance = lambda task: f"#{task.pk} · {task}"
+        volunteer_field = self.fields["volunteer"]
+        volunteer_field.queryset = (
+            Users.objects.filter(is_volunteer=True, is_active=True).select_related("profile").order_by("username")
+        )
+        volunteer_field.label_from_instance = (
+            lambda user: f"{user.profile.full_name} ({user.username})" if user.profile.full_name else user.username
+        )
+        localize(self, {
+            "title": {"label": "form.title"},
+            "description": DESCRIPTION_I18N,
+            "image": {"label": "form.photo"},
+            "help_request": {"label": "form.help_request", "empty": "pr.pick_task"},
+            "volunteer": {"label": "pr.on_behalf", "help": "pr.on_behalf_hint", "empty": "pr.on_behalf_admin"},
+        })
+
+    class Meta:
+        model = PhotoReport
+        fields = ["help_request", "volunteer", "title", "description", "image"]
+        labels = {
+            "title": "Заголовок",
+            "description": "Описание",
+            "image": "Фото",
+            "help_request": "Запрос помощи",
+        }
+        widgets = {
+            "help_request": _TaskSelect(attrs={**FIELD_CLASS, "data-pr-task": ""}),
+            "title": forms.TextInput(attrs=FIELD_CLASS),
+            "description": forms.Textarea(attrs={**FIELD_CLASS, "rows": 4}),
         }
 
 

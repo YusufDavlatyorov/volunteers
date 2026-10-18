@@ -78,6 +78,7 @@ FLASH_KEYS = [
     # photo-report review (myapp/views_photo_reports.py)
     ("Запрос завершён. Загрузите фотоотчёт — баллы начислятся после его проверки.", "flash.completed_report_pending"),
     ("Фотоотчёт одобрен.", "flash.report_approved"),
+    ("Фотоотчёт добавлен и ждёт проверки — одобрите или отклоните его здесь.", "flash.report_added_by_admin"),
     ("Фотоотчёт отклонён, волонтёр получил уведомление.", "flash.report_rejected"),
     ("Укажите причину отклонения.", "flash.report_reason_required"),
     ("Этот фотоотчёт уже проверен.", "flash.report_already_reviewed"),

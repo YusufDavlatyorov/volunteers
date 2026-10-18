@@ -134,7 +134,13 @@ class PhotoReportAdmin(CleanImageAdminMixin, admin.ModelAdmin):
     search_fields = ("title", "description")
     # The review goes through the CRM (/myapp/crm/photo-reports/ — it notifies
     # the author and releases the task's reward); a raw admin edit would skip both.
-    readonly_fields = ("status", "reviewed_by", "reviewed_at", "rejection_reason")
+    readonly_fields = ("status", "reviewed_by", "reviewed_at", "rejection_reason", "uploaded_by")
+
+    def save_model(self, request, obj, form, change):
+        # Who really uploaded it (the site's forms set it in photo_reports.create).
+        if not change:
+            obj.uploaded_by = request.user
+        super().save_model(request, obj, form, change)
 
     # Deleting here takes the same path as the CRM "Delete" button: files +
     # WebP variants removed, an approved report's task reward revoked, the

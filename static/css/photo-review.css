@@ -207,3 +207,8 @@
 @media (max-width: 900px) {
     .pr-review { grid-template-columns: 1fr; }
 }
+
+/* Admin "Add photo report" (crm_photo_reports.html) + the "added by an
+   administrator" mark next to the volunteer name. */
+.pr-add { margin-bottom: var(--space-3); }
+.pr-admin-mark { margin-left: 0.35rem; text-transform: none; letter-spacing: 0; white-space: nowrap; }

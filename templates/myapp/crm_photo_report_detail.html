@@ -30,6 +30,10 @@
                     <dd>{% if report.author %}{% if report.author.is_volunteer %}<a href="{% url 'crm_volunteer_detail' report.author_id %}">{{ report.author.profile.full_name|default:report.author.username }}</a>{% else %}{{ report.author.username }}{% endif %}{% else %}—{% endif %}</dd>
                     <dt data-i18n="tbl.client">Client</dt>
                     <dd>{{ task.client.username|default:"—" }}</dd>
+                    {% if report.uploaded_by %}
+                        <dt data-i18n="pr.uploaded_by">Загрузил</dt>
+                        <dd>{{ report.uploaded_by.username }} {% include "myapp/_photo_report_admin_mark.html" %}</dd>
+                    {% endif %}
                     <dt data-i18n="pr.col_uploaded">Загружен</dt>
                     <dd>{{ report.created_at|date:"d.m.Y, H:i" }}</dd>
                     <dt data-i18n="field.region">Region</dt>

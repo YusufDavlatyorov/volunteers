@@ -177,6 +177,7 @@ urlpatterns += [
 
 # Photo-report review in the CRM — myapp/views_photo_reports.py
 from .views_photo_reports import (  # noqa: E402
+    crm_photo_report_create_view,
     crm_photo_report_delete_view,
     crm_photo_report_detail_view,
     crm_photo_report_review_view,
@@ -186,6 +187,7 @@ from .views_photo_reports import (  # noqa: E402
 
 urlpatterns += [
     path('crm/photo-reports/', crm_photo_reports_view, name='crm_photo_reports'),
+    path('crm/photo-reports/new/', crm_photo_report_create_view, name='crm_photo_report_create'),
     path('crm/photo-reports/delete/', crm_photo_reports_bulk_delete_view, name='crm_photo_reports_bulk_delete'),
     path('crm/photo-reports/<int:pk>/', crm_photo_report_detail_view, name='crm_photo_report_detail'),
     path('crm/photo-reports/<int:pk>/review/', crm_photo_report_review_view, name='crm_photo_report_review'),
