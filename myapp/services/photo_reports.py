@@ -74,7 +74,8 @@ def create(report, image, *, author, uploaded_by):
     the same review — ``approve`` releases the task's reward only when
     ``author`` is the task's volunteer, so a report an admin adds as themselves
     never pays the admin. Returns ``(report, None)`` or ``(None, error)`` when
-    the file is not a usable image."""
+    the file is not a usable image. The admin form's "approve right away"
+    then calls ``approve`` — the same approval as the review button."""
     from . import images
 
     clean, err = images.clean_original(image)
@@ -139,7 +140,7 @@ def approve(report, *, actor) -> Outcome:
     logger.info("photo report #%s approved by user #%s", report.pk, actor.pk)
     task = _rewarded_task(report)
     credited = credit_task(task) if task else False
-    if report.author_id:
+    if report.author_id and report.author_id != actor.pk:  # nobody is told about their own decision
         notify(
             [report.author], "photo_report_approved",
             params={"title": report.title, "task_id": report.help_request_id},
@@ -157,7 +158,7 @@ def reject(report, *, actor, reason) -> Outcome:
     except ValueError:
         return Outcome(False, ALREADY_REVIEWED)
     logger.info("photo report #%s rejected by user #%s", report.pk, actor.pk)
-    if report.author_id:
+    if report.author_id and report.author_id != actor.pk:
         upload = reverse("photo_reports")
         if report.help_request_id:
             upload += f"?task={report.help_request_id}"

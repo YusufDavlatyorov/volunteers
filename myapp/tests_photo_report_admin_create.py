@@ -1,5 +1,6 @@
 """An admin adds a photo report from the CRM (/myapp/crm/photo-reports/new/):
-on behalf of a volunteer (the task's by default) or as themselves; the report
+on behalf of the task's assigned volunteer (no one else) or as themselves,
+optionally approved right away; the report
 records who uploaded it, is marked "added by an administrator", and goes
 through the same review / reward path as a volunteer's own report. Volunteers
 and clients keep exactly their old rights."""
@@ -68,7 +69,15 @@ class AdminCreatesForVolunteerTests(AdminPhotoReportTestsBase):
         html = response.content.decode()
         self.assertIn('enctype="multipart/form-data"', html)
         # Each task option tells the JS whom to pre-select.
-        self.assertRegex(html, rf'<option value="{self.task.pk}" selected data-volunteer="{self.volunteer.pk}">')
+        self.assertRegex(
+            html, rf'<option value="{self.task.pk}" selected data-volunteer="{self.volunteer.pk}" data-volunteer-label="apr_vol">'
+        )
+        # Only the task's volunteer is offered (+ "as the administrator").
+        self.assertEqual(list(form.fields["volunteer"].queryset), [self.volunteer])
+        self.assertNotIn("apr_vol2", html)
+        # "Approve right away" is on by default.
+        self.assertTrue(form.fields["approve_now"].initial)
+        self.assertRegex(html, r'<input type="checkbox" name="approve_now"[^>]*checked')
 
     def test_admin_creates_a_report_for_the_assigned_volunteer(self):
         task_actions.complete(self.volunteer, self.task)  # completed, reward waits for an approved report
@@ -106,16 +115,37 @@ class AdminCreatesForVolunteerTests(AdminPhotoReportTestsBase):
         self.client.force_login(self.client_user)
         self.assertContains(self.client.get(reverse("photo_reports")), MARK)
 
-    def test_another_volunteer_can_be_picked_but_only_the_tasks_volunteer_is_paid(self):
-        task_actions.complete(self.volunteer, self.task)
+    def test_another_volunteer_cannot_be_picked(self):
         self.client.force_login(self.admin)
-        self._post(self.task, self.other_volunteer)
+        response = self._post(self.task, self.other_volunteer)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("volunteer", response.context["form"].errors)
+        self.assertFalse(PhotoReport.objects.exists())
+
+    def test_volunteer_list_follows_the_posted_task(self):
+        # A task without a volunteer offers nobody — its former volunteer is refused too.
+        free_task = self._task()
+        self.client.force_login(self.admin)
+        response = self._post(free_task, self.volunteer)
+        self.assertIn("volunteer", response.context["form"].errors)
+        self.assertEqual(list(response.context["form"].fields["volunteer"].queryset), [])
+        self.assertFalse(PhotoReport.objects.exists())
+
+    def test_approve_right_away_runs_the_normal_approval(self):
+        task_actions.complete(self.volunteer, self.task)
+        before = self._points(self.volunteer)
+        self.client.force_login(self.admin)
+        with mock.patch("myapp.services.achievements.award_safely") as award:
+            response = self._post(self.task, self.volunteer, approve_now="on")
         report = PhotoReport.objects.get()
-        self.assertEqual((report.author, report.uploaded_by), (self.other_volunteer, self.admin))
-        self._approve(report)
-        self.assertEqual((self._points(self.volunteer), self._points(self.other_volunteer)), (0, 0))
+        self.assertRedirects(response, reverse("crm_photo_report_detail", args=[report.pk]))
+        self.assertEqual((report.status, report.reviewed_by), (PhotoReport.APPROVED, self.admin))
+        award.assert_called_once_with(self.volunteer, "task_completed")
+        self.assertEqual(self._points(self.volunteer), before + 3)
         self.task.refresh_from_db()
-        self.assertTrue(self.task.reward_pending)
+        self.assertFalse(self.task.reward_pending)
+        self.assertTrue(Notification.objects.filter(recipient=self.volunteer, type="photo_report_approved").exists())
+        self.assertEqual(self._points(self.admin), 0)
 
     def test_list_offers_the_add_button_to_admins_only(self):
         self.client.force_login(self.admin)
@@ -165,6 +195,20 @@ class AdminCreatesWithoutVolunteerTests(AdminPhotoReportTestsBase):
         self.assertFalse(UserAchievement.objects.filter(user=self.admin).exists())
         self.task.refresh_from_db()
         self.assertTrue(self.task.reward_pending)  # still waits for the volunteer's report
+
+
+    def test_approve_right_away_as_the_admin_pays_and_tells_nobody(self):
+        task = self._task()
+        self.client.force_login(self.admin)
+        with mock.patch("myapp.services.achievements.award_safely") as award:
+            self._post(task, None, approve_now="on")
+        report = PhotoReport.objects.get()
+        self.assertEqual((report.author, report.status), (self.admin, PhotoReport.APPROVED))
+        award.assert_not_called()
+        self.assertEqual(self._points(self.admin), 0)
+        self.assertFalse(UserAchievement.objects.filter(user=self.admin).exists())
+        # No notice to the admin about their own decision.
+        self.assertFalse(Notification.objects.filter(recipient=self.admin).exists())
 
 
 class FormValidationTests(AdminPhotoReportTestsBase):

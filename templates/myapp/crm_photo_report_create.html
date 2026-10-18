@@ -1,23 +1,28 @@
 {% extends "myapp/staff_compose_form.html" %}
 {% comment %}
 The admin's "New photo report" (crm_photo_report_create_view): the staff compose
-page with a file field. Picking a task moves "on behalf of" to that task's
-assigned volunteer (each task <option> carries data-volunteer — forms._TaskSelect);
-the admin can still pick another volunteer or none (= as the admin).
+page with a file field. "On behalf of" offers only the chosen task's assigned
+volunteer (+ the empty "as the administrator" option): picking another task
+rebuilds it from that option's data-volunteer / data-volunteer-label
+(forms._TaskSelect). The server checks the same rule (AdminPhotoReportForm).
 {% endcomment %}
 {% block extra_js %}
 {{ block.super }}
 <script>
 (function() {
     var task = document.querySelector('[data-pr-task]');
-    var volunteer = document.getElementById('id_volunteer');
+    var volunteer = document.querySelector('[data-pr-volunteer]');
     if (!task || !volunteer) return;
     task.addEventListener('change', function() {
         var option = task.options[task.selectedIndex];
-        var id = option ? option.getAttribute('data-volunteer') || '' : '';
-        // An assigned volunteer who is not in the list (inactive) → as the admin.
-        volunteer.value = id;
-        if (volunteer.value !== id) volunteer.value = '';
+        var id = option ? option.getAttribute('data-volunteer') : null;
+        // Keep the empty "as the administrator" option, drop the old volunteer.
+        while (volunteer.options.length > 1) volunteer.remove(1);
+        if (id) {
+            volunteer.add(new Option(option.getAttribute('data-volunteer-label') || id, id, true, true));
+        } else {
+            volunteer.selectedIndex = 0;
+        }
     });
 })();
 </script>

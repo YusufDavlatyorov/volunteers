@@ -3,7 +3,8 @@
 
     GET  /myapp/crm/photo-reports/              list (?status=pending default, from, to, volunteer, task)
     GET  /myapp/crm/photo-reports/new/          admin only: add a report for any task (?task=<id> pre-selects)
-    POST /myapp/crm/photo-reports/new/          … on behalf of a volunteer, or as the admin (403 for anyone else)
+    POST /myapp/crm/photo-reports/new/          … on behalf of the task's volunteer, or as the admin; approve_now
+                                                (default on) approves at once (403 for anyone else)
     GET  /myapp/crm/photo-reports/<pk>/         the report: large photo, task, volunteer, client
     POST /myapp/crm/photo-reports/<pk>/review/  action=approve | reject (+ reason, required)
     POST /myapp/crm/photo-reports/<pk>/delete/  any status; an approved report's reward is revoked
@@ -66,6 +67,12 @@ def crm_photo_report_create_view(request):
             )
             if err:
                 form.add_error("image", images.UPLOAD_ERROR_TEXT)
+            elif form.cleaned_data["approve_now"]:
+                # "Approve right away": the normal approval — points, badges
+                # and the author's notice exactly as the review button does.
+                photo_reports.approve(report, actor=request.user)
+                messages.success(request, "Фотоотчёт добавлен и одобрен.")
+                return redirect("crm_photo_report_detail", pk=report.pk)
             else:
                 messages.success(request, "Фотоотчёт добавлен и ждёт проверки — одобрите или отклоните его здесь.")
                 return redirect("crm_photo_report_detail", pk=report.pk)
@@ -80,8 +87,7 @@ def crm_photo_report_create_view(request):
         "form": form, "multipart": True, "back_url": reverse("crm_photo_reports"),
         "back_label": "Все фотоотчёты", "back_i18n": "pr.back_to_list",
         "title": "Новый фотоотчёт", "title_i18n": "pr.create_title",
-        "subtitle": "Для любого запроса — от имени волонтёра или от вашего имени. "
-                    "Отчёт попадёт на проверку, как обычный.",
+        "subtitle": "Для любого запроса — от имени назначенного волонтёра или от вашего имени.",
         "subtitle_i18n": "pr.create_sub",
         "submit_label": "Добавить фотоотчёт", "submit_i18n": "pr.create_submit",
     })
