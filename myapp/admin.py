@@ -280,10 +280,11 @@ _ach_logger = logging.getLogger("myapp.achievements")
 class AchievementAdmin(admin.ModelAdmin):
     # The owner tweaks thresholds / tiers / order / on-off here; the rule behind
     # each code lives in services/achievements.py, so the code itself is fixed.
-    list_display = ("code", "tier", "category", "threshold", "sort_order", "is_active")
+    list_display = ("code", "tier", "category", "threshold", "sort_order", "is_active", "is_manual")
     list_editable = ("tier", "threshold", "sort_order", "is_active")
-    list_filter = ("tier", "category", "is_active")
-    readonly_fields = ("code",)
+    list_filter = ("tier", "category", "is_active", "is_manual")
+    # is_manual follows the rules in services/achievements.py (MANUAL_CODES).
+    readonly_fields = ("code", "is_manual")
 
     def has_add_permission(self, request):
         return False  # a new code needs a rule in services/achievements.py

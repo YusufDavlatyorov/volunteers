@@ -57,6 +57,10 @@ class Achievement(models.Model):
     threshold = models.PositiveIntegerField(default=1)
     sort_order = models.PositiveSmallIntegerField(default=0)
     is_active = models.BooleanField(default=True)
+    # Given by hand by a curator / admin (services.achievements.award_manual,
+    # MANUAL_CODES — "mentor"), never by a counter. Shown like any badge, but
+    # earns no points in the public rating (services/rating.py).
+    is_manual = models.BooleanField(default=False)
 
     class Meta:
         verbose_name = "Достижение"
