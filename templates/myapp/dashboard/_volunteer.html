@@ -141,7 +141,7 @@
             {% for report in my_photo_reports %}
                 <li><a class="dash-list__item" href="{% url 'photo_reports' %}{% if report.status == 'rejected' and report.help_request_id %}?task={{ report.help_request_id }}#report-form{% endif %}">
                     <span class="dash-list__main">{% include "myapp/_photo_report_status_tag.html" with status=report.status status_display=report.get_status_display %} <span class="truncate" title="{{ report.title }}">{{ report.title }}</span></span>
-                    <span class="dash-list__meta">{% if report.status == "rejected" %}<span data-i18n="pr.reason_label">Причина отклонения</span>: {{ report.rejection_reason }}{% else %}{% if report.help_request_id %}#{{ report.help_request_id }} · {% endif %}{{ report.created_at|date:"d.m.Y" }}{% endif %}</span>
+                    <span class="dash-list__meta">{% if report.status == "rejected" %}<span data-i18n="pr.reason_label">Причина отклонения</span>: {{ report.rejection_reason }}{% else %}{% if report.help_request_id %}#{{ report.help_request_id }} · {% endif %}{{ report.event_date|date:"d.m.Y" }}{% endif %}</span>
                 </a></li>
             {% endfor %}
         </ul>

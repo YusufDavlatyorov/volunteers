@@ -1,4 +1,7 @@
+from datetime import timedelta
+
 from django import forms
+from django.utils import timezone
 
 from accounts.form_i18n import localize
 from accounts.models import REGION_CHOICES, Users
@@ -8,6 +11,7 @@ from .models import (
     DONATION_CONDITION_CHOICES,
     DONATION_DONOR_TYPE_CHOICES,
     DONATION_FULFILMENT_CHOICES,
+    EVENT_DATE_MAX_AGE_DAYS,
     Event,
     HELP_TYPE_CHOICES,
     HelpRequest,
@@ -191,7 +195,96 @@ class BroadcastForm(forms.ModelForm):
         })
 
 
-class PhotoReportForm(forms.ModelForm):
+def related_event_date(task=None, event=None):
+    """The date a report's task / event "has": the day the task was completed,
+    else the event's day (Asia/Dushanbe) — None when neither has one."""
+    from .models.photo_reports import LOCAL_TZ
+
+    if task is not None and task.completed_at:
+        return timezone.localtime(task.completed_at, LOCAL_TZ).date()
+    if event is not None and event.date:
+        return timezone.localtime(event.date, LOCAL_TZ).date()
+    return None
+
+
+def _event_date_window():
+    from .models.photo_reports import local_today
+
+    today = local_today()
+    return today - timedelta(days=EVENT_DATE_MAX_AGE_DAYS), today
+
+
+class _DatedSelect(forms.Select):
+    """A task / event <select> whose options carry ``data-date`` (their own
+    date, ISO) so the form's script can pre-fill "event date" on a change."""
+
+    def create_option(self, name, value, label, selected, index, subindex=None, attrs=None):
+        option = super().create_option(name, value, label, selected, index, subindex=subindex, attrs=attrs)
+        obj = getattr(value, "instance", None)
+        if obj is not None:
+            day = related_event_date(task=obj) if isinstance(obj, HelpRequest) else related_event_date(event=obj)
+            if day is not None:
+                option["attrs"] = {**option["attrs"], "data-date": day.isoformat()}
+        return option
+
+
+class _EventDateMixin:
+    """``event_date`` for the site's photo-report forms: <input type=date>
+    limited (min / max, then clean_event_date) to the last
+    EVENT_DATE_MAX_AGE_DAYS days; defaults to the task's / event's own date
+    when it is inside that window, else today. Left empty → the same default."""
+
+    def _setup_event_date(self):
+        first, last = _event_date_window()
+        field = self.fields["event_date"]
+        field.required = False
+        field.widget.attrs.update({"min": first.isoformat(), "max": last.isoformat()})
+        if not self.is_bound and "event_date" not in self.initial:
+            self.initial["event_date"] = self._default_event_date(
+                self._initial_object("help_request", HelpRequest), self._initial_object("event", Event)
+            )
+
+    def _initial_object(self, name, model):
+        raw = self.initial.get(name)
+        if isinstance(raw, model):
+            return raw
+        if raw in (None, "") or name not in self.fields:
+            return None
+        try:
+            return model.objects.filter(pk=int(raw)).first()
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _default_event_date(task=None, event=None):
+        first, last = _event_date_window()
+        day = related_event_date(task=task, event=event)
+        return day if day is not None and first <= day <= last else last
+
+    def clean_event_date(self):
+        value = self.cleaned_data.get("event_date")
+        if value is None:
+            return self._default_event_date(self.cleaned_data.get("help_request"), self.cleaned_data.get("event"))
+        first, last = _event_date_window()
+        if value > last:
+            raise forms.ValidationError("Дата проведения не может быть в будущем.", code="event_date_future")
+        if value < first:
+            raise forms.ValidationError(
+                "Дата проведения — не раньше чем %(limit_value)s дней назад.",
+                code="event_date_too_old", params={"limit_value": EVENT_DATE_MAX_AGE_DAYS},
+            )
+        return value
+
+
+EVENT_DATE_I18N = {"label": "pr.event_date", "help": "pr.event_date_hint"}
+EVENT_DATE_HELP = "Когда прошла помощь или субботник: не позже сегодня и не раньше чем 30 дней назад."
+
+
+def _event_date_widget():
+    return forms.DateInput(attrs={**FIELD_CLASS, "type": "date", "data-pr-event-date": ""}, format="%Y-%m-%d")
+
+
+class PhotoReportForm(_EventDateMixin, forms.ModelForm):
     def __init__(self, *args, user=None, **kwargs):
         super().__init__(*args, **kwargs)
         # A volunteer must not be able to enumerate every HelpRequest in the
@@ -203,6 +296,7 @@ class PhotoReportForm(forms.ModelForm):
         if user is not None and not (user.is_superuser or user.is_curator):
             help_requests = help_requests.filter(volunteer=user)
         self.fields["help_request"].queryset = help_requests
+        self._setup_event_date()
         localize(self, {
             "title": {"label": "form.title"},
             "description": DESCRIPTION_I18N,
@@ -210,11 +304,13 @@ class PhotoReportForm(forms.ModelForm):
             "region": REGION_I18N,
             "event": {"label": "form.event"},
             "help_request": {"label": "form.help_request"},
+            "event_date": EVENT_DATE_I18N,
         })
 
     class Meta:
         model = PhotoReport
-        fields = ["title", "description", "image", "region", "event", "help_request"]
+        # event_date last: its clean_ reads the already-cleaned task / event.
+        fields = ["title", "description", "image", "region", "event", "help_request", "event_date"]
         labels = {
             "title": "Заголовок",
             "description": "Описание",
@@ -222,13 +318,16 @@ class PhotoReportForm(forms.ModelForm):
             "region": "Регион",
             "event": "Акция",
             "help_request": "Запрос помощи",
+            "event_date": "Дата проведения",
         }
+        help_texts = {"event_date": EVENT_DATE_HELP}
         widgets = {
             "title": forms.TextInput(attrs=FIELD_CLASS),
             "description": forms.Textarea(attrs={**FIELD_CLASS, "rows": 4}),
             "region": forms.Select(attrs=FIELD_CLASS, choices=[("", "Выберите регион")] + REGION_CHOICES),
-            "event": forms.Select(attrs=FIELD_CLASS),
-            "help_request": forms.Select(attrs=FIELD_CLASS),
+            "event": _DatedSelect(attrs={**FIELD_CLASS, "data-pr-event": ""}),
+            "help_request": _DatedSelect(attrs={**FIELD_CLASS, "data-pr-task": ""}),
+            "event_date": _event_date_widget(),
         }
 
 
@@ -237,7 +336,7 @@ def _volunteer_label(user):
     return f"{full_name} ({user.username})" if full_name else user.username
 
 
-class _TaskSelect(forms.Select):
+class _TaskSelect(_DatedSelect):
     """Each task <option> carries its assigned volunteer (``data-volunteer`` =
     id, ``data-volunteer-label`` = name), so the admin form's "on behalf of"
     select can offer exactly that volunteer when the task changes."""
@@ -254,7 +353,7 @@ class _TaskSelect(forms.Select):
         return option
 
 
-class AdminPhotoReportForm(forms.ModelForm):
+class AdminPhotoReportForm(_EventDateMixin, forms.ModelForm):
     """The admin's "Add photo report" in the CRM: any task, on behalf of the
     volunteer assigned to it (the only volunteer offered) or — left empty —
     as the admin. "Approve right away" (on by default) runs the normal
@@ -294,6 +393,7 @@ class AdminPhotoReportForm(forms.ModelForm):
             if task is not None and task.volunteer_id else Users.objects.none()
         )
         volunteer_field.label_from_instance = _volunteer_label
+        self._setup_event_date()
         localize(self, {
             "title": {"label": "form.title"},
             "description": DESCRIPTION_I18N,
@@ -301,6 +401,7 @@ class AdminPhotoReportForm(forms.ModelForm):
             "help_request": {"label": "form.help_request", "empty": "pr.pick_task"},
             "volunteer": {"label": "pr.on_behalf", "help": "pr.on_behalf_hint", "empty": "pr.on_behalf_admin"},
             "approve_now": {"label": "pr.approve_now", "help": "pr.approve_now_hint"},
+            "event_date": EVENT_DATE_I18N,
         })
 
     def _chosen_task(self):
@@ -314,15 +415,18 @@ class AdminPhotoReportForm(forms.ModelForm):
 
     class Meta:
         model = PhotoReport
-        fields = ["help_request", "volunteer", "title", "description", "image", "approve_now"]
+        fields = ["help_request", "volunteer", "title", "description", "image", "event_date", "approve_now"]
         labels = {
             "title": "Заголовок",
             "description": "Описание",
             "image": "Фото",
             "help_request": "Запрос помощи",
+            "event_date": "Дата проведения",
         }
+        help_texts = {"event_date": EVENT_DATE_HELP}
         widgets = {
             "help_request": _TaskSelect(attrs={**FIELD_CLASS, "data-pr-task": ""}),
+            "event_date": _event_date_widget(),
             "title": forms.TextInput(attrs=FIELD_CLASS),
             "description": forms.Textarea(attrs={**FIELD_CLASS, "rows": 4}),
         }

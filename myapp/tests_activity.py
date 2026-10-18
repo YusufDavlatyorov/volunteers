@@ -72,7 +72,8 @@ class ActivityCountsTests(TestCase):
         active = self._task(volunteer=self.vol, status="active")
         HelpRequest.objects.filter(pk=active.pk).update(accepted_at=_at(2026, 10, 6), completed_at=_at(2026, 10, 6))  # not completed
         report = PhotoReport.objects.create(author=self.vol, title="r", image="reports/x.jpg")
-        PhotoReport.objects.filter(pk=report.pk).update(created_at=_at(2026, 10, 5, 11))
+        # Counted on the day the help took place (event_date), not the upload day.
+        PhotoReport.objects.filter(pk=report.pk).update(created_at=_at(2026, 10, 7, 11), event_date=datetime.date(2026, 10, 5))
         don = Donation.objects.create(donor=self.cli, item_name="rice", quantity=1, assigned_volunteer=self.vol)
         Donation.objects.filter(pk=don.pk).update(received_at=_at(2026, 10, 7), distributed_at=_at(2026, 10, 7, 12))
         counts = activity.daily_counts(self.vol, TODAY)

@@ -49,7 +49,8 @@
                         <th data-i18n="tbl.task">Task</th>
                         <th data-i18n="tbl.volunteer">Volunteer</th>
                         <th data-i18n="tbl.client">Client</th>
-                        <th data-i18n="pr.col_uploaded">Загружен</th>
+                        <th class="pr-col-date" data-i18n="pr.event_date">Дата проведения</th>
+                        <th class="pr-col-date" data-i18n="pr.published_at">Дата публикации</th>
                         <th data-i18n="tbl.status">Status</th>
                         <th></th>
                     </tr>
@@ -63,7 +64,8 @@
                         <td data-label="Task">{% if report.help_request %}<a class="pr-task" href="{% url 'task_detail' report.help_request_id %}">#{{ report.help_request_id }} · <span class="pr-ellipsis" data-i18n="help.{{ report.help_request.help_type }}" title="{{ report.help_request.get_help_type_display }}" data-i18n-title="help.{{ report.help_request.help_type }}">{{ report.help_request.get_help_type_display }}</span></a>{% else %}—{% endif %}</td>
                         <td data-label="Volunteer">{% if report.author %}{% if report.author.is_volunteer %}<a class="pr-ellipsis" href="{% url 'crm_volunteer_detail' report.author_id %}" title="{{ report.author.username }}">{{ report.author.username }}</a>{% else %}<span class="pr-ellipsis" title="{{ report.author.username }}">{{ report.author.username }}</span>{% endif %}{% else %}—{% endif %}{% include "myapp/_photo_report_admin_mark.html" %}</td>
                         <td data-label="Client">{% if report.help_request.client %}<span class="pr-ellipsis" title="{{ report.help_request.client.username }}">{{ report.help_request.client.username }}</span>{% else %}—{% endif %}</td>
-                        <td data-label="Загружен" class="col-num pr-col-date">{{ report.created_at|date:"d.m.Y, H:i" }}</td>
+                        <td data-label="Дата проведения" class="col-num pr-col-date">{{ report.event_date|date:"d.m.Y" }}</td>
+                        <td data-label="Дата публикации" class="col-num pr-col-date">{{ report.created_at|date:"d.m.Y, H:i" }}</td>
                         <td data-label="Status" class="pr-status">{% include "myapp/_photo_report_status_tag.html" with status=report.status status_display=report.get_status_display %}</td>
                         <td data-label="" class="col-actions">
                             <div class="pr-actions">

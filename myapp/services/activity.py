@@ -30,7 +30,8 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models import Count
+from django.db import models
+from django.db.models import Count, F
 from django.db.models.functions import TruncDate
 from django.utils import timezone
 
@@ -64,7 +65,8 @@ def shows_calendar(user) -> bool:
 
 
 def _sources(user):
-    """(kind, queryset, datetime field) for every action this user can take."""
+    """(kind, queryset, field) for every action this user can take — a
+    DateTimeField (bucketed by its Asia/Dushanbe day) or a DateField (as is)."""
     from myapp.models import Donation, HelpRequest, PetReport, PhotoReport, TaskReview
 
     out = []
@@ -72,7 +74,8 @@ def _sources(user):
         out += [
             ("accepted", HelpRequest.objects.filter(volunteer=user), "accepted_at"),
             ("completed", HelpRequest.objects.filter(volunteer=user, status="completed"), "completed_at"),
-            ("photo_report", PhotoReport.objects.filter(author=user), "created_at"),
+            # The day the help took place, not the upload day (a DateField).
+            ("photo_report", PhotoReport.objects.filter(author=user), "event_date"),
             ("donation_received", Donation.objects.filter(assigned_volunteer=user), "received_at"),
             ("donation_distributed", Donation.objects.filter(assigned_volunteer=user), "distributed_at"),
         ]
@@ -105,9 +108,14 @@ def daily_counts(user, today: datetime.date | None = None) -> dict:
     end = datetime.datetime.combine(last + datetime.timedelta(days=1), datetime.time.min, tzinfo=TZ)
     days: dict = defaultdict(dict)
     for kind, queryset, field in _sources(user):
+        if isinstance(queryset.model._meta.get_field(field), models.DateTimeField):
+            bucketed = queryset.filter(**{f"{field}__gte": start, f"{field}__lt": end}).annotate(
+                day=TruncDate(field, tzinfo=TZ)
+            )
+        else:  # already a local day
+            bucketed = queryset.filter(**{f"{field}__gte": first, f"{field}__lte": last}).annotate(day=F(field))
         rows = (
-            queryset.filter(**{f"{field}__gte": start, f"{field}__lt": end})
-            .annotate(day=TruncDate(field, tzinfo=TZ))
+            bucketed
             .values("day")
             .annotate(n=Count("pk"))
             .order_by()

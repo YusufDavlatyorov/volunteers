@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load responsive assets %}
+{% load responsive assets i18n_plural %}
 {% block extra_css %}<link rel="stylesheet" href="{% asset 'css/photo-review.css' %}">{% endblock %}
 {% block title %}Photo report - KhayrKhoh{% endblock %}
 {% block content %}
@@ -34,7 +34,9 @@
                         <dt data-i18n="pr.uploaded_by">Загрузил</dt>
                         <dd>{{ report.uploaded_by.username }} {% include "myapp/_photo_report_admin_mark.html" %}</dd>
                     {% endif %}
-                    <dt data-i18n="pr.col_uploaded">Загружен</dt>
+                    <dt data-i18n="pr.event_date">Дата проведения</dt>
+                    <dd>{% local_date report.event_date %}</dd>
+                    <dt data-i18n="pr.published_at">Дата публикации</dt>
                     <dd>{{ report.created_at|date:"d.m.Y, H:i" }}</dd>
                     <dt data-i18n="field.region">Region</dt>
                     <dd>{{ report.get_region_display|default:"—" }}</dd>

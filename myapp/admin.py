@@ -129,12 +129,16 @@ class PetReportAdmin(CleanImageAdminMixin, admin.ModelAdmin):
 
 @admin.register(PhotoReport)
 class PhotoReportAdmin(CleanImageAdminMixin, admin.ModelAdmin):
-    list_display = ("title", "author", "status", "region", "created_at")
-    list_filter = ("status", "region", "created_at")
+    # Both dates (verbose names "Дата проведения" / "Дата публикации"):
+    # event_date is editable here without the site forms' 30-day limit (staff
+    # correct older reports); created_at is the upload moment, read-only.
+    list_display = ("title", "author", "status", "region", "event_date", "created_at")
+    list_filter = ("status", "region", "event_date")
+    date_hierarchy = "event_date"
     search_fields = ("title", "description")
     # The review goes through the CRM (/myapp/crm/photo-reports/ — it notifies
     # the author and releases the task's reward); a raw admin edit would skip both.
-    readonly_fields = ("status", "reviewed_by", "reviewed_at", "rejection_reason", "uploaded_by")
+    readonly_fields = ("status", "reviewed_by", "reviewed_at", "rejection_reason", "uploaded_by", "created_at")
 
     def save_model(self, request, obj, form, change):
         # Who really uploaded it (the site's forms set it in photo_reports.create).

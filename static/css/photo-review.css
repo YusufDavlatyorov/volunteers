@@ -103,6 +103,14 @@
     }
 }
 
+/* The two date columns ("Дата проведения" / "Дата публикации", 2026-10-18):
+   header and "date, time" may wrap onto two lines, so the pair stays narrow
+   and the report title keeps its room on a nowrap row. */
+@media (min-width: 861px) {
+    .pr-table thead th.pr-col-date,
+    .pr-table tbody td.pr-col-date { white-space: normal; min-width: 5.6rem; line-height: 1.25; }
+}
+
 /* Small laptops (861–1199px): names cut a little earlier so the row still fits. */
 @media (min-width: 861px) and (max-width: 1199px) {
     .pr-table .pr-ellipsis { max-width: 5rem; }

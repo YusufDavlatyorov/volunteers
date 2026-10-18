@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load responsive %}
+{% load responsive assets i18n_plural %}
 {% block title %}Photo Reports - KhayrKhoh{% endblock %}
 {% block content %}
 <section class="section">
@@ -12,6 +12,8 @@
                         <div class="card reveal">
                             {% responsive_image report.image report.image_variants sizes="(max-width: 700px) 92vw, 360px" class="report-img" alt=report.title width=800 height=600 loading="lazy" decoding="async" %}
                             <h3>{{ report.title }}</h3>
+                            {# Public: the day the help took place — never the upload date. #}
+                            <p class="report-date">{% local_date report.event_date %}</p>
                             <p>{{ report.description }}</p>
                             <span class="tag muted">{{ report.get_region_display }}</span>
                             {% include "myapp/_photo_report_admin_mark.html" %}
@@ -47,4 +49,8 @@
         {% endif %}
     </div>
 </section>
+{% endblock %}
+
+{% block extra_js %}
+{% if can_create %}<script src="{% asset 'js/photo-report-date.js' %}" defer></script>{% endif %}
 {% endblock %}

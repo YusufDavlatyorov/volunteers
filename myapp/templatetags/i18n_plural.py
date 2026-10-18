@@ -60,3 +60,22 @@ def time_ago(value):
     else:
         inner = format_html('<span data-i18n="ago.just_now">только что</span>')
     return format_html('<time datetime="{}">{}</time>', value.isoformat(), inner)
+
+
+@register.simple_tag
+def local_date(value):
+    """A calendar day in the UI language: "18 октября 2026" / "18 октябри 2026" /
+    "October 18, 2026". Rendered with ``|date:"j E Y"`` under the server-render
+    language (Russian — Django's own active language is always en-us here, the
+    UI language lives in the browser); ``data-i18n-date`` lets i18n.js re-label
+    it with the month names of the chosen language (``act.mg*``)."""
+    from django.conf import settings
+    from django.template.defaultfilters import date as date_filter
+    from django.utils import translation
+
+    if not value:
+        return "—"
+    with translation.override(settings.SERVER_RENDER_LANGUAGE):
+        text = date_filter(value, "j E Y")
+    iso = value.isoformat()
+    return format_html('<time datetime="{}" data-i18n-date="{}">{}</time>', iso, iso, text)

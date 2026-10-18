@@ -247,7 +247,9 @@ class PublicPagesSitemap(Sitemap):
 
     def lastmod(self, name):
         # The home page shows the latest photo reports; the other public pages
-        # have no meaningful modification date.
+        # have no meaningful modification date. created_at, not event_date: the
+        # page changes when a report is published (a report about last week's
+        # clean-up uploaded today still changes the page today).
         if name == "home":
             from myapp.models import PhotoReport
 

@@ -77,6 +77,7 @@ from .chat import (
 from .faq import FAQ_LANGUAGES, FAQCategory, FAQItem
 from .feedback import REVIEW_COMMENT_MAX_LENGTH, REVIEW_TAGS, TaskReview
 from .photo_reports import (
+    EVENT_DATE_MAX_AGE_DAYS,
     PHOTO_REPORT_STATUS_CHOICES,
     REJECTION_REASON_MAX_LENGTH,
     PhotoReport,
@@ -129,6 +130,7 @@ __all__ = [
     "PET_OWNER_TRANSITIONS",
     # photo_reports
     "PhotoReport",
+    "EVENT_DATE_MAX_AGE_DAYS",
     "PHOTO_REPORT_STATUS_CHOICES",
     "REJECTION_REASON_MAX_LENGTH",
     # emergency

@@ -583,6 +583,11 @@ const T = {
     "pr.reject": "Reject",
     "pr.reject_confirm": "Reject this photo report? The volunteer will be notified with the reason.",
     "pr.delete": "Delete",
+    "pr.event_date": "Event date",
+    "pr.published_at": "Published",
+    "pr.event_date_hint": "When the help or clean-up took place: not later than today and not earlier than 30 days ago.",
+    "err.event_date_future": "The event date cannot be in the future.",
+    "err.event_date_too_old": "The event date must be within the last {limit_value} days.",
     "pr.add": "Add photo report",
     "pr.added_by_admin": "Added by an administrator",
     "pr.uploaded_by": "Uploaded by",
@@ -2047,6 +2052,11 @@ const T = {
     "pr.reject": "Отклонить",
     "pr.reject_confirm": "Отклонить фотоотчёт? Волонтёр получит уведомление с причиной.",
     "pr.delete": "Удалить",
+    "pr.event_date": "Дата проведения",
+    "pr.published_at": "Дата публикации",
+    "pr.event_date_hint": "Когда прошла помощь или субботник: не позже сегодня и не раньше чем 30 дней назад.",
+    "err.event_date_future": "Дата проведения не может быть в будущем.",
+    "err.event_date_too_old": "Дата проведения — не раньше чем {limit_value} дней назад.",
     "pr.add": "Добавить фотоотчёт",
     "pr.added_by_admin": "Добавлено администратором",
     "pr.uploaded_by": "Загрузил",
@@ -3511,6 +3521,11 @@ const T = {
     "pr.reject": "Рад кардан",
     "pr.reject_confirm": "Фотоҳисоботро рад мекунед? Волонтёр огоҳинома бо сабаб мегирад.",
     "pr.delete": "Нест кардан",
+    "pr.event_date": "Санаи гузаронидан",
+    "pr.published_at": "Санаи нашр",
+    "pr.event_date_hint": "Кай кӯмак ё шанбегӣ гузашт: на дертар аз имрӯз ва на пештар аз 30 рӯз пеш.",
+    "err.event_date_future": "Санаи гузаронидан наметавонад дар оянда бошад.",
+    "err.event_date_too_old": "Санаи гузаронидан бояд на пештар аз {limit_value} рӯз пеш бошад.",
     "pr.add": "Илова кардани фотоҳисобот",
     "pr.added_by_admin": "Аз ҷониби маъмур илова шудааст",
     "pr.uploaded_by": "Боркунанда",
@@ -4428,6 +4443,15 @@ function setLanguage(lang) {
   document.querySelectorAll('[data-i18n-ph]').forEach(el => {
     const key = el.getAttribute('data-i18n-ph');
     if (T[lang][key]) el.placeholder = T[lang][key];
+  });
+  // Calendar days ({% local_date %}): "18 октября 2026" / "October 18, 2026",
+  // month names from this language's act.mg* (genitive) keys.
+  document.querySelectorAll('[data-i18n-date]').forEach(el => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(el.getAttribute('data-i18n-date') || '');
+    const month = m && T[lang]['act.mg' + Number(m[2])];
+    if (!month) return;
+    const day = Number(m[3]);
+    el.textContent = lang === 'en' ? `${month} ${day}, ${m[1]}` : `${day} ${month} ${m[1]}`;
   });
   // Attribute-only text: tooltip (title), image alt, aria-label. An element
   // may carry visible text (data-i18n) and one of these at the same time.

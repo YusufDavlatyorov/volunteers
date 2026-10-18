@@ -1,4 +1,5 @@
 {% extends "myapp/staff_compose_form.html" %}
+{% load assets %}
 {% comment %}
 The admin's "New photo report" (crm_photo_report_create_view): the staff compose
 page with a file field. "On behalf of" offers only the chosen task's assigned
@@ -8,6 +9,7 @@ rebuilds it from that option's data-volunteer / data-volunteer-label
 {% endcomment %}
 {% block extra_js %}
 {{ block.super }}
+<script src="{% asset 'js/photo-report-date.js' %}" defer></script>
 <script>
 (function() {
     var task = document.querySelector('[data-pr-task]');
