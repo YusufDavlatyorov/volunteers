@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120" role="img" aria-label="Регулярность">
+<defs>
+<linearGradient id="r" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#eef2f7"/><stop offset="1" stop-color="#9aa6b6"/></linearGradient>
+<linearGradient id="d" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1e6fa8"/><stop offset="1" stop-color="#174f86"/></linearGradient>
+</defs>
+<circle cx="60" cy="60" r="57" fill="url(#r)" stroke="#667385" stroke-width="2"/>
+<circle cx="60" cy="60" r="46" fill="url(#d)" stroke="#667385" stroke-opacity=".55" stroke-width="2"/>
+<path d="M17 78 L38 60 L49 69 L64 54 L80 68 L90 61 L103 78 A46 46 0 0 1 17 78 Z" fill="#fff" fill-opacity=".1"/>
+<path d="M22 44 A40 40 0 0 1 98 44" fill="none" stroke="#fff" stroke-opacity=".22" stroke-width="3" stroke-linecap="round"/>
+<rect x="28" y="58" width="15" height="15" rx="3" fill="#fff"/><rect x="46" y="58" width="15" height="15" rx="3" fill="#fff"/><rect x="64" y="58" width="15" height="15" rx="3" fill="#fff"/><rect x="82" y="58" width="15" height="15" rx="3" fill="#fff"/><path d="M34 48 Q60 26 86 48" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M78 47 L87 49 L88 40" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+
+</svg>

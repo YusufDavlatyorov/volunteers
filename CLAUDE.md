@@ -61,7 +61,9 @@ PostgreSQL (`connection.vendor`), never fails there.
 source .venv/bin/activate            # venv already present in repo (Python 3.14)
 python manage.py runserver           # dev server → http://127.0.0.1:8000/
 python manage.py migrate             # apply migrations
-python manage.py seed_demo           # refuses with DEBUG=False (prod); demo data: admins/curators/volunteers/clients/tasks (also: coords, availability, priority, one overdue task, one stale pending request, a needed-items catalogue + in-kind donation offers, a lost/found pet board)
+DJANGO_DEMO_MODE=True DJANGO_SQLITE_PATH=demo_stand.sqlite3 python manage.py seed_demo [--reset]   # demo stand ONLY (see "Demo stand" below); refuses without DEMO_MODE, with khayrkhoh.tj in ALLOWED_HOSTS or on a PRODUCTION_DB_NAMES database
+python manage.py recalculate_achievements [--dry-run --demo-only --notify]   # badges from the data for every volunteer; idempotent, never revokes
+python manage.py backfill_activity [--dry-run]           # UserDailyActivity from real timestamps only (see activity.py below); idempotent
 python manage.py run_telegram_bot    # long-polling Telegram bot (separate process, not part of the request cycle)
 python manage.py backfill_image_variants [--dry-run --strip-metadata]   # WebP thumb/medium for avatars / photo reports / pet photos uploaded before milestone 6 (+ strip EXIF/GPS from old originals in place); idempotent, run once at deploy
 python manage.py geocode_missing [--limit N --dry-run --profiles]   # backfill lat/lng for HelpRequests (and --profiles) via Nominatim; sleeps 1.1s/row for the usage policy
@@ -187,7 +189,7 @@ per author — the `many` variant with `{count}` for several). Pre-0028 reports 
 same way; files are deleted by the row's *current* name (`rename_legacy_uploads` already removed the
 old-named file + variants) — test-locked with a real 0027 → 0028 migration in
 `LegacyReportFromBeforeReviewTests`. Tests: `myapp/tests_photo_report_review.py`.
-**Admin adds a report (2026-10-18)**: `/myapp/crm/photo-reports/new/` (`crm_photo_report_create_view`, **superuser only — a real 403 for everyone else**, not the `role_required` bounce; `?task=<id>` pre-selects; links on the CRM list + `task_detail` for admins) — any task, on behalf of **the task's assigned volunteer only** (the field's queryset is that one user, so nobody else validates; the select is rebuilt from `data-volunteer` / `data-volunteer-label` on each task option) or, left empty, as the admin. **"Сразу одобрить" (`approve_now`, on by default)** calls `photo_reports.approve` right after creating — the same approval as the review button. Both this form and the volunteer's `/reports/` form create through **`photo_reports.create(report, image, author=, uploaded_by=)`** (metadata-free image, `pending`, variants queued). `approve` / `reject` never notify the reviewer about their own report. `PhotoReport.uploaded_by` (migration 0029, null on older rows; the Django admin sets it on add) records who really uploaded; `added_by_admin` drives the "Добавлено администратором" mark (`_photo_report_admin_mark.html`: CRM list — a small wrapping plate under the name so the nowrap row keeps its title column — detail, public list). The reward rule is unchanged (author must be the task's volunteer), so a report as the admin never pays the admin. Tests: `myapp/tests_photo_report_admin_create.py`.
+**Admin adds a report (2026-10-18)**: `/myapp/crm/photo-reports/new/` (`crm_photo_report_create_view`, **superuser only — a real 403 for everyone else**, not the `role_required` bounce; `?task=<id>` pre-selects; links on the CRM list + `task_detail` for admins) — any task, on behalf of **the task's assigned volunteer only** (the field's queryset is that one user, so nobody else validates; the select is rebuilt from `data-volunteer` / `data-volunteer-label` on each task option) or, left empty, as the admin. **"Сразу одобрить" (`approve_now`, on by default)** calls `photo_reports.approve` right after creating — the same approval as the review button. Both this form and the volunteer's `/reports/` form create through **`photo_reports.create(report, image, author=, uploaded_by=)`** (metadata-free image, `pending`, variants queued). `approve` / `reject` never notify the reviewer about their own report. `PhotoReport.uploaded_by` (migration 0029, null on older rows; the Django admin sets it on add) records who really uploaded; `added_by_admin` drives the "Добавлено администратором" mark (`_photo_report_admin_mark.html`: CRM list — a small wrapping plate under the name so the nowrap row keeps its title column — detail, public list). The reward rule is unchanged (author must be the task's volunteer), so a report as the admin never pays the admin. **Two dates (2026-10-18, migration 0030)**: `event_date` ("Дата проведения", `DateField`, default `photo_reports.local_today()` = **Asia/Dushanbe** day — `TIME_ZONE` is UTC; 0030 backfilled it from the local day of `created_at`, reverse = noop) is when the help took place; `created_at` ("Дата публикации") is the upload. Default ordering `[-event_date, -created_at]`. Site forms (`PhotoReportForm`, `AdminPhotoReportForm` via `_EventDateMixin`): `<input type=date>` with min/max, `clean_event_date` = not in the future, not older than `EVENT_DATE_MAX_AGE_DAYS` (30) (codes `event_date_future` / `event_date_too_old` → `err.*`); default = the task's completion day, else the event's day, when inside that window, else today (options carry `data-date`, `static/js/photo-report-date.js` pre-fills until the person edits). The Django admin edits `event_date` without the 30-day limit; `created_at` read-only, `date_hierarchy` / `list_filter` on `event_date`. **Public pages show only `event_date`** via `{% local_date %}` (`i18n_plural.py`: `|date:"j E Y"` under the server-render language + `data-i18n-date`, which `setLanguage()` relabels with `act.mg*`); CRM list/detail show both. Period logic uses `event_date` (CRM "from / to" filter, activity calendar); `created_at` stays for the CRM review-queue order, the volunteer dashboard's "my latest uploads" order and the sitemap `lastmod` (the page changes when a report is published). Tests: `myapp/tests_photo_report_event_date.py`. Tests: `myapp/tests_photo_report_admin_create.py`.
 
 **Dispatch actions** (all admin/curator, on a `pending` task): `task_recommendations_view`
 returns the ranked JSON shortlist (read-only); `task_notify_volunteer_view` pings one volunteer
@@ -510,7 +512,13 @@ Business logic that needs to be unit-testable without the ORM or network lives h
   ignored like `?period=`. Ranked = active `is_volunteer` whose `VolunteerApplication`, if any, is not
   pending/rejected (admin/bootstrap volunteers without one count — unlike `network.py`'s strict
   counts). One annotated query (`build`), cached under `RATING_CACHE_KEY` with `computed_at`
-  ("updated N min ago"). `accounts.models.clear_rating_cache()` drops it +
+  ("updated N min ago"). **Merit score (2026-10-18, replaces the lexicographic order above):**
+  `ranked_queryset()` = ORM annotations, ORDER BY `score` ↓ (10 × completed + Bayesian review points
+  (prior 4.0 × 3 reviews, ±10 per star, `floor(x+0.5)` — same on SQLite/PG) + 2 × badges via a
+  subquery — **automatic badges only**: `Achievement.is_manual` (mentor) is shown, earns nothing), then `has_photo` ↓ (**tie-break only — a photo never adds points**), then profile
+  `completeness` ↓ (`COMPLETENESS_FIELDS`), then id; all weights at the top of `rating.py`. Badges
+  awarded by `achievements.evaluate` clear the cache too. Tests: `myapp/tests_demo_seed.py`
+  (`RatingTieBreakTests`). `accounts.models.clear_rating_cache()` drops it +
   the About leaders — called by `Profile.add_points` (= task completion), review stats, application
   approve/reject. "You" + "Кабинет" and the staff-only "Профиль"
   (→ `crm_volunteer_detail`; there is no public volunteer page) are decided per viewer in
@@ -523,8 +531,22 @@ Business logic that needs to be unit-testable without the ORM or network lives h
   volunteer accepted / completed (status completed) / photo report / donation `received_at` and
   `distributed_at` (two actions); client created request (cancelled too) / review (hidden too);
   both: donation offer, pet report. One `TruncDate(tzinfo=Asia/Dushanbe)` + `Count` query per kind
-  (query count fixed per role — test-locked in `myapp/tests_activity.py`), 365 days incl. today,
-  Monday-first 53×7 grid, levels = quartiles of the user's own max, cached 10 min per user+day.
+  (query count fixed per role — test-locked in `myapp/tests_activity.py`), **from `START_DATE`
+  (1 Sep 2026) — at most 365 days — to today**, Monday-first grid as many weeks wide as that
+  (`--act-weeks`), levels = quartiles of the user's own max, cached 10 min per user+day. **Plus the
+  per-day counter `UserDailyActivity`** (`myapp/models/activity.py`, unique user+date, `is_demo`):
+  `DailyActivityMiddleware` → `activity.record_request` writes the first page of the day (a cache
+  flag makes later page views free) and +1 (`F()`) per successful POST (`ACTIVITY_IGNORED_URL_NAMES`
+  skip pings / mark-read); `USER_ACTIVITY_TRACKING` off under `manage.py test` (tests opt in).
+  A day's count = max(counter, the rows' kinds) — the surplus shows as kind `site`; a summary line
+  shows active days + current streak (`act.days.*` / `act.streak.*`). The grid starts at
+  max(START_DATE, the user's registration day) — no squares before registration.
+  **`manage.py backfill_activity [--dry-run]`** (`services/activity_backfill.py`) restores rows from
+  real timestamps only (`SOURCES`: one (timestamp, actor) pair per table), recounted not added
+  (idempotent), no row for a day without events, `source` = backfill / live / merged / demo, never
+  lowers a live row, never touches demo rows. Events done *for* someone are not theirs: the
+  registration of an imported account (e-mail `@khayrkhoh.invalid` — the only import marker in the
+  DB), an application created+approved in one go, a location stamped with the account.
   Russian is rendered server-side from the i18n.js table (`translation_table`); `static/js/activity.js`
   re-labels with `Intl.PluralRules` (`act.count.*` / `act.total.*` exist in every form in all three
   languages — Tajik uses the same text for each).
@@ -584,6 +606,33 @@ the analytics stale count) — same rule, don't duplicate it. Automated monitori
 `check_overdue_tasks` (~15-min cron) and `check_stale_requests` (hourly cron) management commands
 (README → **Background jobs**) — still plain cron, deliberately; Celery is used only for notification
 *delivery* (see **Notifications**), not for scheduling.
+
+### Demo stand (`seed_demo`, 2026-10-18)
+
+`settings.DEMO_MODE` (`DJANGO_DEMO_MODE`) turns on the "Демонстрационный стенд" banner
+(`base.html`, `demo.banner` in 3 languages) and is the first `seed_demo` guard; the others refuse
+`khayrkhoh.tj` (or a subdomain) in `ALLOWED_HOSTS` and a database name in `PRODUCTION_DB_NAMES`
+(`DJANGO_PRODUCTION_DB_NAMES`) — all checked before any query (`seed_demo.refusal_reason`).
+`DJANGO_SQLITE_PATH` puts a stand in its own SQLite file. `is_demo` (default False, additive) on
+`Users`, `HelpRequest`, `TaskReview`, `UserDailyActivity`; `task_actions.create_request` /
+`feedback.submit_review` copy it from the demo client / request, so a demo account never makes a
+non-demo row. The seed: a fixed, seeded plan (`SEED`, horizon `TIMELINE_END`) replayed up to now
+**through the services** with `django.utils.timezone.now` patched to each step's time (create /
+accept / work stages / complete / review); the one-active-request rule holds over the whole
+timeline; demo requests have no photo report, so `photo_reports.credit_task` releases their reward.
+`_quiet()` swaps `notify` / `publish.send_to_group` / e-mail / Telegram for no-ops during the run.
+**It never writes photo reports or media files** (test-locked). Idempotent (users by username,
+requests by (client, created_at), reviews per task, activity per user+date), one transaction;
+`--reset` deletes `is_demo=True` rows only and refuses if a photo report or a real request /
+review would be touched (it keeps demo rows a photo report points at). Existing accounts keep
+login / password / e-mail / photo; a real account holding a demo username is skipped. Rows an
+older seed wrote (its usernames with exactly its e-mail, its request texts) are adopted as demo.
+`check_demo_data` also reports every `is_demo=True` row. Tests: `myapp/tests_demo_seed.py`.
+
+New badges (migrations 0032 `Achievement.is_manual` + 0033 data; thresholds on the `Achievement` rows): `tasks_5`, `tasks_25`,
+`high_rating` (≥ 5 visible reviews, average ≥ `TRUSTED_MIN_AVG`), `regular` (completed requests in
+N local weeks in a row — weekly, never a daily streak; the code avoids the banned word "streak"),
+`long_term` (N days since registration **and** ≥ 1 counted request — `NEEDS_A_TASK`).
 
 ### Notifications
 

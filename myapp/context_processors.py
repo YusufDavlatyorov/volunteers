@@ -25,3 +25,11 @@ def maps_config(request):
     except Exception:  # noqa: BLE001
         config["vector"] = {}
     return {"maps_tile_config": config}
+
+
+def demo_mode(request):
+    """``demo_mode`` for the "Демонстрационный стенд" banner in base.html
+    (settings.DEMO_MODE — a demo stand only, never production)."""
+    from django.conf import settings
+
+    return {"demo_mode": bool(getattr(settings, "DEMO_MODE", False))}

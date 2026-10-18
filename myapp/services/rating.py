@@ -5,11 +5,27 @@
 as a podium (places 1–3) and a table from place 4 — no search, region filter
 or re-sorting (removed 2026-10-14; such old URL parameters are ignored).
 
-Ranking, always over all time (owner 2026-10-14: no period switch): completed
-requests ↓ (credited ones — the photo report approved, ``reward_pending=False``), then the volunteer's average
-client rating ↓ (``Profile.review_avg``: visible reviews, all time — the
-denormalised value, so the task COUNT and the review AVG don't share a join and
-inflate each other), then the number of reviews ↓, then user id (stable).
+Ranking, always over all time (owner 2026-10-14: no period switch; the merit
+score 2026-10-18), one deterministic ORDER BY of ORM annotations:
+
+1. ``score`` ↓ — merit points, built on the earlier order (completed requests
+   first, then the client rating, then the number of reviews):
+   ``TASK_POINTS`` × completed requests (credited ones — the photo report
+   approved, ``reward_pending=False``)
+   + the client rating weighted by its number of reviews: a Bayesian average
+   (``PRIOR_AVG`` counted ``PRIOR_REVIEWS`` times next to the visible reviews,
+   ``Profile.review_avg`` / ``review_count`` — the denormalised values, so the
+   task COUNT and the reviews don't share a join), ``RATING_POINTS`` per star
+   above / below ``PRIOR_AVG``, rounded half up — one 5★ review can't outweigh a long
+   4.8★ record, and a poor rating costs points
+   + ``BADGE_POINTS`` × achievements earned automatically (a subquery, no
+   join; a hand-given badge — ``Achievement.is_manual``, e.g. mentor — is
+   shown on the card but earns no points);
+2. a profile photo ↓ — **only between equal scores**: a photo never adds points;
+3. profile completeness ↓ (``COMPLETENESS_FIELDS``: name, about, age, skills,
+   location — 0…5);
+4. user id ↑ (stable, so pages never lose or repeat anyone).
+
 No "kindness points": ``Profile.rating`` is not shown or used here.
 
 Who is ranked: active volunteers (``is_volunteer``) whose volunteer
@@ -30,17 +46,33 @@ from __future__ import annotations
 from datetime import timedelta
 
 from django.core.cache import cache
-from django.db.models import Count, F, Q
+from django.db.models import Case, Count, F, FloatField, IntegerField, OuterRef, Q, Subquery, Value, When
+from django.db.models.functions import Cast, Coalesce, Floor
 from django.utils import timezone
 
 from accounts.models import RATING_CACHE_KEY, REGION_CHOICES, Users
-from myapp.models import VolunteerApplication
+from myapp.models import UserAchievement, VolunteerApplication
 
 WEEK = timedelta(days=7)
 PODIUM_SIZE = 3
 PAGE_SIZE = 20
 MAX_ROWS = 2000  # response-size bound, like the map caps
 TTL = 300  # seconds; the clears above make a change show at once
+
+# The merit score (module docstring) — every weight in one place.
+TASK_POINTS = 10
+RATING_POINTS = 10
+PRIOR_AVG = 4.0
+PRIOR_REVIEWS = 3
+BADGE_POINTS = 2
+# Profile completeness (the second tie-break): each filled field counts 1.
+COMPLETENESS_FIELDS = (
+    ~Q(profile__full_name=""),
+    ~Q(profile__bio=""),
+    Q(profile__age__isnull=False),
+    ~Q(profile__skills=[]),
+    Q(profile__latitude__isnull=False, profile__longitude__isnull=False),
+)
 
 
 def ranked_volunteers():
@@ -50,22 +82,53 @@ def ranked_volunteers():
     )
 
 
-def build() -> dict:
-    now = timezone.now()
+def _flag(q):
+    return Case(When(q, then=Value(1)), default=Value(0), output_field=IntegerField())
+
+
+def ranked_queryset(now=None):
+    """The ranking as one annotated, ordered queryset (``score``,
+    ``has_photo``, ``completeness``, ``completed``, ``week``, ``badges``)."""
+    now = now or timezone.now()
     # A completed request counts once its photo report is approved
     # (reward_pending cleared by services/photo_reports.credit_task).
     done = Q(volunteer_tasks__status="completed", volunteer_tasks__reward_pending=False)
-    users = (
+    badges = Subquery(
+        # Automatic badges only: a hand-given one (mentor) is shown but earns no points.
+        UserAchievement.objects.filter(user_id=OuterRef("pk"), achievement__is_manual=False).order_by()
+        .values("user_id").annotate(n=Count("pk")).values("n")[:1],
+        output_field=IntegerField(),
+    )
+    reviews = Coalesce(F("profile__review_count"), Value(0))
+    average = Cast(Coalesce(F("profile__review_avg"), Value(0)), FloatField())
+    weighted = (average * reviews + Value(PRIOR_AVG * PRIOR_REVIEWS)) / (reviews + Value(float(PRIOR_REVIEWS)))
+    completeness = _flag(COMPLETENESS_FIELDS[0])
+    for q in COMPLETENESS_FIELDS[1:]:
+        completeness = completeness + _flag(q)
+    return (
         ranked_volunteers()
         .select_related("profile")
         .annotate(
             completed=Count("volunteer_tasks", filter=done),
             week=Count("volunteer_tasks", filter=done & Q(volunteer_tasks__completed_at__gte=now - WEEK)),
+            badges=Coalesce(badges, Value(0)),
+            # floor(x + 0.5): the same half-up rounding on SQLite and PostgreSQL.
+            rating_points=Cast(
+                Floor((weighted - Value(PRIOR_AVG)) * Value(float(RATING_POINTS)) + Value(0.5)), IntegerField(),
+            ),
         )
-        .order_by(
-            "-completed", F("profile__review_avg").desc(nulls_last=True), "-profile__review_count", "id",
-        )[:MAX_ROWS]
+        .annotate(
+            score=F("completed") * TASK_POINTS + F("rating_points") + F("badges") * BADGE_POINTS,
+            has_photo=_flag(Q(profile__image__isnull=False) & ~Q(profile__image="")),
+            completeness=completeness,
+        )
+        .order_by("-score", "-has_photo", "-completeness", "id")
     )
+
+
+def build() -> dict:
+    now = timezone.now()
+    users = ranked_queryset(now)[:MAX_ROWS]
     rows = []
     for rank, user in enumerate(users, start=1):
         profile = getattr(user, "profile", None)
@@ -80,6 +143,9 @@ def build() -> dict:
             "region": user.region or "",
             "region_label": dict(REGION_CHOICES).get(user.region, ""),
             "completed": user.completed,
+            "score": user.score,
+            "has_photo": bool(user.has_photo),
+            "completeness": user.completeness,
             "week": user.week,
             "avg": float(avg) if avg is not None else None,
             "reviews": profile.review_count if profile else 0,

@@ -31,8 +31,6 @@ from __future__ import annotations
 import hashlib
 import logging
 from dataclasses import dataclass
-from datetime import datetime, time
-from zoneinfo import ZoneInfo
 
 from django.db import transaction
 from django.db.models import F, Q, Value
@@ -54,7 +52,6 @@ NOT_FOUND = "not_found"
 BULK_DELETE_MAX = 100  # ids per "Delete selected" (the CRM list shows 20 a page)
 
 DEFAULT_STATUS_FILTER = "pending"
-LOCAL_TZ = ZoneInfo("Asia/Dushanbe")  # the CRM's days, like analytics_v2
 
 
 @dataclass
@@ -332,6 +329,8 @@ def visible_to(user):
 
 
 def recent_for_author(user, limit):
+    # The author's latest uploads (with their review status) — upload order;
+    # the dashboard shows each one's event_date.
     return list(
         PhotoReport.objects.filter(author=user).select_related("help_request").order_by("-created_at")[:limit]
     )
@@ -339,18 +338,19 @@ def recent_for_author(user, limit):
 
 def staff_queryset(filters):
     """The CRM list. ``filters``: status ("all" or a status), date_from,
-    date_to (Asia/Dushanbe days, inclusive), volunteer (a user), task (an id)."""
+    date_to (inclusive, compared with ``event_date`` — the day the help took
+    place), volunteer (a user), task (an id). Ordered by upload time, newest
+    first: the list is the review queue."""
     qs = PhotoReport.objects.select_related(
         "author", "author__profile", "uploaded_by", "help_request", "help_request__client"
     )
     status = filters.get("status") or DEFAULT_STATUS_FILTER
     if status != "all":
         qs = qs.filter(status=status)
-    tz = LOCAL_TZ
     if filters.get("date_from"):
-        qs = qs.filter(created_at__gte=timezone.make_aware(datetime.combine(filters["date_from"], time.min), tz))
+        qs = qs.filter(event_date__gte=filters["date_from"])
     if filters.get("date_to"):
-        qs = qs.filter(created_at__lte=timezone.make_aware(datetime.combine(filters["date_to"], time.max), tz))
+        qs = qs.filter(event_date__lte=filters["date_to"])
     if filters.get("volunteer"):
         qs = qs.filter(author=filters["volunteer"])
     if filters.get("task"):

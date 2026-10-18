@@ -10,7 +10,15 @@ approved report reaches the public pages (landing page, the reports list), and
 only an approved report on a task releases that task's reward (rating points +
 achievements, ``services/photo_reports.credit_task``). A rejected report is
 final — the volunteer uploads a new one.
+
+Two dates (2026-10-18): ``event_date`` is when the help / clean-up actually
+took place (chosen in the form, the only date public pages show, what period
+statistics count by); ``created_at`` is when the report was published
+(uploaded) — CRM and Django admin show both.
 """
+
+import datetime
+from zoneinfo import ZoneInfo
 
 from django.db import models
 from django.utils import timezone
@@ -30,6 +38,17 @@ PHOTO_REPORT_STATUS_CHOICES = [
     (PHOTO_REPORT_REJECTED, "Отклонён"),
 ]
 REJECTION_REASON_MAX_LENGTH = 500
+# The platform's days are Asia/Dushanbe days (TIME_ZONE is UTC): a report
+# uploaded at 02:00 in Dushanbe belongs to that local day, not to "yesterday".
+LOCAL_TZ = ZoneInfo("Asia/Dushanbe")
+# How far back the site forms accept an event date (the Django admin is not
+# limited — staff can correct older reports).
+EVENT_DATE_MAX_AGE_DAYS = 30
+
+
+def local_today() -> datetime.date:
+    """Today in Asia/Dushanbe — the default ``event_date``."""
+    return timezone.localdate(timezone=LOCAL_TZ)
 
 
 class PhotoReport(models.Model):
@@ -59,7 +78,10 @@ class PhotoReport(models.Model):
         blank=True,
         related_name="photo_reports",
     )
-    created_at = models.DateTimeField(auto_now_add=True)
+    # When the help actually took place (default: the upload day) vs. when the
+    # report was published — see the module docstring.
+    event_date = models.DateField("Дата проведения", default=local_today)
+    created_at = models.DateTimeField("Дата публикации", auto_now_add=True)
 
     # CRM review. Reports that existed before the review was introduced were
     # marked approved by migration 0028; a new upload starts pending.
@@ -75,9 +97,10 @@ class PhotoReport(models.Model):
     class Meta:
         verbose_name = "Фотоотчет"
         verbose_name_plural = "Фотоотчеты"
-        ordering = ["-created_at"]
+        ordering = ["-event_date", "-created_at"]
         indexes = [
             models.Index(fields=["-created_at"], name="photoreport_created_idx"),
+            models.Index(fields=["-event_date", "-created_at"], name="photoreport_event_idx"),
             models.Index(fields=["status", "-created_at"], name="photoreport_status_idx"),
         ]
 

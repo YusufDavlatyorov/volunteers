@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load static assets responsive form_i18n reviews %}
+{% load static assets responsive form_i18n reviews i18n_plural %}
 {% block extra_css %}<link rel="stylesheet" href="{% asset 'css/home.css' %}">{% endblock %}
 {% block content %}
 <section class="hero">
@@ -245,7 +245,7 @@
     {% if reports %}
     <div class="grid">
         {% for report in reports %}
-            <div class="card reveal">{% responsive_image report.image report.image_variants sizes="(max-width: 700px) 92vw, 380px" class="report-img" alt="Фотоотчёт: "|add:report.title data_i18n_alt="about.report_alt" data_i18n_args=report.title|i18n_args:"title" width=800 height=600 loading="lazy" decoding="async" %}<h3>{{ report.title }}</h3><p class="clamp-text">{{ report.description }}</p></div>
+            <div class="card reveal">{% responsive_image report.image report.image_variants sizes="(max-width: 700px) 92vw, 380px" class="report-img" alt="Фотоотчёт: "|add:report.title data_i18n_alt="about.report_alt" data_i18n_args=report.title|i18n_args:"title" width=800 height=600 loading="lazy" decoding="async" %}<h3>{{ report.title }}</h3><p class="report-date">{% local_date report.event_date %}</p><p class="clamp-text">{{ report.description }}</p></div>
         {% endfor %}
     </div>
     {% else %}

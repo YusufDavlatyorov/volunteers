@@ -131,19 +131,31 @@ python manage.py migrate
 ### 3.3. Демо-данные
 
 ```bash
+export DJANGO_DEMO_MODE=True DJANGO_SQLITE_PATH=demo_stand.sqlite3   # отдельная база стенда
+python manage.py migrate
 python manage.py seed_demo
 ```
 
-**Что делает:** создаёт демо-пользователей всех ролей, запросы о помощи, акции, отзывы, чаты,
-пожертвования вещами и объявления о животных. Если демо-данные уже есть, команда их обновляет, а
-не дублирует. Повторять можно сколько угодно.
+Без `DJANGO_DEMO_MODE=True` команда откажется работать (так же — при `khayrkhoh.tj` в
+`DJANGO_ALLOWED_HOSTS` и на production-базе). `DJANGO_SQLITE_PATH` держит демо-стенд в отдельном
+файле, рядом с обычной базой для разработки.
 
-**Что увидите** (через несколько секунд) — в конце три строки:
+**Что делает:** создаёт демо-пользователей всех ролей (в том числе волонтёров и клиентов Душанбе
+по районам города), заявки с 1 сентября 2026 через настоящие сервисы (принятие, завершение,
+отзывы), ежедневную активность для тепловой карты профиля, достижения, акции, пожертвования вещами
+и объявления о животных. Все такие записи помечены `is_demo=True`. **Фотоотчётов и картинок не
+создаёт** — фото профилей демо-волонтёров загрузите сами. Уведомления при сиде не отправляются.
+Повторный запуск ничего не дублирует; `--reset` сначала удаляет только записи `is_demo=True`.
+На каждой странице стенда — плашка «Демонстрационный стенд».
+
+**Что увидите** (через несколько секунд) — в конце несколько строк:
 
 ```
 Demo data ready.
-Users: … | Events: … | Requests: … | …
-Demo password for all demo users: Volunteer2026!
+Demo users: … (volunteers …, clients …, curators …, admins …)
+Demo requests: pending …, active …, completed …, cancelled 0
+Demo reviews: … | activity rows: …
+Demo password for all new demo users: Volunteer2026!
 ```
 
 Затем:
@@ -264,8 +276,8 @@ python manage.py runserver
 
 ```bash
 python manage.py migrate
-python manage.py seed_demo
-python manage.py backfill_achievements
+DJANGO_DEMO_MODE=True python manage.py seed_demo
+python manage.py recalculate_achievements
 ```
 
 ---

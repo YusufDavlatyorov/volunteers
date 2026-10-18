@@ -84,6 +84,8 @@ class StarterSetTests(AchievementBase):
         self.assertEqual(codes, {
             "first_help", "tasks_10", "tasks_50", "tasks_100", "kind_words", "trusted", "steady_helper",
             "year_together", "versatile", "donation_courier", "pet_friend", "mentor",
+            # demo pack 2026-10-18 (migration 0033)
+            "tasks_5", "tasks_25", "high_rating", "regular", "long_term",
         })
         # milestone 5: awarded by hand (achievements.MANUAL_CODES), active
         self.assertTrue(Achievement.objects.get(code="mentor").is_active)
@@ -307,10 +309,10 @@ class AwardingTests(AchievementBase):
         self.done(10)
         out = io.StringIO()
         call_command("backfill_achievements", "--dry-run", stdout=out)
-        self.assertIn("would award 2", out.getvalue())
+        self.assertIn("would award 3", out.getvalue())
         self.assertFalse(UserAchievement.objects.exists())
         call_command("backfill_achievements", stdout=io.StringIO())
-        self.assertEqual(self.codes(), {"first_help", "tasks_10"})
+        self.assertEqual(self.codes(), {"first_help", "tasks_5", "tasks_10"})
         self.assertFalse(Notification.objects.filter(type="achievement_unlocked").exists())
         out = io.StringIO()
         call_command("backfill_achievements", stdout=out)
@@ -370,7 +372,7 @@ class ReadTests(AchievementBase):
         with CaptureQueriesContext(connection) as big:
             achievements.counters(self.vol)
         self.assertEqual(len(small.captured_queries), len(big.captured_queries))
-        self.assertLessEqual(len(big.captured_queries), 4)
+        self.assertLessEqual(len(big.captured_queries), 5)  # + the weeks of "regular" (2026-10-18)
 
     def test_progress_for_profile_grid(self):
         self.done(3)

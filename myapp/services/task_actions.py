@@ -80,6 +80,8 @@ def create_request(client, form) -> HelpRequest:
     help_request = form.save(commit=False)
     help_request.client = client
     help_request.region = client.region
+    # A demo account (seed_demo / a demo stand) only ever makes demo requests.
+    help_request.is_demo = bool(getattr(client, "is_demo", False))
     if not help_request.has_location and help_request.address:
         coords = maps.geocode(help_request.address, region=help_request.region)
         if coords:

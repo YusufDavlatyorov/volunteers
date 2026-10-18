@@ -55,6 +55,9 @@ ERROR_I18N_KEYS = {
     "photo_too_large": "err.photo_too_large",
     "photo_format": "err.photo_format",
     "address_required": "err.address_required",
+    # myapp/forms.py photo-report forms (_EventDateMixin.clean_event_date)
+    "event_date_future": "err.event_date_future",
+    "event_date_too_old": "err.event_date_too_old",
     # accounts/views.py login_view
     "login_failed": "err.login_failed",
     "login_throttled": "err.login_throttled",

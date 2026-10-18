@@ -8,6 +8,7 @@ existing imports keep working unchanged:
 New domain areas get their own module in this package plus an entry below.
 """
 
+from .activity import UserDailyActivity
 from .achievements import (
     ACHIEVEMENT_CATEGORY_CHOICES,
     ACHIEVEMENT_TIER_CHOICES,
@@ -77,6 +78,7 @@ from .chat import (
 from .faq import FAQ_LANGUAGES, FAQCategory, FAQItem
 from .feedback import REVIEW_COMMENT_MAX_LENGTH, REVIEW_TAGS, TaskReview
 from .photo_reports import (
+    EVENT_DATE_MAX_AGE_DAYS,
     PHOTO_REPORT_STATUS_CHOICES,
     REJECTION_REASON_MAX_LENGTH,
     PhotoReport,
@@ -87,6 +89,8 @@ from .volunteer_applications import VolunteerApplication
 __all__ = [
     # community (Telegram)
     "CommunityInvite", "CommunityMember", "CommunityPost", "ModerationAction",
+    # activity (profile heatmap)
+    "UserDailyActivity",
     # achievements
     "ACHIEVEMENT_CATEGORY_CHOICES", "ACHIEVEMENT_TIER_CHOICES", "TIER_RANK", "Achievement", "UserAchievement",
     # chat
@@ -129,6 +133,7 @@ __all__ = [
     "PET_OWNER_TRANSITIONS",
     # photo_reports
     "PhotoReport",
+    "EVENT_DATE_MAX_AGE_DAYS",
     "PHOTO_REPORT_STATUS_CHOICES",
     "REJECTION_REASON_MAX_LENGTH",
     # emergency

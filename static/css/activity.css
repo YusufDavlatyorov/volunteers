@@ -13,6 +13,8 @@
     position: relative;
     min-width: 0;
 }
+/* A short window (the first months from 1 September 2026): bigger squares. */
+.act-card--roomy { --act-cell: 18px; --act-gap: 4px; }
 /* Dark: an empty day is a faint plate, and more activity gets *brighter*. */
 [data-theme="dark"] .act-card {
     --act-0: #2c2e35;
@@ -21,7 +23,18 @@
     --act-3: #7182e6;
     --act-4: #aab6ff;
 }
-.act-total { margin: 0 0 var(--space-3); color: var(--text-2); font-variant-numeric: tabular-nums; }
+.act-total { margin: 0 0 var(--space-1); color: var(--text-2); font-variant-numeric: tabular-nums; }
+/* "N active days · current streak: M days" */
+.act-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 var(--space-2);
+    margin: 0 0 var(--space-3);
+    color: var(--muted);
+    font-size: 0.9rem;
+    font-variant-numeric: tabular-nums;
+}
+.act-summary__item { white-space: nowrap; }
 
 /* The grid scrolls sideways inside the card on a phone; the page never does. */
 .act-scroll {
@@ -43,7 +56,7 @@
 .act-months {
     grid-area: months;
     display: grid;
-    grid-template-columns: repeat(53, var(--act-cell));
+    grid-template-columns: repeat(var(--act-weeks, 53), var(--act-cell));
     column-gap: var(--act-gap);
     height: 14px;
     font-size: 11px;

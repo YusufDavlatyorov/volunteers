@@ -9,7 +9,8 @@
   user's own file name — often their real name — at a public URL) random
   names and updates the rows.
 * ``check_demo_data`` reports, read-only, anything ``seed_demo`` writes;
-  ``seed_demo`` refuses to run with DEBUG=False (production).
+  ``seed_demo`` refuses to run without DEMO_MODE (production never has it;
+  the full guard set is in tests_demo_seed.py).
 """
 
 import io
@@ -376,24 +377,30 @@ class CheckDemoDataCleanTests(TestCase):
         self.assertIn("help requests with demo text: 0", out)
 
 
-@override_settings(MEDIA_ROOT=SEED_MEDIA, PASSWORD_HASHERS=FAST_HASHER, CELERY_BROKER_URL=None)
+@override_settings(MEDIA_ROOT=SEED_MEDIA, PASSWORD_HASHERS=FAST_HASHER, CELERY_BROKER_URL=None, DEMO_MODE=True)
 class CheckDemoDataFindsSeedTests(TestCase):
     @classmethod
     def setUpTestData(cls):
-        call_command("seed_demo", "--allow-without-debug", stdout=io.StringIO())
+        call_command("seed_demo", stdout=io.StringIO())
 
     def test_every_kind_of_seed_data_is_reported_and_nothing_is_deleted(self):
         before = (Users.objects.count(), HelpRequest.objects.count(), PhotoReport.objects.count())
         out, error = audit()
         self.assertIsNotNone(error)
         self.assertIn("do NOT delete anything", str(error))
-        for label in ("accounts with a demo username: 25", "accounts accepting the demo password: 25",
+        accounts = len(seed_demo.demo_usernames())
+        for label in (f"accounts with a demo username: {accounts}", f"accounts accepting the demo password: {accounts}",
+                      f"accounts flagged is_demo: {accounts}",
                       "events with demo text: 5", "broadcasts with demo text: 2",
-                      "photo reports with demo text or demo file name: 8", "SOS reports with demo text: 2",
+                      # seed_demo writes no photo reports and no media files any more
+                      "photo reports with demo text or demo file name: 0", "SOS reports with demo text: 2",
                       "catalogue items with demo text: 5", "donation offers from demo businesses: 2",
-                      "pet reports with demo text: 5", "media files identical to a demo photo: 8 — reports/"):
+                      "pet reports with demo text: 5", "media files identical to a demo photo: 0"):
             self.assertIn(label, out)
         self.assertRegex(out, r"help requests with demo text: [1-9]\d")
+        self.assertRegex(out, r"help requests flagged is_demo: [1-9]\d")
+        self.assertRegex(out, r"reviews flagged is_demo: [1-9]\d")
+        self.assertRegex(out, r"daily activity rows flagged is_demo: [1-9]\d")
         self.assertRegex(out, r"chat messages written by seed_demo: [1-9]")
         self.assertEqual(before, (Users.objects.count(), HelpRequest.objects.count(), PhotoReport.objects.count()))
         self.assertNotIn("Замира", out)            # no names
@@ -409,13 +416,19 @@ class CheckDemoDataFindsSeedTests(TestCase):
             out, _error = audit()
         finally:
             target.unlink()
-        self.assertIn("media files identical to a demo photo: 9 — avatars/, reports/", out)
+        self.assertIn("media files identical to a demo photo: 1 — avatars/", out)
         self.assertNotIn("Personal_Name", out)
 
+    def test_photo_reports_of_an_older_seed_are_still_found(self):
+        PhotoReport.objects.create(title=seed_demo.DEMO_REPORTS[0][0], description=seed_demo.DEMO_REPORTS[0][1],
+                                   image=f"{seed_demo.DEMO_REPORT_IMAGE_PREFIX}1.jpg", region="dushanbe")
+        out, _error = audit()
+        self.assertIn("photo reports with demo text or demo file name: 1", out)
 
-@override_settings(DEBUG=False)
+
+@override_settings(DEMO_MODE=False)
 class SeedDemoGuardTests(TestCase):
-    def test_refuses_without_debug(self):
+    def test_refuses_without_demo_mode(self):
         with self.assertRaisesMessage(CommandError, "must never reach production"):
             call_command("seed_demo", stdout=io.StringIO())
         self.assertFalse(Users.objects.exists())

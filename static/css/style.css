@@ -2304,3 +2304,16 @@ a.review-tile:hover { border-color: var(--primary); }
 .trend-legend__item--completed::before { background: #24907F; }
 [data-theme="dark"] .trend-legend__item::before { background: #8796F2; }
 [data-theme="dark"] .trend-legend__item--completed::before { background: #4DC4B0; }
+
+/* Demo stand (settings.DEMO_MODE): a thin plate above the navbar, scrolls away
+   with the page. Never shown in production (DEMO_MODE is off there). */
+.demo-banner {
+    padding: 0.4rem var(--space-4, 1rem);
+    background: var(--accent-glow);
+    color: var(--accent);
+    border-bottom: 1px solid var(--accent);
+    font-size: 0.9rem;
+    font-weight: 600;
+    line-height: 1.35;
+    text-align: center;
+}

@@ -124,11 +124,25 @@ python manage.py migrate
 
 ### 5. (Optional) Load demo data
 
-Creates admins, curators, volunteers, clients, requests, events and photo reports:
+Only on a local copy or a separate demo stand with its **own database** — the command refuses
+without `DJANGO_DEMO_MODE=True`, with `khayrkhoh.tj` in `DJANGO_ALLOWED_HOSTS`, or on a database named
+in `DJANGO_PRODUCTION_DB_NAMES`. A separate SQLite file keeps the stand apart from your dev data:
 
 ```bash
-python manage.py seed_demo
+export DJANGO_DEMO_MODE=True DJANGO_SQLITE_PATH=demo_stand.sqlite3
+python manage.py migrate
+python manage.py seed_demo                 # idempotent; --reset deletes is_demo=True rows first
+python manage.py recalculate_achievements  # optional: badges from the data (seed_demo already does it)
+python manage.py runserver                 # every page shows the "Demo site" banner
 ```
+
+It creates demo accounts (the older set across the regions + a Dushanbe set by city district),
+a timeline of help requests from 1 September 2026 replayed through the real services (accept /
+complete / reviews; one active request per volunteer at any moment), per-day activity for the
+profile heatmap, badges, events, SOS, donation offers and a Lost & Found board. Every account,
+request, review and activity row is `is_demo=True`. **No photo reports and no images** — demo
+volunteers show initials until you upload profile photos yourself; nothing is sent (in-app,
+WebSocket, e-mail, Telegram are off during the run).
 
 Demo login (all demo users share the same password):
 
@@ -262,8 +276,8 @@ throw-away-cluster pattern) or the rehearsal VM in `deploy/MIGRATION.md` (step R
 
 ## Demo data — NEVER in production
 
-`seed_demo` creates fake admins/curators/volunteers/clients, help requests, events, donations,
-pet reports, photo reports and emergency reports. It exists **only** for local development and
+`seed_demo` creates fake admins/curators/volunteers/clients, help requests, reviews, daily
+activity, events, donations, pet reports and emergency reports (never photo reports). It exists **only** for local development and
 demos. **Do NOT run `seed_demo` against the production database.** Production starts from a
 fresh PostgreSQL database with all migrations applied and gets its only accounts from
 `create_initial_production_accounts` (below) — zero demo business data.
@@ -298,8 +312,9 @@ re-saves a hash, and exits 1 if anything is found (run at every deploy).
 and after a deploy): it includes the password check and also reports every other kind of row
 `seed_demo` writes (requests, events, broadcasts, photo reports, SOS, catalogue, donation offers,
 pets, chat lines) and media files byte-identical to the demo photos — ids and counts only, exit 1 if
-any. If it finds something, nothing is deleted: the owner decides. `seed_demo` itself refuses to run
-with `DEBUG=False`.
+any (plus every `is_demo=True` account / request / review / activity row). If it finds something,
+nothing is deleted: the owner decides. `seed_demo` itself refuses to run without `DJANGO_DEMO_MODE=True`,
+with the production domain in `ALLOWED_HOSTS` or on a production database name.
 
 ## Deployment
 
@@ -321,7 +336,8 @@ four systemd units, host nginx + certbot. Everything is in [`deploy/`](deploy/):
 
 **Fresh server:** follow `DEPLOY.md` step by step. **Redeploy after a code change:**
 `/opt/khayrkhoh/deploy/deploy.sh` as the `deploy` user. Demo data never reaches production —
-no script in `deploy/` seeds anything, and `seed_demo` refuses to run with `DEBUG=False`.
+no script in `deploy/` seeds anything, and `seed_demo` refuses to run without `DJANGO_DEMO_MODE=True`
+(never set in production) or anywhere near the production host / database.
 
 `DEBUG=False` automatically switches on `SECURE_SSL_REDIRECT`, HSTS (1 year, preload),
 `SESSION_COOKIE_SECURE` / `CSRF_COOKIE_SECURE`; `SECURE_CONTENT_TYPE_NOSNIFF` and

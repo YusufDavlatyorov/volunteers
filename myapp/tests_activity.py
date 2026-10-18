@@ -1,7 +1,9 @@
 """Activity calendar (myapp/services/activity.py, templates/myapp/_activity_calendar.html):
-counted actions per role, the Asia/Dushanbe day boundary, the 365-day / 53-week
-window, quartile levels, Russian plurals, caching, roles that get no calendar,
-and a query count that does not grow with the number of active days."""
+counted actions per role, the Asia/Dushanbe day boundary, the window (from
+1 September 2026, at most 365 days), quartile levels, Russian plurals, caching,
+roles that get no calendar, and a query count that does not grow with the
+number of active days. The per-day counter (UserDailyActivity) and the
+summary line are in tests_demo_seed.py."""
 
 import datetime
 import re
@@ -26,8 +28,12 @@ TODAY = datetime.date(2026, 10, 9)
 
 
 def _user(name, **flags):
-    return Users.objects.create_user(username=name, email=f"{name}@example.com", password="x-Act-12345",
+    user = Users.objects.create_user(username=name, email=f"{name}@example.com", password="x-Act-12345",
                                      region="dushanbe", **flags)
+    # Registered before the window (the calendar starts at max(1 Sep 2026, registration)).
+    Users.objects.filter(pk=user.pk).update(date_joined=datetime.datetime(2026, 8, 1, tzinfo=UTC))
+    user.refresh_from_db()
+    return user
 
 
 def _at(y, m, d, hh=10, mm=0):
@@ -72,7 +78,8 @@ class ActivityCountsTests(TestCase):
         active = self._task(volunteer=self.vol, status="active")
         HelpRequest.objects.filter(pk=active.pk).update(accepted_at=_at(2026, 10, 6), completed_at=_at(2026, 10, 6))  # not completed
         report = PhotoReport.objects.create(author=self.vol, title="r", image="reports/x.jpg")
-        PhotoReport.objects.filter(pk=report.pk).update(created_at=_at(2026, 10, 5, 11))
+        # Counted on the day the help took place (event_date), not the upload day.
+        PhotoReport.objects.filter(pk=report.pk).update(created_at=_at(2026, 10, 7, 11), event_date=datetime.date(2026, 10, 5))
         don = Donation.objects.create(donor=self.cli, item_name="rice", quantity=1, assigned_volunteer=self.vol)
         Donation.objects.filter(pk=don.pk).update(received_at=_at(2026, 10, 7), distributed_at=_at(2026, 10, 7, 12))
         counts = activity.daily_counts(self.vol, TODAY)
@@ -108,8 +115,8 @@ class ActivityCountsTests(TestCase):
         self.assertEqual(counts[datetime.date(2026, 10, 4)], {"request_created": 1})
         self.assertEqual(counts[datetime.date(2026, 10, 5)], {"request_created": 1})
 
-    def test_window_is_365_days_including_today(self):
-        first = TODAY - datetime.timedelta(days=364)
+    def test_window_starts_on_1_september_2026_and_includes_today(self):
+        first = activity.START_DATE
         inside, outside, today = self._task(), self._task(), self._task()
         HelpRequest.objects.filter(pk=inside.pk).update(created_at=datetime.datetime.combine(first, datetime.time(0, 5), tzinfo=activity.TZ))
         HelpRequest.objects.filter(pk=outside.pk).update(created_at=datetime.datetime.combine(first, datetime.time(0, 0), tzinfo=activity.TZ) - datetime.timedelta(minutes=1))
@@ -123,17 +130,22 @@ class ActivityCountsTests(TestCase):
                 t = self._task()
                 HelpRequest.objects.filter(pk=t.pk).update(created_at=_at(2026, 10, day))
         cal = activity.calendar(self.cli, now=NOW)
-        self.assertEqual(len(cal["weeks"]), 53)
+        # 1 Sep 2026 is a Tuesday: the grid starts on Monday 31 Aug, 6 weeks to Fri 9 Oct.
+        self.assertEqual(len(cal["weeks"]), 6)
+        self.assertEqual(cal["week_count"], 6)
         self.assertTrue(all(len(w) == 7 for w in cal["weeks"]))
         self.assertEqual(cal["weeks"][0][0]["date"].weekday(), 0)                   # grid starts on a Monday
         days = [d for w in cal["weeks"] for d in w if not d["out"]]
-        self.assertEqual(len(days), 365)
+        self.assertEqual(len(days), 39)
+        self.assertEqual(days[0]["date"], activity.START_DATE)
         self.assertEqual(days[-1]["date"], TODAY)
         self.assertTrue(days[-1]["today"])
         by_date = {d["date"]: d for d in days}
         self.assertEqual((by_date[datetime.date(2026, 10, 5)]["level"], by_date[datetime.date(2026, 10, 6)]["level"]), (1, 4))
         self.assertEqual(cal["total"], 5)
-        self.assertEqual(cal["total_text"], "5 действий за последний год")
+        self.assertEqual(cal["total_text"], "Всего 5 действий")
+        self.assertEqual((cal["active_days"], cal["streak"]), (2, 0))   # nothing on the 8th / 9th
+        self.assertEqual(cal["active_days_text"], "2 активных дня")
         self.assertEqual(by_date[datetime.date(2026, 10, 6)]["label"], "4 действия · 6 октября 2026. Создан запрос: 4")
         self.assertEqual(by_date[datetime.date(2026, 10, 5)]["label"], "1 действие · 5 октября 2026")
         self.assertEqual(by_date[datetime.date(2026, 10, 7)]["label"], "Нет активности · 7 октября 2026")
@@ -159,8 +171,8 @@ class ActivityCountsTests(TestCase):
                                                phone="+992900000000", region="dushanbe")
                 HelpRequest.objects.filter(pk=t.pk).update(created_at=NOW - datetime.timedelta(days=i))
         self.assertEqual(queries_for(few), queries_for(many))
-        self.assertEqual(queries_for(many), 4)                          # one per kind for a client
-        self.assertEqual(activity.calendar(many, now=NOW)["total"], 300)
+        self.assertEqual(queries_for(many), 5)                # one per kind for a client + the day counter
+        self.assertEqual(activity.calendar(many, now=NOW)["total"], 39)  # the window starts on 1 Sep 2026
 
 
 class ActivityPageTests(TestCase):
@@ -183,9 +195,10 @@ class ActivityPageTests(TestCase):
             with self.subTest(user=user.username):
                 self.assertIn('id="activityCard"', html)
                 self.assertIn(f'data-i18n="{hint}"', html)
-                self.assertIn("0 действий за последний год", html)       # server-rendered Russian
+                self.assertIn("Всего 0 действий", html)       # server-rendered Russian
                 cells = re.findall(r'<span class="act-cell l\d[^"]*" role="img" aria-label="([^"]+)"', html)
-                self.assertEqual(len(cells), 365)
+                first, last = activity.window(activity.local_today(), user.date_joined)
+                self.assertEqual(len(cells), (last - first).days + 1)
                 self.assertIn("is-today", html)
                 self.assertIn("js/activity.js", html)
                 self.assertIn("css/activity.css", html)

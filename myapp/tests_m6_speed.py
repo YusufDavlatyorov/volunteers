@@ -221,7 +221,7 @@ class ImageUploadTests(TestCase):
         self.client.force_login(admin)
         response = self.client.post(reverse("admin:myapp_photoreport_add"), {
             "title": "Акция", "description": "", "region": "", "image": jpeg_with_gps(), "image_variants": "{}",
-            "author": admin.pk,
+            "author": admin.pk, "event_date": "2026-10-01",
         })
         self.assertEqual(response.status_code, 302, response.context and response.context["adminform"].form.errors)
         self.assert_clean_with_variants(PhotoReport.objects.get())

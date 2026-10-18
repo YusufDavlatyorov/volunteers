@@ -120,6 +120,9 @@ class HelpRequest(models.Model):
     # task_actions.complete, cleared once — with the reward — by the approval.
     # False for every task completed before photo-report review existed.
     reward_pending = models.BooleanField(default=False)
+    # Written by `manage.py seed_demo` (or by a demo account on a demo stand);
+    # `seed_demo --reset` deletes only these.
+    is_demo = models.BooleanField(default=False, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     accepted_at = models.DateTimeField(null=True, blank=True)

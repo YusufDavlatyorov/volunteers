@@ -43,12 +43,12 @@ Logs carry IDs and badge codes only.
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Q
-from django.db.models.functions import TruncMonth
+from django.db.models.functions import TruncMonth, TruncWeek
 from django.urls import reverse
 from django.utils import timezone
 
@@ -69,18 +69,25 @@ logger = logging.getLogger(__name__)
 LOCAL_TZ = ZoneInfo("Asia/Dushanbe")
 LOW_STARS = 2  # == feedback.LOW_STARS (kept local: feedback imports nothing from here)
 QUALITY_TAGS = ("polite", "above_and_beyond", "careful")
-TRUSTED_MIN_AVG = 4.5
+TRUSTED_MIN_AVG = 4.5  # also the "high_rating" average
 YEAR_WINDOW = timedelta(days=365)
 PUBLIC_BADGES = 3
 
-# code -> counter key (the value compared with Achievement.threshold)
+# code -> counter key (the value compared with Achievement.threshold — the
+# threshold itself lives on the Achievement row, editable in the admin;
+# defaults: migrations 0021 + 0033).
 COUNTER_FOR = {
     "first_help": "tasks",
+    "tasks_5": "tasks",
     "tasks_10": "tasks",
+    "tasks_25": "tasks",
     "tasks_50": "tasks",
     "tasks_100": "tasks",
     "kind_words": "kind_reviews",
     "trusted": "visible_reviews",
+    "high_rating": "visible_reviews",
+    "regular": "weeks_in_a_row",
+    "long_term": "days_on_platform",
     "steady_helper": "months",
     "year_together": "months_year",
     "versatile": "help_types",
@@ -91,6 +98,11 @@ COUNTER_FOR = {
 # a counter, so no progress is shown: "Наставник" (/mentor in the community
 # chat, or the CRM volunteer card). See award_manual().
 MANUAL_CODES = {"mentor"}
+# Badges that also need a high average (TRUSTED_MIN_AVG) of visible reviews.
+AVERAGE_CODES = {"trusted", "high_rating"}
+# Badges that also need at least one counted completed request — no badge
+# without completed help, whatever the other counter says.
+NEEDS_A_TASK = {"regular", "long_term"}
 # Badges whose explanation in the modal carries an extra rule line.
 RULE_KEYS = {
     "milestone": "ach.rule_milestone",
@@ -98,6 +110,8 @@ RULE_KEYS = {
     "steady": "ach.rule_steady",
     "versatile": "ach.rule_milestone",
 }
+# …and per badge where the category's rule doesn't fit.
+CODE_RULE_KEYS = {"regular": "ach.rule_weeks", "long_term": "ach.rule_long_term"}
 
 
 def _good_task_q():
@@ -105,8 +119,29 @@ def _good_task_q():
     return Q(review__isnull=True) | Q(review__hidden_at__isnull=False) | Q(review__stars__gt=LOW_STARS)
 
 
+def _longest_run_of_weeks(week_starts) -> int:
+    """The longest run of consecutive weeks among ``week_starts`` (dates)."""
+    days = sorted({d.date() if isinstance(d, datetime) else d for d in week_starts if d})
+    best = run = 0
+    previous = None
+    for day in days:
+        run = run + 1 if previous is not None and (day - previous).days == 7 else 1
+        best = max(best, run)
+        previous = day
+    return best
+
+
+def _date_joined(user):
+    joined = getattr(user, "date_joined", None)
+    if joined is None:
+        from accounts.models import Users
+
+        joined = Users.objects.filter(pk=getattr(user, "pk", user)).values_list("date_joined", flat=True).first()
+    return joined
+
+
 def counters(user) -> dict:
-    """Every number the badges need — 4 aggregate queries, constant."""
+    """Every number the badges need — 5 aggregate queries, constant."""
     uid = getattr(user, "pk", user)
     now = timezone.now()
     good = _good_task_q()
@@ -119,6 +154,12 @@ def counters(user) -> dict:
         months=Count(month, filter=good & Q(completed_at__isnull=False), distinct=True),
         months_year=Count(month, filter=good & Q(completed_at__gte=now - YEAR_WINDOW), distinct=True),
     )
+    # Local weeks (Monday first) with a counted completed request → the
+    # longest run of weeks in a row ("regular"; weekly, never a daily streak).
+    weeks = HelpRequest.objects.filter(
+        good, volunteer_id=uid, status="completed", reward_pending=False, completed_at__isnull=False,
+    ).annotate(week=TruncWeek("completed_at", tzinfo=LOCAL_TZ)).values_list("week", flat=True).distinct()
+    joined = _date_joined(user)
     stars_and_tags = list(
         TaskReview.objects.filter(volunteer_id=uid, hidden_at__isnull=True).values_list("stars", "tags")
     )
@@ -134,6 +175,8 @@ def counters(user) -> dict:
         "help_types": tasks["help_types"] or 0,
         "months": tasks["months"] or 0,
         "months_year": tasks["months_year"] or 0,
+        "weeks_in_a_row": _longest_run_of_weeks(weeks.order_by()),
+        "days_on_platform": max(0, (now - joined).days) if joined else 0,
         "visible_reviews": visible,
         "review_avg": avg,
         "kind_reviews": kind,
@@ -151,9 +194,11 @@ def is_met(achievement, numbers) -> bool:
         return False  # a row added in the admin without a rule never awards itself
     if value_for(achievement, numbers) < achievement.threshold:
         return False
-    if achievement.code == "trusted":
+    if achievement.code in AVERAGE_CODES:
         avg = numbers.get("review_avg")
         return avg is not None and avg >= TRUSTED_MIN_AVG
+    if achievement.code in NEEDS_A_TASK:
+        return numbers.get("tasks", 0) >= 1
     return True
 
 
@@ -186,6 +231,10 @@ def evaluate(user, *, send_notifications=True) -> list:
         awarded.append(row)
         if send_notifications:
             _notify(user, achievement)
+    if awarded:
+        from accounts.models import clear_rating_cache
+
+        clear_rating_cache()  # badges are part of the rating's merit score
     return awarded
 
 
@@ -271,7 +320,7 @@ def progress_for(user) -> list:
         award = awards.get(achievement.pk)
         if award is None and not achievement.is_active:
             continue
-        manual = achievement.code in MANUAL_CODES
+        manual = achievement.is_manual or achievement.code in MANUAL_CODES
         value = value_for(achievement, numbers)
         threshold = max(achievement.threshold, 1)
         shown = threshold if award else min(value, threshold)
@@ -285,8 +334,8 @@ def progress_for(user) -> list:
             "value": shown,
             "threshold": threshold,
             "percent": 100 if award else int(min(value, threshold) * 100 / threshold),
-            "rule_key": RULE_KEYS.get(achievement.category, ""),
-            "review_avg": numbers["review_avg"] if achievement.code == "trusted" else None,
+            "rule_key": CODE_RULE_KEYS.get(achievement.code) or RULE_KEYS.get(achievement.category, ""),
+            "review_avg": numbers["review_avg"] if achievement.code in AVERAGE_CODES else None,
             "coming_soon": not achievement.is_active and award is None,
             "manual": manual,
         })
@@ -319,6 +368,21 @@ DESCRIPTIONS = {
     "first_help": {"en": "Completed your first help request.",
                    "ru": "Выполнен первый запрос о помощи.",
                    "tj": "Аввалин дархости кумак иҷро шуд."},
+    "tasks_5": {"en": "Completed 5 help requests.",
+                "ru": "Выполнено 5 запросов о помощи.",
+                "tj": "5 дархости кумак иҷро шуд."},
+    "tasks_25": {"en": "Completed 25 help requests.",
+                 "ru": "Выполнено 25 запросов о помощи.",
+                 "tj": "25 дархости кумак иҷро шуд."},
+    "high_rating": {"en": "At least 5 reviews with an average rating of 4.5 or higher.",
+                    "ru": "Не меньше 5 отзывов со средней оценкой 4,5 или выше.",
+                    "tj": "Ақаллан 5 фикр бо баҳои миёнаи 4,5 ё баландтар."},
+    "regular": {"en": "Helped every week, four weeks in a row.",
+                "ru": "Помогали каждую неделю — четыре недели подряд.",
+                "tj": "Ҳар ҳафта кумак кардед — чор ҳафта пай дар пай."},
+    "long_term": {"en": "More than 60 days on the platform, with completed help requests.",
+                  "ru": "Больше 60 дней на платформе и есть выполненные запросы.",
+                  "tj": "Зиёда аз 60 рӯз дар платформа ва дархостҳои иҷрошуда доред."},
     "tasks_10": {"en": "Completed 10 help requests.",
                  "ru": "Выполнено 10 запросов о помощи.",
                  "tj": "10 дархости кумак иҷро шуд."},
@@ -385,6 +449,12 @@ UI_STRINGS = {
     "ach.rule_steady": {"en": "Months with at least one completed request count — no daily streaks.",
                         "ru": "Считаются месяцы, в которых был хотя бы один выполненный запрос, — без ежедневных серий.",
                         "tj": "Моҳҳое ҳисоб мешаванд, ки ақаллан як дархост иҷро шудааст — бе силсилаи ҳаррӯза."},
+    "ach.rule_weeks": {"en": "Weeks (Monday to Sunday) with at least one completed request count; the longest run of weeks in a row is shown.",
+                       "ru": "Считаются недели (с понедельника по воскресенье), в которых был хотя бы один выполненный запрос; показана самая длинная серия недель подряд.",
+                       "tj": "Ҳафтаҳое ҳисоб мешаванд (аз душанбе то якшанбе), ки ақаллан як дархост иҷро шудааст; силсилаи дарозтарини ҳафтаҳои пай дар пай нишон дода мешавад."},
+    "ach.rule_long_term": {"en": "Days since registration count; the badge also needs at least one completed request.",
+                           "ru": "Считаются дни с регистрации; нужен также хотя бы один выполненный запрос.",
+                           "tj": "Рӯзҳо аз лаҳзаи бақайдгирӣ ҳисоб мешаванд; инчунин ақаллан як дархости иҷрошуда лозим аст."},
     "ach.review_avg": {"en": "Average rating: {avg}", "ru": "Средняя оценка: {avg}", "tj": "Баҳои миёна: {avg}"},
     "ach.none_yet": {"en": "No badges yet — the first one comes with your first completed request.",
                      "ru": "Значков пока нет — первый появится после первого выполненного запроса.",

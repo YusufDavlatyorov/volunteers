@@ -41,9 +41,9 @@ class EmergencyReportAdmin(admin.ModelAdmin):
 @admin.register(HelpRequest)
 class HelpRequestAdmin(admin.ModelAdmin):
     list_display = ("id", "client", "volunteer", "help_type", "status", "region", "is_urgent", "created_at")
-    list_filter = ("status", "help_type", "region", "is_urgent")
+    list_filter = ("status", "help_type", "region", "is_urgent", "is_demo")
     search_fields = ("client__username", "volunteer__username", "address", "phone")
-    readonly_fields = ("created_at", "updated_at", "accepted_at", "completed_at")
+    readonly_fields = ("created_at", "updated_at", "accepted_at", "completed_at", "is_demo")
 
 
 @admin.register(Event)
@@ -129,12 +129,16 @@ class PetReportAdmin(CleanImageAdminMixin, admin.ModelAdmin):
 
 @admin.register(PhotoReport)
 class PhotoReportAdmin(CleanImageAdminMixin, admin.ModelAdmin):
-    list_display = ("title", "author", "status", "region", "created_at")
-    list_filter = ("status", "region", "created_at")
+    # Both dates (verbose names "Дата проведения" / "Дата публикации"):
+    # event_date is editable here without the site forms' 30-day limit (staff
+    # correct older reports); created_at is the upload moment, read-only.
+    list_display = ("title", "author", "status", "region", "event_date", "created_at")
+    list_filter = ("status", "region", "event_date")
+    date_hierarchy = "event_date"
     search_fields = ("title", "description")
     # The review goes through the CRM (/myapp/crm/photo-reports/ — it notifies
     # the author and releases the task's reward); a raw admin edit would skip both.
-    readonly_fields = ("status", "reviewed_by", "reviewed_at", "rejection_reason", "uploaded_by")
+    readonly_fields = ("status", "reviewed_by", "reviewed_at", "rejection_reason", "uploaded_by", "created_at")
 
     def save_model(self, request, obj, form, change):
         # Who really uploaded it (the site's forms set it in photo_reports.create).
@@ -219,7 +223,7 @@ from .services import feedback as feedback_service  # noqa: E402
 @admin.register(TaskReview)
 class TaskReviewAdmin(admin.ModelAdmin):
     list_display = ("id", "task", "volunteer", "client", "stars", "show_on_landing", "hidden_at", "created_at")
-    list_filter = ("stars", "show_on_landing", ("hidden_at", admin.EmptyFieldListFilter), "created_at")
+    list_filter = ("stars", "show_on_landing", ("hidden_at", admin.EmptyFieldListFilter), "is_demo", "created_at")
     search_fields = ("volunteer__username", "client__username")
     list_select_related = ("task", "volunteer", "client")
     # Read-only: stars/comment are the client's words, and a raw edit/delete
@@ -276,10 +280,11 @@ _ach_logger = logging.getLogger("myapp.achievements")
 class AchievementAdmin(admin.ModelAdmin):
     # The owner tweaks thresholds / tiers / order / on-off here; the rule behind
     # each code lives in services/achievements.py, so the code itself is fixed.
-    list_display = ("code", "tier", "category", "threshold", "sort_order", "is_active")
+    list_display = ("code", "tier", "category", "threshold", "sort_order", "is_active", "is_manual")
     list_editable = ("tier", "threshold", "sort_order", "is_active")
-    list_filter = ("tier", "category", "is_active")
-    readonly_fields = ("code",)
+    list_filter = ("tier", "category", "is_active", "is_manual")
+    # is_manual follows the rules in services/achievements.py (MANUAL_CODES).
+    readonly_fields = ("code", "is_manual")
 
     def has_add_permission(self, request):
         return False  # a new code needs a rule in services/achievements.py
@@ -371,3 +376,21 @@ class FAQItemAdmin(admin.ModelAdmin):
         ("English", {"fields": ("question_en", "answer_en")}),
         ("Даты", {"fields": (("created_at", "updated_at"),), "classes": ("collapse",)}),
     )
+
+
+from .models import UserDailyActivity  # noqa: E402
+
+
+@admin.register(UserDailyActivity)
+class UserDailyActivityAdmin(admin.ModelAdmin):
+    """The profile heatmap's per-day counter — read-only (written by
+    DailyActivityMiddleware, backfill_activity and, for demo accounts, seed_demo)."""
+    list_display = ("user", "date", "actions_count", "source", "is_demo")
+    list_filter = ("source", "is_demo", "date")
+    search_fields = ("user__username",)
+    date_hierarchy = "date"
+    list_select_related = ("user",)
+    readonly_fields = ("user", "date", "actions_count", "source", "is_demo")
+
+    def has_add_permission(self, request):
+        return False

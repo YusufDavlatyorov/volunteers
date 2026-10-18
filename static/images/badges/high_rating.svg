@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120" role="img" aria-label="Высокий рейтинг">
+<defs>
+<linearGradient id="r" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#eef2f7"/><stop offset="1" stop-color="#9aa6b6"/></linearGradient>
+<linearGradient id="d" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a7e73"/><stop offset="1" stop-color="#00544d"/></linearGradient>
+</defs>
+<circle cx="60" cy="60" r="57" fill="url(#r)" stroke="#667385" stroke-width="2"/>
+<circle cx="60" cy="60" r="46" fill="url(#d)" stroke="#667385" stroke-opacity=".55" stroke-width="2"/>
+<path d="M17 78 L38 60 L49 69 L64 54 L80 68 L90 61 L103 78 A46 46 0 0 1 17 78 Z" fill="#fff" fill-opacity=".1"/>
+<path d="M22 44 A40 40 0 0 1 98 44" fill="none" stroke="#fff" stroke-opacity=".22" stroke-width="3" stroke-linecap="round"/>
+<path d="M60 30 L68.2 48.7 L88.5 50.7 L73.3 64.3 L77.6 84.3 L60 74 L42.4 84.3 L46.7 64.3 L31.5 50.7 L51.8 48.7 Z" fill="#fff" stroke="#fff" stroke-width="2" stroke-linejoin="round"/><path d="M90 30 V40 M85 35 H95" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M28 74 V82 M24 78 H32" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+
+</svg>

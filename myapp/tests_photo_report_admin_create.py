@@ -65,7 +65,9 @@ class AdminCreatesForVolunteerTests(AdminPhotoReportTestsBase):
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, "myapp/crm_photo_report_create.html")
         form = response.context["form"]
-        self.assertEqual(form.initial, {"help_request": self.task.pk, "volunteer": self.volunteer.pk})
+        self.assertEqual(
+            (form.initial["help_request"], form.initial["volunteer"]), (self.task.pk, self.volunteer.pk)
+        )
         html = response.content.decode()
         self.assertIn('enctype="multipart/form-data"', html)
         # Each task option tells the JS whom to pre-select.
@@ -166,7 +168,8 @@ class AdminCreatesWithoutVolunteerTests(AdminPhotoReportTestsBase):
         task = self._task()
         self.client.force_login(self.admin)
         response = self.client.get(self.create_url + f"?task={task.pk}")
-        self.assertEqual(response.context["form"].initial, {"help_request": task.pk, "volunteer": None})
+        initial = response.context["form"].initial
+        self.assertEqual((initial["help_request"], initial["volunteer"]), (task.pk, None))
 
     def test_admin_creates_a_report_as_themselves_and_earns_nothing(self):
         task = self._task()  # pending, nobody assigned
@@ -290,7 +293,7 @@ class DjangoAdminTests(AdminPhotoReportTestsBase):
         self.client.force_login(self.admin)
         response = self.client.post(reverse("admin:myapp_photoreport_add"), {
             "author": self.volunteer.pk, "title": "Из админки", "description": "", "image": _jpeg(),
-            "region": "dushanbe", "help_request": self.task.pk, "image_variants": "{}",
+            "region": "dushanbe", "help_request": self.task.pk, "image_variants": "{}", "event_date": "2026-10-01",
         })
         self.assertEqual(response.status_code, 302, response.content[:2000])
         report = PhotoReport.objects.get()
