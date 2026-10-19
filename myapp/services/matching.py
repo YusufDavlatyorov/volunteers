@@ -99,25 +99,49 @@ def location_freshness_label(location_updated_at, now=None):
     return label
 
 
-def _reasons(distance_km, availability, active_task_count, same_region, freshness_label, skill_label):
-    reasons = []
+# Reason code → Russian text. The AI assistant reads the text (`reasons`); the
+# dispatch card translates the code instead (i18n.js "rec.why.<code>", `{n}` =
+# active task count), so EN/TJ staff don't get Russian bullet points.
+REASON_TEXT = {
+    "closest": "Ближайший подходящий волонтёр",
+    "close": "Совсем рядом",
+    "nearby": "Недалеко от задачи",
+    "available": "Доступен сейчас",
+    "busy": "Сейчас занят",
+    "no_active": "Нет активных задач",
+    "active": "{n} активных задач(и)",
+    "same_region": "Тот же регион, что и запрос",
+    "skill_match": "Подходит по навыкам",
+    "skill_mismatch": "Навыки не совпадают с типом запроса",
+    "location_aging": "Местоположение может быть устаревшим",
+    "location_unknown": "Местоположение никогда не обновлялось",
+}
+
+
+def _reason_codes(distance_km, availability, active_task_count, same_region, freshness_label, skill_label):
+    codes = []
     if distance_km <= CLOSE_KM:
-        reasons.append("Совсем рядом")
+        codes.append("close")
     elif distance_km <= NEARBY_KM:
-        reasons.append("Недалеко от задачи")
-    reasons.append("Доступен сейчас" if availability == Profile.AVAILABILITY_AVAILABLE else "Сейчас занят")
-    reasons.append("Нет активных задач" if active_task_count == 0 else f"{active_task_count} активных задач(и)")
+        codes.append("nearby")
+    codes.append("available" if availability == Profile.AVAILABILITY_AVAILABLE else "busy")
+    codes.append("no_active" if active_task_count == 0 else "active")
     if same_region:
-        reasons.append("Тот же регион, что и запрос")
+        codes.append("same_region")
     if skill_label == "match":
-        reasons.append("Подходит по навыкам")
+        codes.append("skill_match")
     elif skill_label == "mismatch":
-        reasons.append("Навыки не совпадают с типом запроса")
+        codes.append("skill_mismatch")
     if freshness_label in ("aging", "stale"):
-        reasons.append("Местоположение может быть устаревшим")
+        codes.append("location_aging")
     elif freshness_label == "unknown":
-        reasons.append("Местоположение никогда не обновлялось")
-    return reasons
+        codes.append("location_unknown")
+    return codes
+
+
+def _reasons(distance_km, availability, active_task_count, same_region, freshness_label, skill_label):
+    codes = _reason_codes(distance_km, availability, active_task_count, same_region, freshness_label, skill_label)
+    return [REASON_TEXT[code].format(n=active_task_count) for code in codes]
 
 
 def recommend_volunteers(task, limit=5):
@@ -155,6 +179,34 @@ def recommend_volunteers(task, limit=5):
     )
     candidates = candidates.alias(_proximity=proximity).order_by("_proximity", "id")[:CANDIDATE_CAP]
     return _rank(task, candidates, now, limit)
+
+
+# Why recommend_volunteers() came back empty — one code per hard filter, in the
+# order _candidate_queryset() applies them, so staff see what to fix instead of
+# a bare "nobody found". The dispatch card maps each code to an i18n string.
+EMPTY_NO_TASK_LOCATION = "no_task_location"
+EMPTY_NO_VOLUNTEERS = "no_volunteers"
+EMPTY_ALL_UNAVAILABLE = "all_unavailable"
+EMPTY_NO_VOLUNTEER_LOCATION = "no_volunteer_location"
+
+
+def no_candidates_reason(task):
+    """The first hard filter that left `task` with no candidates (one of the
+    EMPTY_* codes). Call only after recommend_volunteers(task) returned [];
+    read-only, at most two EXISTS queries."""
+    if not task.has_location:
+        return EMPTY_NO_TASK_LOCATION
+    volunteers = Users.objects.filter(is_volunteer=True, is_active=True)
+    if task.volunteer_id:
+        volunteers = volunteers.exclude(pk=task.volunteer_id)
+    if not volunteers.exists():
+        return EMPTY_NO_VOLUNTEERS
+    reachable = volunteers.exclude(
+        profile__availability_status=Profile.AVAILABILITY_OFFLINE
+    ).filter(not_away_q())
+    if not reachable.exists():
+        return EMPTY_ALL_UNAVAILABLE
+    return EMPTY_NO_VOLUNTEER_LOCATION
 
 
 # Batched variant for list pages (staff dashboard queue, /panel/ table): one
@@ -250,13 +302,15 @@ def _rank(task, candidates, now, limit):
             "location_freshness": freshness_label,
             "location_updated_at": profile.location_updated_at,
             "reasons": _reasons(distance_km, availability, volunteer.active_task_count, same_region, freshness_label, skill_label),
+            "reason_codes": _reason_codes(distance_km, availability, volunteer.active_task_count, same_region, freshness_label, skill_label),
         })
 
     if ranked:
         closest = min(item["distance_km"] for item in ranked)
         for item in ranked:
             if item["distance_km"] == closest:
-                item["reasons"].insert(0, "Ближайший подходящий волонтёр")
+                item["reasons"].insert(0, REASON_TEXT["closest"])
+                item["reason_codes"].insert(0, "closest")
 
     # Deterministic order: score desc, then nearer first, then volunteer id as a
     # stable final tie-breaker so two identically-scored, equidistant volunteers
