@@ -980,13 +980,25 @@ class Command(BaseCommand):
                 raise CommandError("Refusing to write without DEMO_MODE=True (DJANGO_DEMO_MODE): the site must show "
                                    "the demo-stand banner while demo activity exists.")
         self.real_now = (datetime.datetime.fromisoformat(options["as_of"]) if options["as_of"] else timezone.now())
+        if options["reset"] and dry and self.manifest_path.exists():
+            # The whole --reset in one transaction — purge, then the fresh run
+            # with its full report — and everything rolled back.
+            try:
+                with transaction.atomic():
+                    if connection.vendor == "postgresql":
+                        with connection.cursor() as cur:
+                            cur.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+                    self._purge(False, finalize=False)
+                    self._seed(n, True)
+                    raise _DryRun()
+            except _DryRun:
+                pass
+            self.stdout.write(self.style.WARNING("DRY RUN of --reset: the purge and the fresh run above were both "
+                                                 "rolled back — nothing written, the manifest is unchanged."))
+            return
         if options["purge"] or options["reset"]:
             self._purge(dry)
             if options["purge"]:
-                return
-            if dry and self.manifest_path.exists():
-                self.stdout.write("DRY RUN of --reset: the purge above was rolled back; a fresh run would follow "
-                                  "(see a plain --dry-run after a purge for its numbers).")
                 return
         elif self.manifest_path.exists():
             self.stdout.write(f"Manifest {self.manifest_path} exists — already seeded, nothing to do "
@@ -1023,8 +1035,9 @@ class Command(BaseCommand):
 
         try:
             self.joined = {}
+            outer = connection.in_atomic_block  # the --reset dry run holds one already
             with quiet(self.demo_ids, self.stats, self.joined), info_logs_off(), transaction.atomic():
-                if connection.vendor == "postgresql":
+                if connection.vendor == "postgresql" and not outer:
                     with connection.cursor() as cur:
                         cur.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
                 before = snapshot()
@@ -1330,7 +1343,9 @@ class Command(BaseCommand):
 
     # ----------------------------------------------------------------- purge
 
-    def _purge(self, dry):
+    def _purge(self, dry, finalize=True):
+        """``finalize=False``: inside the --reset dry run — no cache clear, the
+        manifest stays where it is."""
         from django.db.models.deletion import Collector
 
         from accounts.models import Profile, clear_rating_cache
@@ -1434,6 +1449,8 @@ class Command(BaseCommand):
                     raise _DryRun()
         except _DryRun:
             self.stdout.write(self.style.WARNING("DRY RUN — purge rolled back, nothing deleted."))
+            return
+        if not finalize:
             return
         clear_rating_cache()
         done_path = self.manifest_path.with_name(

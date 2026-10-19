@@ -259,6 +259,21 @@ class SeedDemoActivityTests(TestCase):
         self.assertFalse(self.manifest.exists())
         self.assertEqual(len(list(Path(self.tmp.name).glob("manifest.purged-*.json"))), 1)
 
+    def test_reset_dry_run_previews_purge_and_run_and_writes_nothing(self):
+        from io import StringIO
+
+        self.run_cmd(confirm=True)
+        before = comparable(seed.snapshot())
+        manifest = self.manifest.read_text()
+        out = StringIO()
+        self.run_cmd(reset=True, dry_run=True, stdout=out)
+        text = out.getvalue()
+        self.assertIn("Purge:", text)
+        self.assertIn("Help requests:", text)        # the fresh run's report
+        self.assertIn("Rating top 10", text)
+        self.assertEqual(comparable(seed.snapshot()), before)
+        self.assertEqual(self.manifest.read_text(), manifest)
+
     def test_reset_recreates_the_same_amount(self):
         self.run_cmd(confirm=True)
         first = HelpRequest.objects.filter(is_demo=True).count()
