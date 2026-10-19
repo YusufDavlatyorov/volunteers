@@ -16,7 +16,7 @@
     const tip = document.getElementById('actTip');
     const live = document.getElementById('actLive');
     const totalEl = document.getElementById('actTotal');
-    const all = Array.from(grid.children);            // includes the padding squares
+    const all = Array.from(grid.children);            // every square is a day (no padding)
     const LOCALES = { ru: 'ru-RU', tj: 'tg-TJ', en: 'en-GB' };
 
     function lang() {
@@ -68,7 +68,7 @@
     let pinned = false;
 
     function isDay(el) {
-        return el && el.classList && el.classList.contains('act-cell') && !el.classList.contains('is-out');
+        return el && el.classList && el.classList.contains('act-cell') && grid.contains(el);
     }
 
     function show(cell, announce) {

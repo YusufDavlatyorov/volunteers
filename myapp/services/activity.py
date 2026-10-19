@@ -1,6 +1,8 @@
-"""Activity calendar (GitHub-style): what a volunteer or client did, per day,
-from max(``START_DATE`` (1 September 2026), the user's registration day) — at
-most the last 365 days — up to today. Days before registration aren't drawn.
+"""Activity calendar (GitHub contribution graph): what a volunteer or client
+did, per day, over the last ``WEEKS`` (53) weeks — always the full grid,
+whatever the registration date (owner 2026-10-19): Monday-first columns from
+``grid_start`` (the Monday 52 weeks before this week's) to today; days after
+today are not drawn, days before registration are ordinary empty days.
 
 Two sources, merged per day (2026-10-18):
 
@@ -50,14 +52,15 @@ from django.utils import timezone
 from server.i18n_prerender import translation_table
 
 __all__ = [
-    "TZ", "DAYS", "WEEKS", "START_DATE", "CACHE_SECONDS", "KINDS", "shows_calendar", "daily_counts",
+    "TZ", "DAYS", "WEEKS", "START_DATE", "CACHE_SECONDS", "KINDS", "shows_calendar", "daily_counts", "grid_start",
     "level", "plural_category_ru", "calendar", "cache_key", "record_request", "summary",
 ]
 
 TZ = ZoneInfo("Asia/Dushanbe")
 DAYS = 365
-WEEKS = 53  # at most; fewer while the window starts at START_DATE
-# The heatmap never starts before this day (the platform's demo season).
+WEEKS = 53  # always: this week and the 52 before it
+# backfill_activity never restores a day before this (the platform's demo
+# season) — the calendar itself always shows the full WEEKS.
 START_DATE = datetime.date(2026, 9, 1)
 CACHE_SECONDS = 10 * 60
 LEVELS = 4
@@ -111,13 +114,16 @@ def local_today(now=None) -> datetime.date:
     return (now or timezone.now()).astimezone(TZ).date()
 
 
+def grid_start(today: datetime.date) -> datetime.date:
+    """The Monday ``WEEKS - 1`` weeks before the Monday of today's week."""
+    return today - datetime.timedelta(days=today.weekday(), weeks=WEEKS - 1)
+
+
 def window(today: datetime.date, joined=None):
-    """First and last day (inclusive): from max(START_DATE, the registration
-    day) — at most 365 days back — to today. Nothing before registration."""
-    first = max(today - datetime.timedelta(days=DAYS - 1), START_DATE)
-    if joined is not None:
-        first = max(first, joined.astimezone(TZ).date() if isinstance(joined, datetime.datetime) else joined)
-    return min(first, today), today
+    """First and last day (inclusive) of the calendar: ``grid_start`` → today.
+    ``joined`` is accepted for old callers and ignored — the grid is always
+    full; days before registration simply have no activity."""
+    return grid_start(today), today
 
 
 def daily_counts(user, today: datetime.date | None = None) -> dict:
@@ -176,7 +182,7 @@ def plural_category_ru(n: int) -> str:
 
 
 def cache_key(user_id, today) -> str:
-    return f"activity:v2:{user_id}:{today.isoformat()}"
+    return f"activity:v3:{user_id}:{today.isoformat()}"
 
 
 def summary(counts: dict, first: datetime.date, today: datetime.date) -> dict:
@@ -247,10 +253,10 @@ def _cell_label(table, day, kinds: dict) -> str:
 def calendar(user, now=None) -> dict | None:
     """Everything the template needs, or None for roles without a calendar.
 
-    ``weeks``: one column per week from the Monday on/before the first day
-    (at most 53) × 7 days (Monday first); each day is
-    ``{date, iso, count, level, label, kinds, out, today}`` — ``out`` marks the
-    padding before the window and after today. ``months``: label positions.
+    ``weeks``: ``WEEKS`` columns from ``grid_start`` × 7 days (Monday first),
+    the last one cut at today (future days are not drawn); each day is
+    ``{date, iso, count, level, label, kinds, today}``. ``months``: a label
+    over the column where each month begins (three columns apart at least).
     """
     if not shows_calendar(user):
         return None
@@ -268,44 +274,47 @@ def calendar(user, now=None) -> dict | None:
             pass
 
     table = translation_table(getattr(settings, "SERVER_RENDER_LANGUAGE", "ru"))
-    first, last = window(today, getattr(user, "date_joined", None))
-    grid_start = first - datetime.timedelta(days=first.weekday())   # the Monday on/before
+    first, last = window(today)
     maximum = max((sum(k.values()) for k in counts.values()), default=0)
     total = sum(sum(k.values()) for k in counts.values())
 
     weeks, months = [], []
     seen_month = None
-    for w in range((last - grid_start).days // 7 + 1):
+    for w in range(WEEKS):
         column = []
         for d in range(7):
-            day = grid_start + datetime.timedelta(days=w * 7 + d)
+            day = first + datetime.timedelta(days=w * 7 + d)
+            if day > last:
+                break  # the future is not drawn
             kinds = counts.get(day, {})
             n = sum(kinds.values())
-            out = day < first or day > last
             column.append({
                 "date": day,
                 "iso": day.isoformat(),
                 "count": n,
                 "level": level(n, maximum),
-                "out": out,
                 "today": day == today,
-                "label": "" if out else _cell_label(table, day, kinds),
+                "label": _cell_label(table, day, kinds),
                 # Compact "kind:n,kind:n" for the JS re-labelling.
                 "kinds": ",".join(f"{k}:{kinds[k]}" for k in KINDS if kinds.get(k)),
             })
-        # A month label sits over the first column holding that month's 1st…
-        # (or the first column at all), unless it would crowd the previous one.
-        in_range = [c["date"] for c in column if not c["out"]]
-        if in_range:
-            month = in_range[0].month if w == 0 else next((c.month for c in in_range if c.day == 1), None)
-            if month and month != seen_month and (not months or w - months[-1]["col"] >= 3):
-                months.append({"col": w, "month": month, "key": f"act.m{month}",
-                               "text": table.get(f"act.m{month}", str(month))})
-                seen_month = month
+        # A month label sits over the column holding that month's 1st (and
+        # over the first column, for the month the grid starts in).
+        month = column[0]["date"].month if w == 0 else next((c["date"].month for c in column if c["date"].day == 1), None)
+        if month and month != seen_month:
+            months.append({"col": w, "month": month, "key": f"act.m{month}",
+                           "text": table.get(f"act.m{month}", str(month))})
+            seen_month = month
         weeks.append(column)
-    # The first label is dropped if the next one follows too closely (GitHub does the same).
+    # The first label goes when the next month starts within 3 columns (GitHub
+    # does the same); then no two labels closer than 3 columns.
     if len(months) > 1 and months[1]["col"] - months[0]["col"] < 3:
         months.pop(0)
+    spaced = []
+    for m in months:
+        if not spaced or m["col"] - spaced[-1]["col"] >= 3:
+            spaced.append(m)
+    months = spaced
 
     category = plural_category_ru(total)
     role = "volunteer" if user.is_volunteer else "client"

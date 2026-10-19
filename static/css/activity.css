@@ -1,10 +1,14 @@
 /* ===== activity.css — the GitHub-style activity calendar =====
    templates/myapp/_activity_calendar.html (own profile + CRM volunteer card),
-   behaviour in static/js/activity.js. 53 weeks × 7 days of 12px squares,
-   2px radius, 3px gap; five levels from the brand blue. */
+   behaviour in static/js/activity.js. Always 53 weeks × 7 days (the last
+   column cut at today), 2px radius; five levels from the brand blue, level 0
+   (no activity, before registration too) grey. Desktop: the squares are sized
+   to fit the card (container query on .act-scroll); phone: fixed 12px squares
+   and the grid scrolls sideways inside the card. */
 .act-card {
     --act-cell: 12px;
     --act-gap: 3px;
+    --act-wd-w: 24px;   /* the weekday label column (its padding covers the gap) */
     --act-0: #EBEDF5;
     --act-1: #C7CDF0;
     --act-2: #8B96DE;
@@ -13,8 +17,6 @@
     position: relative;
     min-width: 0;
 }
-/* A short window (the first months from 1 September 2026): bigger squares. */
-.act-card--roomy { --act-cell: 18px; --act-gap: 4px; }
 /* Dark: an empty day is a faint plate, and more activity gets *brighter*. */
 [data-theme="dark"] .act-card {
     --act-0: #2c2e35;
@@ -38,18 +40,24 @@
 
 /* The grid scrolls sideways inside the card on a phone; the page never does. */
 .act-scroll {
+    container-type: inline-size;
     max-width: 100%;
     overflow-x: auto;
     overscroll-behavior-x: contain;
-    padding: 2px 2px 6px;
+    /* no left padding: the sticky weekday labels sit flush with the edge, so
+       no square peeks out on their left while the weeks scroll under them */
+    padding: 2px 2px 6px 0;
     scrollbar-width: thin;
 }
 .act-scroll:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 6px; }
 .act-graph {
+    /* 53 columns + the label column fill the card: (width − labels) / 53. */
+    --act-gap: 2px;
+    --act-cell: clamp(7px, calc((100cqw - var(--act-wd-w) - 8px + var(--act-gap)) / 53 - var(--act-gap)), 14px);
     display: grid;
     grid-template-columns: auto max-content;
     grid-template-areas: "wd months" "wd grid";
-    column-gap: 2px;
+    column-gap: 0;   /* no see-through gap next to the sticky labels */
     row-gap: 4px;
     width: max-content;
 }
@@ -66,10 +74,13 @@
 .act-months span { white-space: nowrap; }
 /* Weekday labels stay in view while the weeks scroll under them. */
 .act-wd {
+    width: var(--act-wd-w);
+    box-sizing: border-box;
+    overflow: hidden;
     position: sticky;
     left: 0;
     z-index: 1;
-    padding-right: 4px;
+    padding-right: 6px;
     /* spans the month row too, so the corner hides the labels scrolling under it */
     padding-top: calc(14px + 4px);
     background: var(--card-bg, var(--surface));
@@ -101,9 +112,12 @@
 .act-cell.l2 { background: var(--act-2); }
 .act-cell.l3 { background: var(--act-3); }
 .act-cell.l4 { background: var(--act-4); }
-.act-cell.is-out { background: transparent; }
-.act-grid .act-cell:not(.is-out) { cursor: pointer; }
-.act-grid .act-cell:not(.is-out):hover { outline: 1px solid var(--text-2); outline-offset: 0; }
+.act-grid .act-cell { cursor: pointer; }
+.act-grid .act-cell:hover { outline: 1px solid var(--text-2); outline-offset: 0; }
+/* Phone: readable fixed squares, the 53 weeks scroll inside the card. */
+@media (max-width: 600px) {
+    .act-graph { --act-cell: 12px; --act-gap: 3px; }
+}
 /* Today: a thin ring around the square (fits in the 3px gap). */
 .act-cell.is-today { outline: 1.5px solid var(--text); outline-offset: 1px; }
 .act-cell.is-active { outline: 2px solid var(--primary); outline-offset: 1px; }
@@ -119,7 +133,7 @@
 .act-empty { margin: 0; color: var(--muted); font-size: 0.9rem; }
 .act-legend { display: inline-flex; align-items: center; gap: var(--act-gap); margin-left: auto; font-size: 11px; color: var(--muted); }
 .act-legend span { margin: 0 4px; }
-.act-legend .act-cell { display: inline-block; }
+.act-legend .act-cell { display: inline-block; width: 11px; height: 11px; }
 
 /* Tooltip (hover / tap / arrow keys): above the square, clamped into the card. */
 .act-tip {

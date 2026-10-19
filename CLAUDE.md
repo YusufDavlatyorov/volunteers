@@ -514,16 +514,19 @@ Business logic that needs to be unit-testable without the ORM or network lives h
   volunteer accepted / completed (status completed) / photo report / donation `received_at` and
   `distributed_at` (two actions); client created request (cancelled too) / review (hidden too);
   both: donation offer, pet report. One `TruncDate(tzinfo=Asia/Dushanbe)` + `Count` query per kind
-  (query count fixed per role — test-locked in `myapp/tests_activity.py`), **from `START_DATE`
-  (1 Sep 2026) — at most 365 days — to today**, Monday-first grid as many weeks wide as that
-  (`--act-weeks`), levels = quartiles of the user's own max, cached 10 min per user+day. **Plus the
+  (query count fixed per role — test-locked in `myapp/tests_activity.py`), over the 53-week grid
+  (see below), levels = quartiles of the user's own max, cached 10 min per user+day. **Plus the
   per-day counter `UserDailyActivity`** (`myapp/models/activity.py`, unique user+date, `is_demo`):
   `DailyActivityMiddleware` → `activity.record_request` writes the first page of the day (a cache
   flag makes later page views free) and +1 (`F()`) per successful POST (`ACTIVITY_IGNORED_URL_NAMES`
   skip pings / mark-read); `USER_ACTIVITY_TRACKING` off under `manage.py test` (tests opt in).
   A day's count = max(counter, the rows' kinds) — the surplus shows as kind `site`; a summary line
-  shows active days + current streak (`act.days.*` / `act.streak.*`). The grid starts at
-  max(START_DATE, the user's registration day) — no squares before registration.
+  shows active days + current streak (`act.days.*` / `act.streak.*`), over the whole grid.
+  **The grid is always the full 53 weeks (2026-10-19, GitHub contribution graph)**: `grid_start` =
+  the Monday 52 weeks before this week's, last column cut at today (no future squares), days before
+  registration are ordinary grey (level 0) squares; `START_DATE` now only bounds `backfill_activity`.
+  CSS: squares sized to fit the card on desktop (container query on `.act-scroll`), fixed 12 px +
+  sideways scroll inside the card ≤ 600 px; sticky weekday labels flush with the edge.
   **`manage.py backfill_activity [--dry-run]`** (`services/activity_backfill.py`) restores rows from
   real timestamps only (`SOURCES`: one (timestamp, actor) pair per table), recounted not added
   (idempotent), no row for a day without events, `source` = backfill / live / merged / demo, never
@@ -619,7 +622,10 @@ account created; it moves their `date_joined` to before their first demo activit
 `--i-confirm-demo-accounts` + `DEMO_MODE`; services replayed with the clock patched, in-app rows only,
 e-mail / Telegram / Celery / HTTP tripwires; whole-database before/after check; ids (+ old
 `date_joined`, profile points) in `demo_seed_manifest.json` (gitignored) → `--purge` / `--reset`.
-Volunteers with a profile photo get most of the activity (rating formula unchanged). Tests:
+Volunteers with a profile photo get most of the activity (rating formula unchanged).
+`UserDailyActivity` site-visit days bring each account's share of active days since max(1 Aug,
+registration) into `ACTIVITY_TIERS` (≥ 4 requests 30–70 %, 2–3 → 10–30 %, else 3–10 %; event days are
+never removed); `--fill-activity` tops them up on an existing run (ids appended to the manifest). Tests:
 `myapp/tests_seed_demo_activity.py`.
 
 New badges (migrations 0032 `Achievement.is_manual` + 0033 data; thresholds on the `Achievement` rows): `tasks_5`, `tasks_25`,

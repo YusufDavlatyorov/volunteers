@@ -332,9 +332,10 @@ class SeededDatabaseTests(TestCase):
         self.assertIn('data-act-plural="act.days"', html)
         self.assertIn('data-act-plural="act.streak"', html)
         self.assertIn('data-d="2026-09-01"', html)
-        self.assertNotIn('data-d="2026-08-31"', html)
+        self.assertIn('data-d="2026-08-31"', html)   # the full 53-week grid: a grey day before the season
         cal = activity.calendar(volunteer)
-        self.assertEqual(cal["active_days"], (cal["last"] - cal["first"]).days + 1)   # no gaps
+        first = max(activity.START_DATE, volunteer.date_joined.astimezone(TZ).date())
+        self.assertEqual(cal["active_days"], (cal["last"] - first).days + 1)   # no gaps since the season began
         self.assertEqual(cal["streak"], cal["active_days"])
 
     # -------------------------------------------------------------- rating
@@ -465,20 +466,24 @@ class ActivitySummaryTests(TestCase):
         first, last = activity.window(datetime.date(2028, 1, 10))
         self.assertEqual((last - first).days, 364)
 
-    def test_window_starts_at_registration(self):
+    # 2026-10-19 (owner): the grid is always the full 53 weeks — registration
+    # no longer cuts it; days before it are ordinary grey days.
+    def test_window_ignores_registration(self):
         today = datetime.date(2026, 10, 18)
-        joined = datetime.datetime(2026, 10, 9, 20, 30, tzinfo=datetime.timezone.utc)   # 10 Oct 01:30 in Dushanbe
-        self.assertEqual(activity.window(today, joined), (datetime.date(2026, 10, 10), today))
-        self.assertEqual(activity.window(today, datetime.date(2026, 8, 1)), (activity.START_DATE, today))
+        joined = datetime.datetime(2026, 10, 9, 20, 30, tzinfo=datetime.timezone.utc)
+        self.assertEqual(activity.window(today, joined), (activity.grid_start(today), today))
 
-    def test_no_square_before_registration(self):
+    def test_days_before_registration_are_grey_squares(self):
         user = _make("win_cli", is_client=True)
         Users.objects.filter(pk=user.pk).update(date_joined=timezone.now() - datetime.timedelta(days=2))
         user.refresh_from_db()
         cal = activity.calendar(user)
-        days = [d for w in cal["weeks"] for d in w if not d["out"]]
-        self.assertEqual(days[0]["date"], user.date_joined.astimezone(TZ).date())
-        self.assertEqual(len(days), 3)
+        days = [d for w in cal["weeks"] for d in w]
+        joined = user.date_joined.astimezone(TZ).date()
+        self.assertEqual(days[0]["date"], activity.grid_start(activity.local_today()))
+        before = [d for d in days if d["date"] < joined]
+        self.assertGreater(len(before), 360)
+        self.assertTrue(all(d["level"] == 0 and d["count"] == 0 for d in before))
 
 
 # --------------------------------------------------------------------------- #

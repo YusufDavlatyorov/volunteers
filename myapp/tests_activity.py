@@ -115,8 +115,11 @@ class ActivityCountsTests(TestCase):
         self.assertEqual(counts[datetime.date(2026, 10, 4)], {"request_created": 1})
         self.assertEqual(counts[datetime.date(2026, 10, 5)], {"request_created": 1})
 
-    def test_window_starts_on_1_september_2026_and_includes_today(self):
-        first = activity.START_DATE
+    def test_window_is_53_weeks_from_a_monday_to_today(self):
+        first = activity.grid_start(TODAY)
+        self.assertEqual(first.weekday(), 0)
+        self.assertEqual((TODAY - first).days // 7, activity.WEEKS - 1)
+        self.assertEqual(activity.window(TODAY, joined=TODAY), (first, TODAY))   # registration doesn't cut it
         inside, outside, today = self._task(), self._task(), self._task()
         HelpRequest.objects.filter(pk=inside.pk).update(created_at=datetime.datetime.combine(first, datetime.time(0, 5), tzinfo=activity.TZ))
         HelpRequest.objects.filter(pk=outside.pk).update(created_at=datetime.datetime.combine(first, datetime.time(0, 0), tzinfo=activity.TZ) - datetime.timedelta(minutes=1))
@@ -130,15 +133,17 @@ class ActivityCountsTests(TestCase):
                 t = self._task()
                 HelpRequest.objects.filter(pk=t.pk).update(created_at=_at(2026, 10, day))
         cal = activity.calendar(self.cli, now=NOW)
-        # 1 Sep 2026 is a Tuesday: the grid starts on Monday 31 Aug, 6 weeks to Fri 9 Oct.
-        self.assertEqual(len(cal["weeks"]), 6)
-        self.assertEqual(cal["week_count"], 6)
-        self.assertTrue(all(len(w) == 7 for w in cal["weeks"]))
+        # Always 53 weeks, Monday first; Fri 9 Oct = the 5th day of the last column, nothing after it.
+        self.assertEqual(len(cal["weeks"]), activity.WEEKS)
+        self.assertEqual(cal["week_count"], activity.WEEKS)
+        self.assertTrue(all(len(w) == 7 for w in cal["weeks"][:-1]))
+        self.assertEqual(len(cal["weeks"][-1]), TODAY.weekday() + 1)                # no future squares
         self.assertEqual(cal["weeks"][0][0]["date"].weekday(), 0)                   # grid starts on a Monday
-        days = [d for w in cal["weeks"] for d in w if not d["out"]]
-        self.assertEqual(len(days), 39)
-        self.assertEqual(days[0]["date"], activity.START_DATE)
+        days = [d for w in cal["weeks"] for d in w]
+        self.assertEqual(len(days), 52 * 7 + TODAY.weekday() + 1)
+        self.assertEqual(days[0]["date"], activity.grid_start(TODAY))
         self.assertEqual(days[-1]["date"], TODAY)
+        self.assertTrue(all(b["date"] - a["date"] == datetime.timedelta(days=1) for a, b in zip(days, days[1:])))
         self.assertTrue(days[-1]["today"])
         by_date = {d["date"]: d for d in days}
         self.assertEqual((by_date[datetime.date(2026, 10, 5)]["level"], by_date[datetime.date(2026, 10, 6)]["level"]), (1, 4))
@@ -152,6 +157,11 @@ class ActivityCountsTests(TestCase):
         self.assertEqual(by_date[datetime.date(2026, 10, 6)]["kinds"], "request_created:4")
         self.assertTrue(cal["months"])
         self.assertTrue(all(b["col"] - a["col"] >= 3 for a, b in zip(cal["months"], cal["months"][1:])))
+        # a label (after the first column) sits over the column holding that month's 1st
+        for m in cal["months"]:
+            if m["col"]:
+                self.assertTrue(any(d["date"].day == 1 and d["date"].month == m["month"] for d in cal["weeks"][m["col"]]))
+        self.assertGreaterEqual(len(cal["months"]), 11)
         # cached: no queries the second time
         with CaptureQueriesContext(connection) as ctx:
             activity.calendar(self.cli, now=NOW)
@@ -172,7 +182,7 @@ class ActivityCountsTests(TestCase):
                 HelpRequest.objects.filter(pk=t.pk).update(created_at=NOW - datetime.timedelta(days=i))
         self.assertEqual(queries_for(few), queries_for(many))
         self.assertEqual(queries_for(many), 5)                # one per kind for a client + the day counter
-        self.assertEqual(activity.calendar(many, now=NOW)["total"], 39)  # the window starts on 1 Sep 2026
+        self.assertEqual(activity.calendar(many, now=NOW)["total"], 300)  # the whole 53-week window
 
 
 class ActivityPageTests(TestCase):
@@ -197,8 +207,10 @@ class ActivityPageTests(TestCase):
                 self.assertIn(f'data-i18n="{hint}"', html)
                 self.assertIn("Всего 0 действий", html)       # server-rendered Russian
                 cells = re.findall(r'<span class="act-cell l\d[^"]*" role="img" aria-label="([^"]+)"', html)
-                first, last = activity.window(activity.local_today(), user.date_joined)
-                self.assertEqual(len(cells), (last - first).days + 1)
+                first, last = activity.window(activity.local_today())
+                self.assertEqual(len(cells), (last - first).days + 1)          # the full year, joined today or not
+                self.assertNotIn("is-out", html)
+                self.assertNotIn("act-card--roomy", html)
                 self.assertIn("is-today", html)
                 self.assertIn("js/activity.js", html)
                 self.assertIn("css/activity.css", html)

@@ -213,6 +213,59 @@ class SeedDemoActivityTests(TestCase):
         top3 = [u.pk for u in rating.ranked_queryset()[:3]]
         self.assertEqual(set(top3), {u.pk for u in photo})
 
+    def _shares(self):
+        manifest = json.loads(self.manifest.read_text())
+        tasks = HelpRequest.objects.filter(pk__in=manifest["rows"]["myapp.HelpRequest"])
+        today = AS_OF_DT.astimezone(seed.TZ).date()
+        out = {}
+        for user in Users.objects.filter(pk__in=manifest["demo_user_ids"]):
+            n = (tasks.filter(volunteer=user, status="completed").count() if user.is_volunteer
+                 else tasks.filter(client=user).count())
+            first = max(seed.WINDOW_START.date(), user.date_joined.astimezone(seed.TZ).date())
+            days = set(UserDailyActivity.objects.filter(user=user, date__gte=first, date__lte=today)
+                       .values_list("date", flat=True))
+            out[user.pk] = (n, len(days) / ((today - first).days + 1), first)
+        return out
+
+    def test_active_day_shares_follow_the_tiers(self):
+        self.run_cmd(confirm=True)
+        for uid, (n, share, first) in self._shares().items():
+            low, high = next(band for threshold, band in seed.ACTIVITY_TIERS if n >= threshold)
+            self.assertGreaterEqual(share, low - 0.02, (uid, n, share))
+            # Real event days are never removed, so a busy account may sit a little above its band.
+            self.assertLessEqual(share, high + 0.08, (uid, n, share))
+        for row in self.seed_rows(UserDailyActivity).select_related("user"):
+            self.assertGreaterEqual(row.date, row.user.date_joined.astimezone(seed.TZ).date())
+            self.assertTrue(row.is_demo)
+
+    def test_fill_activity_tops_up_records_ids_and_purge_removes_them(self):
+        before = comparable(seed.snapshot())
+        self.run_cmd(confirm=True)
+        # An older run without the visit days: drop them, then top up.
+        manifest = json.loads(self.manifest.read_text())
+        visits = UserDailyActivity.objects.filter(pk__in=manifest["rows"]["myapp.UserDailyActivity"], actions_count__lte=3)
+        removed = set(visits.values_list("pk", flat=True))
+        visits.delete()
+        manifest["rows"]["myapp.UserDailyActivity"] = sorted(set(manifest["rows"]["myapp.UserDailyActivity"]) - removed)
+        self.manifest.write_text(json.dumps(manifest))
+        protected_before = {m: m.objects.filter(**{f: self.protected_ids}).count() for m, f in
+                            ((UserDailyActivity, "user_id__in"), (Notification, "recipient_id__in"))}
+        self.run_cmd(confirm=True, fill_activity=True, dry_run=True)
+        self.assertEqual(json.loads(self.manifest.read_text())["rows"], manifest["rows"])   # dry run: nothing
+        self.run_cmd(confirm=True, fill_activity=True)
+        after = json.loads(self.manifest.read_text())
+        added = set(after["rows"]["myapp.UserDailyActivity"]) - set(manifest["rows"]["myapp.UserDailyActivity"])
+        self.assertTrue(added)
+        self.assertEqual(len(after["activity_fill"]), 1)
+        self.assertFalse(UserDailyActivity.objects.filter(pk__in=added).exclude(user_id__in=self.demo_ids).exists())
+        self.assertEqual({m: m.objects.filter(**{f: self.protected_ids}).count() for m, f in
+                          ((UserDailyActivity, "user_id__in"), (Notification, "recipient_id__in"))}, protected_before)
+        self.run_cmd(confirm=True, fill_activity=True)        # a second top-up adds nothing
+        self.assertEqual(json.loads(self.manifest.read_text())["rows"]["myapp.UserDailyActivity"],
+                         after["rows"]["myapp.UserDailyActivity"])
+        self.run_cmd(confirm=True, purge=True)
+        self.assertEqual(comparable(seed.snapshot()), before)
+
     def test_cron_sweeps_will_not_alert_staff_about_demo_requests(self):
         self.run_cmd(confirm=True)
         tasks = self.seed_rows(HelpRequest)

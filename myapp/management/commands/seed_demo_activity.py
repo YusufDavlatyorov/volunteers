@@ -93,6 +93,7 @@ from django.apps import apps
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
+from django.core.cache import cache
 from django.db import connection, models, transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -325,6 +326,10 @@ NO_PHOTO_MAX_TASKS = 1
 PHOTO_BOOST_UNTIL = 2      # photo volunteers: the boost lasts for their first 2 requests
 REVIEW_SHARE_PHOTO = 0.9
 REVIEW_SHARE_NO_PHOTO = 0.45
+# Days with any activity (requests, chats, … or just a visit to the site) as a
+# share of the account's days since max(WINDOW_START, registration), by how
+# much it helped / asked: (min completed or created requests, (low, high)).
+ACTIVITY_TIERS = ((4, (0.30, 0.70)), (2, (0.10, 0.30)), (0, (0.03, 0.10)))
 # Registration of a demo account: a random moment between JOINED_FROM and one
 # day before its first demo activity; no activity: up to JOINED_IDLE_UNTIL.
 JOINED_FROM = datetime.datetime(2026, 7, 25, 0, 0, tzinfo=ZoneInfo("Asia/Dushanbe"))
@@ -685,6 +690,37 @@ def plan_task_events(task):
     return ev
 
 
+def plan_visits(event_days, windows, done, today):
+    """{user: {day: actions}} — extra "visited the site" days so the share of
+    active days lands in the account's ``ACTIVITY_TIERS`` band. ``event_days``:
+    {user: set of days that already have activity}; ``windows``: {user: first
+    day}; ``done``: {user: completed (volunteer) / created (client) requests}.
+    Deterministic per user; more visits towards ``today`` (same growth as the
+    requests); a day that already has activity is never chosen."""
+    out = {}
+    for uid in sorted(windows):
+        first = windows[uid]
+        if first > today:
+            continue
+        days = [first + datetime.timedelta(days=i) for i in range((today - first).days + 1)]
+        low, high = next(band for threshold, band in ACTIVITY_TIERS if done.get(uid, 0) >= threshold)
+        vr = random.Random(f"{SEED}:visits:{uid}")
+        target = round(vr.uniform(low, high) * len(days))
+        have = {d for d in event_days.get(uid, ()) if first <= d <= today}
+        free = [d for d in days if d not in have]
+        need = min(max(0, target - len(have)), len(free))
+        if not need:
+            continue
+        span = max(1, len(days) - 1)
+        weights = [(1 + 2 * (d - first).days / span) ** 3 * (0.6 if d.weekday() == 6 else 1.0) for d in free]
+        chosen = set()
+        while len(chosen) < need:  # weighted sampling without replacement
+            pick = vr.choices(free, weights=weights)[0]
+            chosen.add(pick)
+        out[uid] = {d: vr.randint(1, 3) for d in sorted(chosen)}
+    return out
+
+
 # --------------------------------------------------------------------------- #
 # quiet run: in-app rows for demo accounts only, nothing leaves the server
 # --------------------------------------------------------------------------- #
@@ -960,6 +996,8 @@ class Command(BaseCommand):
                             help=f"How many help requests ({MIN_REQUESTS}–{MAX_REQUESTS}).")
         parser.add_argument("--manifest", default=None, help=f"Manifest path (default <BASE_DIR>/{MANIFEST_NAME}).")
         parser.add_argument("--per-user", action="store_true", help="Print the per-account table.")
+        parser.add_argument("--fill-activity", action="store_true",
+                            help="Top up the site-visit days (UserDailyActivity) of an existing run; ids go to the manifest.")
         parser.add_argument("--as-of", default=None, help=__import__("argparse").SUPPRESS)  # tests only
 
     # ----------------------------------------------------------------- entry
@@ -980,6 +1018,11 @@ class Command(BaseCommand):
                 raise CommandError("Refusing to write without DEMO_MODE=True (DJANGO_DEMO_MODE): the site must show "
                                    "the demo-stand banner while demo activity exists.")
         self.real_now = (datetime.datetime.fromisoformat(options["as_of"]) if options["as_of"] else timezone.now())
+        if options["fill_activity"]:
+            if options["reset"] or options["purge"]:
+                raise CommandError("--fill-activity works on an existing run alone (no --reset / --purge).")
+            self._fill(dry)
+            return
         if options["reset"] and dry and self.manifest_path.exists():
             # The whole --reset in one transaction — purge, then the fresh run
             # with its full report — and everything rolled back.
@@ -1090,7 +1133,10 @@ class Command(BaseCommand):
             raise
         os.replace(self.manifest_path.with_suffix(".json.tmp"), self.manifest_path)
         from accounts.models import clear_rating_cache
+        from myapp.services import activity
         clear_rating_cache()  # a visitor may have rebuilt it from pre-commit data
+        today = self.real_now.astimezone(TZ).date()
+        cache.delete_many([activity.cache_key(uid, today) for uid in self.demo_ids])  # profile calendars
         self.stdout.write(self.style.SUCCESS(f"Committed. Manifest: {self.manifest_path}"))
         self.stdout.write(f"Accounts before {user_count_before}, after {User.objects.count()}.")
 
@@ -1232,13 +1278,126 @@ class Command(BaseCommand):
             add(m.sender_id, m.created_at)
         existing = set(UserDailyActivity.objects.filter(user_id__in=self.demo_ids).values_list("user_id", "date"))
         rng = random.Random(f"{SEED}:activity")
+        today = self.real_now.astimezone(TZ).date()
         create = []
         for (user_id, day), count in sorted(per_day.items()):
-            if (user_id, day) in existing or day < WINDOW_START.date() or day > self.real_now.astimezone(TZ).date():
+            if (user_id, day) in existing or day < WINDOW_START.date() or day > today:
                 continue
             create.append(UserDailyActivity(user_id=user_id, date=day, actions_count=count + rng.randint(1, 4),
                                             is_demo=True, source="demo"))
         UserDailyActivity.objects.bulk_create(create, batch_size=500)
+        self._visits(task_ids)
+
+    def _visits(self, task_ids):
+        """Site visits on days without other activity (``plan_visits``), from
+        max(1 Aug, registration) to today. Returns the rows created."""
+        from myapp.models import HelpRequest, UserDailyActivity
+
+        today = self.real_now.astimezone(TZ).date()
+        joined = dict(User.objects.filter(pk__in=self.demo_ids).values_list("pk", "date_joined"))
+        windows = {uid: max(WINDOW_START.date(), joined[uid].astimezone(TZ).date()) for uid in self.demo_ids}
+        event_days = defaultdict(set)
+        for uid, day in UserDailyActivity.objects.filter(user_id__in=self.demo_ids).values_list("user_id", "date"):
+            event_days[uid].add(day)
+        tasks = HelpRequest.objects.filter(pk__in=task_ids)
+        done = Counter(tasks.filter(status="completed").values_list("volunteer_id", flat=True))
+        done.update(tasks.values_list("client_id", flat=True))
+        rows = [UserDailyActivity(user_id=uid, date=day, actions_count=n, is_demo=True, source="demo")
+                for uid, days in plan_visits(event_days, windows, done, today).items() for day, n in days.items()]
+        UserDailyActivity.objects.bulk_create(rows, batch_size=500)
+        return rows
+
+    def _share_report(self, task_ids):
+        """Share of active days per account since max(1 Aug, registration), by tier."""
+        from myapp.models import HelpRequest, UserDailyActivity
+
+        today = self.real_now.astimezone(TZ).date()
+        joined = dict(User.objects.filter(pk__in=self.demo_ids).values_list("pk", "date_joined"))
+        roles = dict(User.objects.filter(pk__in=self.demo_ids).values_list("pk", "is_volunteer"))
+        tasks = HelpRequest.objects.filter(pk__in=task_ids)
+        done = Counter(tasks.filter(status="completed").values_list("volunteer_id", flat=True))
+        done.update(tasks.values_list("client_id", flat=True))
+        days = defaultdict(set)
+        for uid, day in UserDailyActivity.objects.filter(user_id__in=self.demo_ids).values_list("user_id", "date"):
+            days[uid].add(day)
+        groups = defaultdict(list)
+        for uid in self.demo_ids:
+            first = max(WINDOW_START.date(), joined[uid].astimezone(TZ).date())
+            total = (today - first).days + 1
+            share = len({d for d in days[uid] if first <= d <= today}) / total if total > 0 else 0
+            band = next(b for threshold, b in ACTIVITY_TIERS if done.get(uid, 0) >= threshold)
+            groups[("volunteer" if roles[uid] else "client", band)].append(share)
+        self.shares = {}
+        for (role, band), values in sorted(groups.items(), key=lambda kv: (kv[0][0], -kv[0][1][0])):
+            values.sort()
+            self.stdout.write(f"  active-day share, {role}s in {int(band[0]*100)}–{int(band[1]*100)} %: "
+                              f"{len(values)} accounts, min {values[0]:.0%}, median {values[len(values)//2]:.0%}, "
+                              f"max {values[-1]:.0%}")
+            self.shares[(role, band)] = values
+
+    def _fill(self, dry):
+        """--fill-activity: add the site-visit days of an existing run."""
+        from accounts.models import clear_rating_cache
+        from myapp.services import activity
+
+        if not self.manifest_path.exists():
+            raise CommandError(f"No manifest at {self.manifest_path} — run the seed first.")
+        manifest = json.loads(self.manifest_path.read_text())
+        if manifest.get("command") != "seed_demo_activity" or manifest.get("version") != MANIFEST_VERSION:
+            raise CommandError("Not a seed_demo_activity manifest.")
+        self.demo_ids = set(manifest["demo_user_ids"]) & set(demo_accounts().values_list("pk", flat=True))
+        task_ids = manifest["rows"].get("myapp.HelpRequest", [])
+        stats = {"notify_rows": 0, "notify_dropped": 0, "notify_before_joined": 0, "ws_suppressed": 0,
+                 "external_attempts": [], "refused": Counter()}
+        user_count = User.objects.count()
+        tmp = self.manifest_path.with_suffix(".json.tmp")
+        try:
+            with quiet(self.demo_ids, stats), info_logs_off(), transaction.atomic():
+                if connection.vendor == "postgresql":
+                    with connection.cursor() as cur:
+                        cur.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+                before = snapshot()
+                rows = self._visits(task_ids)
+                after = snapshot()
+                problems, created = compare(before, after, self.demo_ids)
+                if set(created) - {"myapp.UserDailyActivity"}:
+                    problems.append(f"unexpected new rows: {sorted(set(created) - {'myapp.UserDailyActivity'})}")
+                problems += check_new_rows(created, self.demo_ids, WINDOW_START, self.real_now)
+                joined = dict(User.objects.filter(pk__in=self.demo_ids).values_list("pk", "date_joined"))
+                early = [r.pk for r in rows if r.date < joined[r.user_id].astimezone(TZ).date()]
+                if early:
+                    problems.append(f"visit days before registration: {early[:10]}")
+                if User.objects.count() != user_count:
+                    problems.append("the number of accounts changed")
+                if stats["external_attempts"]:
+                    problems.append(f"external send attempted: {stats['external_attempts']}")
+                if problems:
+                    raise CommandError("Rolled back — the post-fill check failed:\n  " + "\n  ".join(problems[:40]))
+                new_ids = created.get("myapp.UserDailyActivity", [])
+                self.stdout.write(f"--fill-activity as of {self.real_now.astimezone(TZ):%Y-%m-%d %H:%M}: "
+                                  f"{len(new_ids)} visit day(s) for {len({r.user_id for r in rows})} demo account(s); "
+                                  f"accounts {user_count} → {User.objects.count()}")
+                self._share_report(task_ids)
+                if dry:
+                    raise _DryRun()
+                manifest["rows"]["myapp.UserDailyActivity"] = sorted(
+                    set(manifest["rows"].get("myapp.UserDailyActivity", [])) | set(new_ids))
+                manifest.setdefault("activity_fill", []).append(
+                    {"at": timezone.now().isoformat(), "as_of": self.real_now.isoformat(), "rows": len(new_ids),
+                     "git": git_commit()})
+                tmp.write_text(json.dumps(manifest, ensure_ascii=False, indent=1))
+        except _DryRun:
+            self.stdout.write(self.style.WARNING("DRY RUN — the visit days above were rolled back, nothing written."))
+            return
+        except Exception:
+            if tmp.exists():
+                tmp.unlink()
+            raise
+        os.replace(tmp, self.manifest_path)
+        today = self.real_now.astimezone(TZ).date()
+        cache.delete_many([activity.cache_key(uid, today) for uid in self.demo_ids])
+        clear_rating_cache()
+        self.stdout.write(self.style.SUCCESS(f"Committed. Manifest updated: {self.manifest_path}"))
 
     def _manifest(self, created, before, after, n, excluded):
         return {
@@ -1299,6 +1458,7 @@ class Command(BaseCommand):
         out(f"Achievements awarded from the data: {badges.count()} — "
             + ", ".join(f"{k} {v}" for k, v in Counter(b.achievement.code for b in badges).most_common()))
         out(f"Daily activity rows: {len(created.get('myapp.UserDailyActivity', []))}")
+        self._share_report(task_ids)
         joined = sorted(self.joined.values())
         if joined:
             out(f"Registration dates moved: {len(joined)} accounts, {joined[0].astimezone(TZ):%Y-%m-%d} … "
