@@ -425,7 +425,6 @@ document.addEventListener('DOMContentLoaded', () => {
         aging: ['rec.fresh_aging', 'location not updated for a while'], stale: ['rec.fresh_stale', 'location is outdated'],
         unknown: ['rec.fresh_unknown', 'location never updated'],
     };
-    const freshness = (code) => (freshnessLabel[code] ? tr(freshnessLabel[code][0], freshnessLabel[code][1]) : '');
 
     function showEmpty(key, fallback) {
         statusEl.hidden = true;
@@ -442,12 +441,30 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Text from the server (names, regions, reasons) goes in through
     // textContent only — a volunteer's own full name must never become markup.
-    function el(tag, className, text, i18nKey) {
+    function el(tag, className, text, i18nKey, args) {
         const node = document.createElement(tag);
         if (className) node.className = className;
         if (text != null) node.textContent = text;
         if (i18nKey) node.setAttribute('data-i18n', i18nKey);
+        if (args) node.setAttribute('data-i18n-args', JSON.stringify(args));
         return node;
+    }
+
+    // Every translatable word carries data-i18n (+ args): i18n.js applies the
+    // visitor's language on DOMContentLoaded, often before this fetch returns
+    // and sometimes after — either way setLanguage() relabels it.
+    function word(key, fallback, args, className) {
+        return el('span', className, tr(key, fallback, args), key, args);
+    }
+
+    // .opportunity-location is a wrapping flex row: each part is ONE item
+    // (number + unit never split), with a "·" item between parts.
+    function appendParts(meta, parts) {
+        parts.forEach((part, i) => {
+            const item = el('span');
+            item.append(...part);
+            meta.append(...(i ? [el('span', null, '·')] : []), item);
+        });
     }
 
     const PIN_SVG = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg>';
@@ -460,24 +477,30 @@ document.addEventListener('DOMContentLoaded', () => {
         // opacity 0 forever (the "only the header shows" bug).
         const row = el('div', 'card applicant-row');
         const body = el('div', 'applicant-body');
+        const availabilityKey = 'availability.' + item.availability;
         const tags = [
-            el('span', 'tag ' + availabilityTag, item.availability_display),
+            word(availabilityKey, item.availability_display, null, 'tag ' + availabilityTag),
             el('span', 'tag accent rec-score-tag', `#${rank} · ${item.score}`),
         ];
-        if (item.same_region && item.region) tags.push(el('span', 'tag muted', item.region));
+        if (item.same_region && item.region) {
+            const regionKey = item.region_code ? 'region.' + item.region_code : null;
+            tags.push(regionKey ? word(regionKey, item.region, null, 'tag muted') : el('span', 'tag muted', item.region));
+        }
         const skill = skillTag[item.skill_match];
-        if (skill) tags.push(el('span', skill[0], tr(skill[1], skill[2]), skill[1]));
+        if (skill) tags.push(word(skill[1], skill[2], null, skill[0]));
         tags.forEach((tag) => body.append(tag, ' '));
         body.append(el('h3', null, item.full_name));
 
         const meta = el('p', 'opportunity-location');
         meta.innerHTML = PIN_SVG;
-        meta.append(' ' + [
-            `${item.distance_km} ${tr('unit.km', 'km')}`,
-            `~${Math.round(item.estimated_minutes)} ${tr('unit.min', 'min')}`,
-            tr('rec.n_active', '{n} active', { n: item.active_task_count }),
-            freshness(item.location_freshness),
-        ].filter(Boolean).join(' · '));
+        const parts = [
+            [`${item.distance_km} `, word('unit.km', 'km')],
+            [`~${Math.round(item.estimated_minutes)} `, word('unit.min', 'min')],
+            [word('rec.n_active', '{n} active', { n: item.active_task_count })],
+        ];
+        const fresh = freshnessLabel[item.location_freshness];
+        if (fresh) parts.push([word(fresh[0], fresh[1])]);
+        appendParts(meta, parts);
         body.append(meta);
 
         const reasons = el('ul', 'rec-reasons');
@@ -563,21 +586,20 @@ document.addEventListener('DOMContentLoaded', () => {
         row.className = 'card applicant-row rec-away__row';
         const body = document.createElement('div');
         body.className = 'applicant-body';
-        const tag = document.createElement('span');
-        tag.className = 'tag urgent';
-        tag.textContent = awayWarning(item);
-        const name = document.createElement('h3');
-        name.textContent = item.full_name;
-        const meta = document.createElement('p');
-        meta.className = 'opportunity-location';
-        meta.textContent = [item.region, item.distance_km != null ? `${item.distance_km} ${tr('unit.km', 'km')}` : ''].filter(Boolean).join(' · ');
+        const tag = item.away_until
+            ? word('rec.away_warning_until', 'Volunteer is in “do not disturb” mode until {date}', { date: formatDay(item.away_until) }, 'tag urgent')
+            : word('rec.away_warning', 'Volunteer is in “do not disturb” mode', null, 'tag urgent');
+        const name = el('h3', null, item.full_name);
+        const meta = el('p', 'opportunity-location');
+        const parts = [];
+        if (item.region) parts.push([item.region_code ? word('region.' + item.region_code, item.region) : item.region]);
+        if (item.distance_km != null) parts.push([`${item.distance_km} `, word('unit.km', 'km')]);
+        appendParts(meta, parts);
         body.append(tag, name, meta);
         const actions = document.createElement('div');
         actions.className = 'button-row';
-        const btn = document.createElement('button');
+        const btn = el('button', 'button danger', tr('rec.assign_anyway', 'Assign urgently'), 'rec.assign_anyway');
         btn.type = 'button';
-        btn.className = 'button danger';
-        btn.textContent = tr('rec.assign_anyway', 'Assign urgently');
         btn.addEventListener('click', () => {
             const question = awayWarning(item) + '.\n' + tr('rec.away_confirm', 'Assign {name} urgently anyway? They will be told it was an urgent manual assignment.', { name: item.full_name });
             if (!confirm(question)) return;

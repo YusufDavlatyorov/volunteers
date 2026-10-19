@@ -16,11 +16,13 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from accounts.models import Profile, Users
+from accounts.models import REGION_CHOICES, Profile, Users
 from myapp.models import HelpRequest
 from myapp.services import matching
 
 TASK_LAT, TASK_LNG = 38.5598, 68.7870
+# Offline volunteers never reach the shortlist; the card shows these two.
+AVAILABILITY_CODES = (Profile.AVAILABILITY_AVAILABLE, Profile.AVAILABILITY_BUSY)
 PASSWORD = "pass12345"
 
 
@@ -65,6 +67,12 @@ class SmartMatchingEndpointTests(TestCase):
                 self.assertTrue(data["task_has_location"])
                 self.assertIsNone(data["empty_reason"])
                 self.assertEqual([r["username"] for r in data["recommendations"]], ["sm_near", "sm_far"])
+
+    def test_rows_carry_region_code_for_translation(self):
+        Profile.objects.filter(user=self.far).update(is_away=True, away_until=None)
+        data = self._get("sm_admin").json()
+        self.assertEqual(data["recommendations"][0]["region_code"], "dushanbe")
+        self.assertEqual(data["away_volunteers"][0]["region_code"], "dushanbe")
 
     def test_each_candidate_carries_translatable_reason_codes(self):
         row = self._get("sm_admin").json()["recommendations"][0]
@@ -212,6 +220,10 @@ class SmartMatchingPageScriptTests(TestCase):
         keys = set(re.findall(r"""['"](rec\.[\w.]+)['"]""", self.script))
         keys -= {"rec.why."}
         keys |= {f"rec.why.{code}" for code in matching.REASON_TEXT}
+        # Built from codes in the script: 'availability.' + item.availability, 'region.' + region_code.
+        keys |= {f"availability.{code}" for code in AVAILABILITY_CODES}
+        keys |= {f"region.{code}" for code, _ in REGION_CHOICES}
+        keys |= set(re.findall(r"""word\(\s*['"]([a-z_]+\.[\w.]+)['"]""", self.script))
         empty_codes = {
             matching.EMPTY_NO_TASK_LOCATION, matching.EMPTY_NO_VOLUNTEERS,
             matching.EMPTY_ALL_UNAVAILABLE, matching.EMPTY_NO_VOLUNTEER_LOCATION,

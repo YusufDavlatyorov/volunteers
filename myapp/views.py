@@ -1284,6 +1284,7 @@ def task_recommendations_view(request, pk):
             "username": volunteer.username,
             "full_name": profile.full_name or volunteer.username,
             "region": volunteer.get_region_display() or "",
+            "region_code": volunteer.region or "",  # i18n.js region.<code>
             "distance_km": item["distance_km"],
             "estimated_minutes": item["estimated_minutes"],
             "score": item["score"],
@@ -1302,6 +1303,7 @@ def task_recommendations_view(request, pk):
             "volunteer_id": volunteer.id,
             "full_name": volunteer.profile.full_name or volunteer.username,
             "region": volunteer.get_region_display() or "",
+            "region_code": volunteer.region or "",  # i18n.js region.<code>
             "distance_km": distance_km,
             "away_until": _away_last_day_iso(volunteer),
         }
