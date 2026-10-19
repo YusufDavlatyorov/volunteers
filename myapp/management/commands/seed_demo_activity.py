@@ -346,6 +346,12 @@ PHOTO_SHARES = {("volunteer", True): (0.45, 0.70), ("volunteer", False): (0.03, 
 PHOTO_CLIENT_ENERGY = 1.0
 NO_PHOTO_CLIENT_ENERGY = 0.12
 OCTOBER_VISIT_ACTIONS = (3, 7)   # photo volunteers: October visits weigh more (darkest squares)
+# Accounts outside @khayrkhoh.invalid the owner named (``--include-accounts``):
+# their date_joined is kept, so a volunteer who registered within
+# FIRST_DAY_WINDOW gets FIRST_DAY_TASKS short requests on the day of
+# registration only (1 active day of the 2 since then = 50 %).
+FIRST_DAY_WINDOW = datetime.timedelta(hours=72)
+FIRST_DAY_TASKS = 2
 # Registration of a demo account: a random moment between JOINED_FROM and one
 # day before its first demo activity; no activity: up to JOINED_IDLE_UNTIL.
 JOINED_FROM = datetime.datetime(2026, 7, 25, 0, 0, tzinfo=ZoneInfo("Asia/Dushanbe"))
@@ -403,7 +409,10 @@ class Person:
     role: str
     lang: str = "ru"
     energy: float = 0.0
-    photo: bool = False             # volunteers: the profile has a photo
+    photo: bool = False             # the profile has a photo
+    available_from: datetime.datetime | None = None   # an included account: its real registration
+    first_day: bool = False         # registered within FIRST_DAY_WINDOW: only the first-day requests
+    known_days: frozenset = frozenset()   # an included account's own (real) active days
     home: tuple | None = None       # (lat, lng)
     address: str = ""
     phone: str = ""
@@ -430,6 +439,7 @@ class Planned:
     target: str = "done"            # the last three days: pending / active / done
     review_roll: float = 0.0
     client_photo: bool = False
+    first_day: bool = False          # a first-day request (review already decided)
     volunteer: int | None = None
     accepted: datetime.datetime | None = None
     completed: datetime.datetime | None = None
@@ -460,7 +470,7 @@ def _finish_time(moment):
     return local
 
 
-def build_people(volunteer_ids, client_ids, with_photo=frozenset()):
+def build_people(volunteer_ids, client_ids, with_photo=frozenset(), registered=None, now=None, known_days=None):
     """Deterministic personas over the real account ids. ``with_photo``: the
     accounts (volunteers and clients) whose profile has a photo — they carry
     the activity of their role."""
@@ -486,6 +496,11 @@ def build_people(volunteer_ids, client_ids, with_photo=frozenset()):
             share = rank / max(1, len(order))
             energy = 0.0 if rank > len(order) - quiet else next(e for top, e in VOLUNTEER_TIERS if share <= top)
             people[pk] = Person(pk, "volunteer", energy=energy)
+    for pk, moment in (registered or {}).items():
+        if pk in people:
+            people[pk].available_from = moment
+            people[pk].first_day = bool(now and people[pk].role == "volunteer" and now - moment <= FIRST_DAY_WINDOW)
+            people[pk].known_days = frozenset((known_days or {}).get(pk, ()))
     corder = list(client_ids)
     rng.shuffle(corder)
     client_photo = any(pk in with_photo for pk in corder)
@@ -592,10 +607,27 @@ def build_plan(people, n, now, blocked=frozenset()):
 
     # Assignment in time order: a volunteer takes a request only while free
     # (busy from accept to completion) — the self-accept "one active request" rule.
-    volunteers = [p for p in people.values() if p.role == "volunteer" and p.energy > 0 and p.pk not in blocked]
+    volunteers = [p for p in people.values()
+                  if p.role == "volunteer" and p.energy > 0 and p.pk not in blocked and not p.first_day]
     busy_until = {v.pk: WINDOW_START for v in volunteers}
     taken = Counter()
-    any_photo = any(v.photo for v in volunteers)
+    any_photo = any(p.photo for p in people.values() if p.role == "volunteer")
+    # A photo volunteer's active days stay within its band (its own real days
+    # count too): a request that would push it above the top is left to others.
+    today = now.astimezone(TZ).date()
+    top_share = PHOTO_SHARES[("volunteer", True)][1]
+    used = {v.pk: set(v.known_days) for v in volunteers}
+
+    def window_len(v):
+        start = max(WINDOW_START.date(), (v.available_from or WINDOW_START).astimezone(TZ).date())
+        return (today - start).days + 1
+
+    def fits(v, at, duration):
+        if not (any_photo and v.photo):
+            return True
+        end = min(_finish_time(at + duration), now).astimezone(TZ).date()
+        span = {at.astimezone(TZ).date() + datetime.timedelta(days=i) for i in range((end - at.astimezone(TZ).date()).days + 1)}
+        return len(used[v.pk] | span) <= top_share * window_len(v)
     heap = [(_daytime(r.created + r.accept_after), r.seq) for r in plan]
     heapq.heapify(heap)
     by_seq = {r.seq: r for r in plan}
@@ -611,11 +643,13 @@ def build_plan(people, n, now, blocked=frozenset()):
         if at > now or not volunteers:
             continue
         able = [v for v in volunteers if v.photo or not any_photo or taken[v.pk] < NO_PHOTO_MAX_TASKS]
-        free = [v for v in able if busy_until[v.pk] <= at]
+        free = [v for v in able if busy_until[v.pk] <= at and (v.available_from is None or v.available_from <= at)
+                and fits(v, at, task.duration)]
         if not free:
-            # Retry once the next volunteer who may still take one is free;
-            # nobody left at all → the request stays pending.
-            later = [busy_until[v.pk] for v in able if busy_until[v.pk] > at]
+            # Retry once the next volunteer who may still take one is free (or
+            # registered); nobody left at all → the request stays pending.
+            later = [max(busy_until[v.pk], v.available_from or busy_until[v.pk]) for v in able
+                     if max(busy_until[v.pk], v.available_from or busy_until[v.pk]) > at]
             if later:
                 heapq.heappush(heap, (_daytime(min(later) + datetime.timedelta(minutes=15)), seq))
             continue
@@ -630,7 +664,16 @@ def build_plan(people, n, now, blocked=frozenset()):
         if task.target == "active" and task.completed <= now:
             task.completed = _finish_time(now + datetime.timedelta(hours=arng.uniform(1, 20)))
         busy_until[chosen.pk] = task.completed
+        end_day = min(task.completed, now).astimezone(TZ).date()
+        day = at.astimezone(TZ).date()
+        while day <= end_day:
+            used[chosen.pk].add(day)
+            day += datetime.timedelta(days=1)
+    plan += plan_first_days(people, now, len(plan))
     for task in plan:
+        if task.first_day:
+            task.events = plan_task_events(task)
+            continue
         if task.volunteer is not None:
             share = REVIEW_SHARE
             if any_photo:
@@ -669,6 +712,50 @@ def plan_joined(plan, user_ids, now):
         # A daytime moment (09:00–21:00 local) that is still not after ``until``.
         moment = day.replace(hour=jr.randint(9, 20), minute=jr.randrange(0, 60, 5), second=0, microsecond=0)
         out[uid] = min(moment, until) if moment > until else moment
+    return out
+
+
+def plan_first_days(people, now, start_seq):
+    """``FIRST_DAY_TASKS`` short requests for every first-day volunteer, all
+    accepted and completed on the local day of registration (before 21:30,
+    never after ``now``) — one after the other."""
+    clients = [c for c in people.values() if c.role == "client" and c.energy > 0]
+    out = []
+    if not clients:
+        return out
+    mins = datetime.timedelta(minutes=1)
+    for v in sorted((p for p in people.values() if p.first_day), key=lambda p: p.pk):
+        rng = random.Random(f"{SEED}:firstday:{v.pk}")
+        reg = v.available_from.astimezone(TZ)
+        day_end = min(reg.replace(hour=21, minute=30, second=0, microsecond=0), now - 10 * mins)
+        free_at = reg + rng.randint(10, 35) * mins
+        for k in range(FIRST_DAY_TASKS):
+            client = rng.choices(clients, weights=[c.energy for c in clients])[0]
+            created = max(reg + 5 * mins, free_at - rng.randint(0, 20) * mins)
+            accepted = max(free_at, created + rng.randint(6, 20) * mins)
+            room = (day_end - accepted) / (FIRST_DAY_TASKS - k) - 15 * mins
+            duration = min(rng.randint(60, 110) * mins, room)
+            if duration < 35 * mins:
+                break
+            help_type = _weighted(rng, HELP_TYPE_WEIGHTS)
+            stars = 5 if rng.random() < 0.6 else 4
+            review = None
+            if rng.random() < REVIEW_SHARE_PHOTO:
+                review = (datetime.timedelta(hours=rng.uniform(0.5, 20)), stars,
+                          rng.choice(REVIEW_COMMENTS[stars][client.lang]), sorted(rng.sample(GOOD_TAGS, rng.randint(1, 2))))
+            lat, lng = client.home
+            task = Planned(
+                seq=start_seq + len(out), client=client.pk, created=created, help_type=help_type, priority="normal",
+                lang=client.lang, description=rng.choice(REQUEST_TEXTS[help_type][client.lang]),
+                address=client.address, phone=client.phone,
+                lat=round(lat + rng.uniform(-0.0006, 0.0006), 6), lng=round(lng + rng.uniform(-0.0006, 0.0006), 6),
+                accept_after=accepted - created, duration=duration, cancel_after=None, review=review,
+                rng_seed=f"{SEED}:firstday:{v.pk}:{k}", target="done", review_roll=0.0, client_photo=client.photo,
+            )
+            task.volunteer, task.accepted, task.completed = v.pk, accepted, accepted + duration
+            task.first_day = True
+            out.append(task)
+            free_at = task.completed + rng.randint(10, 25) * mins
     return out
 
 
@@ -941,7 +1028,7 @@ def snapshot():
     return snap
 
 
-def compare(before, after, demo_ids):
+def compare(before, after, demo_ids, movable_ids=None):
     """(problems, created) — ``created`` = {label: [new pks]} in MANIFEST_MODELS."""
     problems, created = [], {}
     for label, data in after.items():
@@ -965,13 +1052,14 @@ def compare(before, after, demo_ids):
                 user_id = row[names.index("user_id")]
                 if user_id in demo_ids and changed <= ALLOWED_PROFILE_CHANGES:
                     continue
-            if label == USERS_LABEL and pk in demo_ids and changed <= ALLOWED_USER_CHANGES:
+            if label == USERS_LABEL and pk in (demo_ids if movable_ids is None else movable_ids) \
+                    and changed <= ALLOWED_USER_CHANGES:
                 continue
             problems.append(f"{label} #{pk}: existing row changed ({', '.join(sorted(changed))})")
     return problems, created
 
 
-def compare_purge(before, after, listed, demo_ids):
+def compare_purge(before, after, listed, demo_ids, movable_ids=None):
     """A purge may only remove the listed rows (+ UI-state cascades of demo
     requests) and touch the derived Profile fields of demo accounts."""
     problems = []
@@ -993,7 +1081,8 @@ def compare_purge(before, after, listed, demo_ids):
             if label == "accounts.Profile" and row[names.index("user_id")] in demo_ids and \
                     changed <= ALLOWED_PROFILE_CHANGES:
                 continue
-            if label == USERS_LABEL and pk in demo_ids and changed <= ALLOWED_USER_CHANGES:
+            if label == USERS_LABEL and pk in (demo_ids if movable_ids is None else movable_ids) \
+                    and changed <= ALLOWED_USER_CHANGES:
                 continue
             problems.append(f"{label} #{pk}: existing row changed ({', '.join(sorted(changed))})")
     return problems
@@ -1060,6 +1149,9 @@ class Command(BaseCommand):
                             help=f"How many help requests ({MIN_REQUESTS}–{MAX_REQUESTS}).")
         parser.add_argument("--manifest", default=None, help=f"Manifest path (default <BASE_DIR>/{MANIFEST_NAME}).")
         parser.add_argument("--per-user", action="store_true", help="Print the per-account table.")
+        parser.add_argument("--include-accounts", default="",
+                            help="Comma-separated ids of accounts OUTSIDE @khayrkhoh.invalid the owner confirmed as demo "
+                                 "accounts: they take part, their own rows, profile and date_joined stay as they are.")
         parser.add_argument("--fill-activity", action="store_true",
                             help="Top up the site-visit days (UserDailyActivity) of an existing run; ids go to the manifest.")
         parser.add_argument("--as-of", default=None, help=__import__("argparse").SUPPRESS)  # tests only
@@ -1119,9 +1211,12 @@ class Command(BaseCommand):
         from myapp.models import HelpRequest
 
         demo = list(demo_accounts())
-        self.demo_ids = {u.pk for u in demo}
         if not demo:
             raise CommandError(f"No active volunteer/client accounts with an e-mail ending in {DEMO_EMAIL_SUFFIX}.")
+        extra = self._included_accounts()
+        movable = {u.pk for u in demo}          # date_joined may move: the imported demo accounts only
+        demo += extra
+        self.demo_ids = {u.pk for u in demo}
         stray = HelpRequest.objects.filter(is_demo=True, client_id__in=self.demo_ids)
         if stray.exists():
             raise CommandError(f"Demo requests of these accounts exist without a manifest ({stray.count()}) — "
@@ -1129,10 +1224,18 @@ class Command(BaseCommand):
         # Parties of existing requests stay out of it entirely.
         parties = set(HelpRequest.objects.filter(is_demo=False).values_list("client_id", flat=True)) | \
             set(HelpRequest.objects.filter(is_demo=False, volunteer__isnull=False).values_list("volunteer_id", flat=True))
+        # An included account keeps its own requests and still takes part —
+        # unless it holds an ACTIVE request (it couldn't self-accept another).
+        busy = set(HelpRequest.objects.filter(is_demo=False, status="active", volunteer__isnull=False)
+                   .values_list("volunteer_id", flat=True))
+        extra_ids = {u.pk for u in extra}
+        parties = (parties - extra_ids) | (busy & extra_ids)
         excluded = sorted(self.demo_ids & parties)
         # From here on "demo" = the participants: a left-out account gets
         # nothing either (no notification, no change).
         self.demo_ids -= parties
+        movable -= parties
+        self.extra_ids = extra_ids - parties
         volunteers = [u for u in demo if u.pk in self.demo_ids and u.is_volunteer]
         clients = [u for u in demo if u.pk in self.demo_ids and u.is_client]
         users = {u.pk: u for u in demo if u.pk in self.demo_ids}
@@ -1151,13 +1254,24 @@ class Command(BaseCommand):
                 profiles_before = self._profile_fields()
                 from accounts.models import Profile
                 with_photo = demo_photo_ids([u.pk for u in (*volunteers, *clients)])
-                people = build_people([u.pk for u in volunteers], [u.pk for u in clients], with_photo)
-                plan = build_plan(people, n, self.real_now)
-                # Registration dates before the first demo activity (old values -> manifest).
-                joined_before = dict(User.objects.filter(pk__in=self.demo_ids).values_list("pk", "date_joined"))
-                self.joined.update(plan_joined(plan, self.demo_ids, self.real_now))
-                for uid, moment in self.joined.items():
+                registered = {u.pk: u.date_joined for u in (*volunteers, *clients) if u.pk in self.extra_ids}
+                from myapp.models import UserDailyActivity
+                known = defaultdict(set)
+                for uid, day in UserDailyActivity.objects.filter(user_id__in=self.extra_ids).values_list("user_id", "date"):
+                    known[uid].add(day)
+                people = build_people([u.pk for u in volunteers], [u.pk for u in clients], with_photo,
+                                      registered, self.real_now, known)
+                first_day = sum(1 for p in people.values() if p.first_day)
+                # The first-day requests count towards the total (≤ MAX_REQUESTS).
+                plan = build_plan(people, max(10, min(n, MAX_REQUESTS - FIRST_DAY_TASKS * first_day)), self.real_now)
+                # Registration dates before the first demo activity (old values -> manifest) —
+                # the imported accounts only; an included account keeps its own.
+                joined_before = dict(User.objects.filter(pk__in=movable).values_list("pk", "date_joined"))
+                moved = plan_joined(plan, movable, self.real_now)
+                for uid, moment in moved.items():
                     User.objects.filter(pk=uid).update(date_joined=moment)
+                self.joined.update(moved)
+                self.joined.update(registered)
                 fresh = {u.pk: u for u in User.objects.filter(pk__in=self.demo_ids)}
                 users = {pk: fresh[pk] for pk in users}
                 volunteers = [fresh[u.pk] for u in volunteers]
@@ -1168,8 +1282,9 @@ class Command(BaseCommand):
                     self.clock.at = None  # "now" from here on = the run's now
                     self._finish(rows, users, volunteers)
                 after = snapshot()
-                problems, created = compare(before, after, self.demo_ids)
+                problems, created = compare(before, after, self.demo_ids, movable)
                 problems += check_new_rows(created, self.demo_ids, WINDOW_START, self.real_now)
+                problems += self._before_registration(created)
                 if self.stats["external_attempts"]:
                     problems.append(f"external send attempted: {sorted(set(self.stats['external_attempts']))}")
                 if User.objects.count() != user_count_before:
@@ -1182,8 +1297,9 @@ class Command(BaseCommand):
                 profiles_after = self._profile_fields()
                 manifest = self._manifest(created, profiles_before, profiles_after, n, excluded)
                 manifest["date_joined"] = {str(uid): {"before": joined_before[uid].isoformat(),
-                                                      "after": self.joined[uid].isoformat()}
-                                           for uid in sorted(self.joined)}
+                                                      "after": moved[uid].isoformat()}
+                                           for uid in sorted(moved)}
+                manifest["extra_user_ids"] = sorted(self.extra_ids)
                 self._report(created, plan, users, excluded, user_count_before)
                 if dry:
                     raise _DryRun()
@@ -1394,6 +1510,50 @@ class Command(BaseCommand):
         UserDailyActivity.objects.bulk_create(rows, batch_size=500)
         return rows
 
+    def _included_accounts(self):
+        """``--include-accounts``: active, non-staff volunteers / clients outside
+        @khayrkhoh.invalid, each one named by the owner. Anything else refuses."""
+        raw = [x.strip() for x in (self.options.get("include_accounts") or "").split(",") if x.strip()]
+        if not raw:
+            return []
+        try:
+            ids = sorted({int(x) for x in raw})
+        except ValueError:
+            raise CommandError("--include-accounts takes comma-separated numeric ids.")
+        users = {u.pk: u for u in User.objects.filter(pk__in=ids)}
+        bad = []
+        for uid in ids:
+            u = users.get(uid)
+            if u is None:
+                bad.append(f"#{uid} does not exist")
+            elif not u.is_active or u.is_superuser or u.is_staff or u.is_curator:
+                bad.append(f"#{uid} is inactive or staff")
+            elif not (u.is_volunteer or u.is_client):
+                bad.append(f"#{uid} is neither a volunteer nor a client")
+            elif u.email.lower().endswith(DEMO_EMAIL_SUFFIX):
+                bad.append(f"#{uid} is an imported demo account already")
+        if bad:
+            raise CommandError("--include-accounts refused: " + "; ".join(bad))
+        return [users[uid] for uid in ids]
+
+    def _before_registration(self, created):
+        """No new row of an account may be dated before its registration."""
+        problems = []
+        joined = dict(User.objects.filter(pk__in=self.demo_ids).values_list("pk", "date_joined"))
+        checks = (("myapp.HelpRequest", "client_id", "created_at"), ("myapp.HelpRequest", "volunteer_id", "accepted_at"),
+                  ("myapp.ChatMessage", "sender_id", "created_at"), ("myapp.TaskReview", "client_id", "created_at"),
+                  ("myapp.Notification", "recipient_id", "created_at"), ("myapp.UserAchievement", "user_id", "awarded_at"))
+        for label, who, when in checks:
+            model = apps.get_model(label)
+            for uid, moment in model._base_manager.filter(pk__in=created.get(label, [])).values_list(who, when):
+                if uid in joined and moment is not None and moment < joined[uid]:
+                    problems.append(f"{label}.{when} of #{uid} before its registration")
+        for uid, day in apps.get_model("myapp.UserDailyActivity")._base_manager.filter(
+                pk__in=created.get("myapp.UserDailyActivity", [])).values_list("user_id", "date"):
+            if day < joined[uid].astimezone(TZ).date():
+                problems.append(f"UserDailyActivity of #{uid} on {day}, before its registration")
+        return problems[:20]
+
     def _rating_check(self, users):
         """With photo volunteers: no volunteer without a photo (demo or not)
         ranks above a demo volunteer with a photo — the formula is untouched,
@@ -1451,7 +1611,8 @@ class Command(BaseCommand):
         manifest = json.loads(self.manifest_path.read_text())
         if manifest.get("command") != "seed_demo_activity" or manifest.get("version") != MANIFEST_VERSION:
             raise CommandError("Not a seed_demo_activity manifest.")
-        self.demo_ids = set(manifest["demo_user_ids"]) & set(demo_accounts().values_list("pk", flat=True))
+        self.demo_ids = set(manifest["demo_user_ids"]) & (set(demo_accounts().values_list("pk", flat=True))
+                                                          | set(manifest.get("extra_user_ids", [])))
         task_ids = manifest["rows"].get("myapp.HelpRequest", [])
         stats = {"notify_rows": 0, "notify_dropped": 0, "notify_before_joined": 0, "ws_suppressed": 0,
                  "external_attempts": [], "refused": Counter()}
@@ -1465,7 +1626,7 @@ class Command(BaseCommand):
                 before = snapshot()
                 rows = self._visits(task_ids)
                 after = snapshot()
-                problems, created = compare(before, after, self.demo_ids)
+                problems, created = compare(before, after, self.demo_ids, movable_ids=set())
                 if set(created) - {"myapp.UserDailyActivity"}:
                     problems.append(f"unexpected new rows: {sorted(set(created) - {'myapp.UserDailyActivity'})}")
                 problems += check_new_rows(created, self.demo_ids, WINDOW_START, self.real_now)
@@ -1533,7 +1694,9 @@ class Command(BaseCommand):
         clients = sum(1 for u in users.values() if u.is_client)
         out(self.style.MIGRATE_HEADING(f"seed_demo_activity — as of {self.real_now.astimezone(TZ):%Y-%m-%d %H:%M} "
                                        f"Asia/Dushanbe, window from {WINDOW_START:%Y-%m-%d}"))
-        out(f"Demo accounts (@khayrkhoh.invalid): {len(users)} — volunteers {volunteers}, clients {clients}; "
+        extra = getattr(self, "extra_ids", set())
+        out(f"Accounts taking part: {len(users)} — imported @khayrkhoh.invalid {len(users) - len(extra)}, included by id "
+            f"{len(extra)}{(' ' + str(sorted(extra))) if extra else ''}; volunteers {volunteers}, clients {clients}; "
             f"left out (party of an existing request): {len(excluded)} {excluded or ''}")
         out(f"Accounts in the database: {user_count_before} (unchanged — checked)")
         status = Counter(t.status for t in tasks)
@@ -1565,9 +1728,9 @@ class Command(BaseCommand):
             + ", ".join(f"{k} {v}" for k, v in Counter(b.achievement.code for b in badges).most_common()))
         out(f"Daily activity rows: {len(created.get('myapp.UserDailyActivity', []))}")
         self._share_report(task_ids)
-        joined = sorted(self.joined.values())
+        joined = sorted(v for k, v in self.joined.items() if k not in getattr(self, "extra_ids", set()))
         if joined:
-            out(f"Registration dates moved: {len(joined)} accounts, {joined[0].astimezone(TZ):%Y-%m-%d} … "
+            out(f"Registration dates moved (imported accounts only): {len(joined)} accounts, {joined[0].astimezone(TZ):%Y-%m-%d} … "
                 f"{joined[-1].astimezone(TZ):%Y-%m-%d} (each ≥ 1 day before its first demo activity)")
         if self.stats["refused"]:
             out(self.style.WARNING("Steps a service refused (skipped): " + ", ".join(
@@ -1578,12 +1741,13 @@ class Command(BaseCommand):
         top = list(rating.ranked_queryset()[:15])
         photo_vol = sorted(uid for uid in self.with_photo if users.get(uid) and users[uid].is_volunteer)
         photo_cli = sorted(uid for uid in self.with_photo if users.get(uid) and users[uid].is_client)
-        out(f"Demo accounts with a profile photo: volunteers {len(photo_vol)} of {volunteers} {photo_vol or ''}, "
+        out(f"Taking part with a profile photo: volunteers {len(photo_vol)} of {volunteers} {photo_vol or ''}, "
             f"clients {len(photo_cli)} of {clients} {photo_cli or ''}")
         out("Rating top 15 (computed, all accounts):")
         for place, u in enumerate(top, start=1):
             mark = "photo " if u.has_photo else "no photo"
-            who = "demo" if u.pk in self.demo_ids else "not demo"
+            who = ("included" if u.pk in getattr(self, "extra_ids", ()) else
+                   "demo" if u.pk in self.demo_ids else "not demo")
             out(f"  {place:>2}. #{u.pk:<4} {u.username[:26]:26} {u.completed:>2} done  score {u.score:>3}  "
                 f"{mark}  {who}")
 
@@ -1698,14 +1862,15 @@ class Command(BaseCommand):
                 if manifest.get("date_joined"):
                     self.stdout.write(f"  date_joined restored: {restored}" + (
                         f"; changed since the run, left as is: {drifted}" if drifted else ""))
-                for uid in sorted(demo_ids & current_demo):
+                for uid in sorted(demo_ids & (current_demo | set(manifest.get("extra_user_ids", [])))):
                     user = User.objects.get(pk=uid)
                     if user.is_volunteer:
                         feedback.recompute_volunteer_stats(user)
                         presence.recompute(user)
                 if User.objects.count() != user_count:
                     raise CommandError("Rolled back: the number of accounts changed.")
-                problems = compare_purge(before, snapshot(), listed, demo_ids)
+                movable = {int(uid) for uid in manifest.get("date_joined", {})}
+                problems = compare_purge(before, snapshot(), listed, demo_ids, movable)
                 if problems:
                     raise CommandError("Rolled back — the post-purge check failed:\n  " + "\n  ".join(problems[:40]))
                 if stats["external_attempts"]:

@@ -241,6 +241,78 @@ class SeedDemoActivityTests(TestCase):
             self.assertTrue(any(n == best and (d.year, d.month) == (today.year, today.month) for d, n in totals.items()),
                             user.pk)
 
+    def test_included_accounts_keep_their_own_rows_and_lead_with_a_photo(self):
+        from django.utils import timezone as tz
+        from myapp.services import rating
+
+        # Two owner-confirmed accounts outside @khayrkhoh.invalid, with photos:
+        # one registered long ago with a real completed request + a real
+        # activity day, one registered 30 hours before the run.
+        old = make_user("inc_old")
+        new = make_user("inc_new")
+        other = make_user("not_listed")                 # has a photo, NOT listed: must stay untouched
+        for user in (old, new, other):
+            Profile.objects.filter(user=user).update(image=f"avatars/{user.pk}.jpg")
+        Users.objects.filter(pk=old.pk).update(date_joined=AS_OF_DT - datetime.timedelta(days=12))
+        Users.objects.filter(pk=new.pk).update(date_joined=AS_OF_DT - datetime.timedelta(hours=30))
+        real = HelpRequest.objects.create(client=self.real_client, volunteer=old, status="completed", help_type="grocery",
+                                          description="real", address="x", phone="+992900000001", region="dushanbe",
+                                          completed_at=AS_OF_DT - datetime.timedelta(days=5))
+        UserDailyActivity.objects.create(user=new, date=(AS_OF_DT - datetime.timedelta(hours=30)).astimezone(seed.TZ).date(),
+                                         actions_count=1)
+        own_rows = {m: list(m.objects.filter(**{f: [old.pk, new.pk]}).order_by("pk").values()) for m, f in
+                    ((HelpRequest, "volunteer_id__in"), (UserDailyActivity, "user_id__in"))}
+        joined = {u.pk: Users.objects.get(pk=u.pk).date_joined for u in (old, new)}
+        untouched = {m: m.objects.filter(**{f: other.pk}).count() for m, f in
+                     ((Notification, "recipient_id"), (UserDailyActivity, "user_id"), (HelpRequest, "volunteer_id"))}
+        before = comparable(seed.snapshot())
+
+        self.run_cmd(confirm=True, include_accounts=f"{old.pk},{new.pk}")
+        manifest = json.loads(self.manifest.read_text())
+        self.assertEqual(manifest["extra_user_ids"], sorted([old.pk, new.pk]))
+        self.assertNotIn(str(old.pk), manifest["date_joined"])
+        for u in (old, new):
+            self.assertEqual(Users.objects.get(pk=u.pk).date_joined, joined[u.pk])     # kept
+        for model, rows in own_rows.items():                                            # their own rows untouched
+            for row in rows:
+                self.assertEqual(model.objects.filter(pk=row["id"]).values().get(), row)
+        self.assertEqual({m: m.objects.filter(**{f: other.pk}).count() for m, f in
+                          ((Notification, "recipient_id"), (UserDailyActivity, "user_id"), (HelpRequest, "volunteer_id"))},
+                         untouched)
+        demo = HelpRequest.objects.filter(is_demo=True)
+        # the new account: exactly the first-day requests, all on its registration day
+        reg_day = joined[new.pk].astimezone(seed.TZ).date()
+        mine = demo.filter(volunteer=new)
+        self.assertEqual(mine.filter(status="completed").count(), seed.FIRST_DAY_TASKS)
+        self.assertTrue(all(t.accepted_at.astimezone(seed.TZ).date() == reg_day == t.completed_at.astimezone(seed.TZ).date()
+                            for t in mine))
+        self.assertFalse(demo.filter(volunteer=old, accepted_at__lt=joined[old.pk]).exists())
+        self.assertFalse(Notification.objects.filter(recipient__in=[old, new]).filter(
+            created_at__lt=joined[new.pk], recipient=new).exists())
+        self.assertFalse(TaskReview.objects.filter(volunteer__in=[old, new], stars__lt=4).exists())
+        self.assertFalse(TaskReview.objects.filter(show_on_landing=True).exists())
+        # places 1…N = the photo volunteers taking part (the not-listed one isn't one of them)
+        ranked = [u.pk for u in rating.ranked_queryset()]
+        self.assertEqual(set(ranked[:2]), {old.pk, new.pk})
+        # active days since registration, 45–70 % (the new one: 1 day of 2)
+        today = AS_OF_DT.astimezone(seed.TZ).date()
+        for u in (old, new):
+            first = joined[u.pk].astimezone(seed.TZ).date()
+            days = set(UserDailyActivity.objects.filter(user=u, date__gte=first).values_list("date", flat=True))
+            days |= {t.accepted_at.astimezone(seed.TZ).date() for t in demo.filter(volunteer=u)}
+            share = len(days) / ((today - first).days + 1)
+            self.assertTrue(0.45 <= share <= 0.70, (u.username, share))
+        # purge: only the demo rows go, their own stay
+        self.run_cmd(confirm=True, purge=True)
+        self.assertEqual(comparable(seed.snapshot()), before)
+        self.assertTrue(HelpRequest.objects.filter(pk=real.pk).exists())
+
+    def test_include_accounts_refuses_staff_and_unknown_ids(self):
+        for value in (str(self.admin.pk), str(self.curator.pk), "999999", "x"):
+            with self.assertRaises(CommandError):
+                self.run_cmd(confirm=True, include_accounts=value)
+        self.assertFalse(HelpRequest.objects.filter(is_demo=True).exists())
+
     def test_without_photos_nothing_is_capped(self):
         self.run_cmd(confirm=True)
         done = [HelpRequest.objects.filter(is_demo=True, status="completed", volunteer=u).count()

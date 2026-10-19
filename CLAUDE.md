@@ -626,7 +626,12 @@ Once demo accounts have profile photos they carry the activity (rating formula u
 volunteers ≥ `PHOTO_BOOST_UNTIL` requests, 4–5★ reviews, 45–70 % active days, darkest squares in the
 current month, and ranks 1…N in the rating (`_rating_check` rolls the run back otherwise); without a
 photo ≤ `NO_PHOTO_MAX_TASKS`, 3–25 %; photo clients ask and write more, 35–55 % (`PHOTO_SHARES`). With
-no photo in a role, the older tiers apply.
+no photo in a role, the older tiers apply. `--include-accounts <ids>` (owner-confirmed demo accounts
+outside @khayrkhoh.invalid, never staff): they take part, but their own rows / profile / `date_joined`
+stay (only the derived Profile fields move, restored by `--purge`); a volunteer registered within
+`FIRST_DAY_WINDOW` gets `FIRST_DAY_TASKS` requests on its registration day only; photo volunteers'
+planned days never push them above the band's top (their real days count). The ids are stored in the
+manifest (`extra_user_ids`) — pass the same `--include-accounts` again on `--reset`.
 `UserDailyActivity` site-visit days bring each account's share of active days since max(1 Aug,
 registration) into `ACTIVITY_TIERS` (≥ 4 requests 30–70 %, 2–3 → 10–30 %, else 3–10 %; event days are
 never removed); `--fill-activity` tops them up on an existing run (ids appended to the manifest). Tests:
