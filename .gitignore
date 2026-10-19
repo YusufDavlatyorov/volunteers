@@ -52,3 +52,7 @@ osrm-data/
 /myapp/management/commands/import_clients.py
 /volunteers_extra.json
 /volunteers_extra_logins.json
+
+# seed_demo_activity: ids of the generated demo rows (server-side, never committed)
+demo_seed_manifest*.json
+demo_seed_manifest*.json.tmp
