@@ -667,21 +667,27 @@ class RatingTieBreakTests(TestCase):
 # --------------------------------------------------------------------------- #
 
 class DemoBannerTests(TestCase):
+    # 2026-10-19 (owner): no plate above the navbar any more — one small line
+    # in the footer of every page.
     @override_settings(DEMO_MODE=True)
-    def test_banner_on_every_page_in_demo_mode(self):
-        for name in ("home", "rating", "login"):
+    def test_footer_note_on_every_page_in_demo_mode(self):
+        for name in ("home", "rating", "login", "faq"):
             html = self.client.get(reverse(name)).content.decode()
-            self.assertIn('class="demo-banner"', html)
-            self.assertIn("Демонстрационный стенд", html)
+            self.assertIn('class="footer-demo-note"', html)
+            self.assertIn("Часть данных на сайте демонстрационная", html)
+            self.assertNotIn("demo-banner", html)
+            self.assertLess(html.index("<footer"), html.index("footer-demo-note"))
 
     @override_settings(DEMO_MODE=False)
-    def test_no_banner_otherwise(self):
-        self.assertNotIn("demo-banner", self.client.get(reverse("home")).content.decode())
+    def test_no_note_otherwise(self):
+        html = self.client.get(reverse("home")).content.decode()
+        self.assertNotIn("footer-demo-note", html)
+        self.assertNotIn("demo-banner", html)
 
     def test_new_texts_in_every_language(self):
         from server.i18n_prerender import translation_table
 
-        keys = ["demo.banner", "act.k.site", "act.grid_label", "ach.rule_weeks", "ach.rule_long_term"]
+        keys = ["demo.footer_note", "act.k.site", "act.grid_label", "ach.rule_weeks", "ach.rule_long_term"]
         keys += [f"act.{base}.{form}" for base in ("total", "days", "streak") for form in ("one", "few", "many", "other")]
         for lang in ("en", "ru", "tj"):
             table = translation_table(lang)

@@ -592,8 +592,9 @@ the analytics stale count) — same rule, don't duplicate it. Automated monitori
 
 ### Demo stand (`seed_demo`, 2026-10-18)
 
-`settings.DEMO_MODE` (`DJANGO_DEMO_MODE`) turns on the "Демонстрационный стенд" banner
-(`base.html`, `demo.banner` in 3 languages) and is the first `seed_demo` guard; the others refuse
+`settings.DEMO_MODE` (`DJANGO_DEMO_MODE`) turns on one small footer line "Часть данных на сайте
+демонстрационная" (`base.html` `.footer-demo-note`, `demo.footer_note` in 3 languages — it replaced the
+top banner 2026-10-19) and is the first `seed_demo` guard; the others refuse
 `khayrkhoh.tj` (or a subdomain) in `ALLOWED_HOSTS` and a database name in `PRODUCTION_DB_NAMES`
 (`DJANGO_PRODUCTION_DB_NAMES`) — all checked before any query (`seed_demo.refusal_reason`).
 `DJANGO_SQLITE_PATH` puts a stand in its own SQLite file. `is_demo` (default False, additive) on
@@ -611,6 +612,15 @@ review would be touched (it keeps demo rows a photo report points at). Existing 
 login / password / e-mail / photo; a real account holding a demo username is skipped. Rows an
 older seed wrote (its usernames with exactly its e-mail, its request texts) are adopted as demo.
 `check_demo_data` also reports every `is_demo=True` row. Tests: `myapp/tests_demo_seed.py`.
+
+**`seed_demo_activity` (2026-10-19, on khayrkhoh.tj itself, owner decision)** is a different command:
+history for the existing imported accounts (e-mail `@khayrkhoh.invalid`, never staff) only — no
+account created; it moves their `date_joined` to before their first demo activity. Writes need
+`--i-confirm-demo-accounts` + `DEMO_MODE`; services replayed with the clock patched, in-app rows only,
+e-mail / Telegram / Celery / HTTP tripwires; whole-database before/after check; ids (+ old
+`date_joined`, profile points) in `demo_seed_manifest.json` (gitignored) → `--purge` / `--reset`.
+Volunteers with a profile photo get most of the activity (rating formula unchanged). Tests:
+`myapp/tests_seed_demo_activity.py`.
 
 New badges (migrations 0032 `Achievement.is_manual` + 0033 data; thresholds on the `Achievement` rows): `tasks_5`, `tasks_25`,
 `high_rating` (≥ 5 visible reviews, average ≥ `TRUSTED_MIN_AVG`), `regular` (completed requests in

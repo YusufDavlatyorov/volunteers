@@ -117,6 +117,9 @@ MANIFEST_MODELS = (
 # Derived Profile fields the services update for a demo account (points,
 # review stats, system-computed availability) — the only existing-row changes.
 ALLOWED_PROFILE_CHANGES = frozenset({"rating", "review_avg", "review_count", "availability_status", "updated_at"})
+# The one account field a run changes (and a purge restores) — demo accounts only.
+ALLOWED_USER_CHANGES = frozenset({"date_joined"})
+USERS_LABEL = User._meta.label
 # A cascade of a purge may also drop these UI-state rows of a demo request
 # (a staff member who opened its chat later has a read cursor on it).
 PURGE_EXTRA_CASCADE = frozenset({"myapp.ChatReadState", "myapp.TaskLocationPoint"})
@@ -312,6 +315,20 @@ REVIEW_SHARE = 0.75
 # up to ~26 % a middle group, the rest now and then.
 VOLUNTEER_TIERS = ((0.07, 2.0), (0.26, 0.3), (1.0, 0.1))
 FIRST_TASK_BOOST = 2.5
+# Volunteers WITH a profile photo carry the activity (the rating's tie-break
+# is the photo; the score itself is never changed): (share of the photo group
+# up to, energy). Without a photo: little activity, at most NO_PHOTO_MAX_TASKS.
+# With no photo anywhere the plain VOLUNTEER_TIERS apply.
+PHOTO_TIERS = ((0.25, 2.5), (1.0, 1.0))
+NO_PHOTO_ENERGY = 0.08
+NO_PHOTO_MAX_TASKS = 1
+PHOTO_BOOST_UNTIL = 2      # photo volunteers: the boost lasts for their first 2 requests
+REVIEW_SHARE_PHOTO = 0.9
+REVIEW_SHARE_NO_PHOTO = 0.45
+# Registration of a demo account: a random moment between JOINED_FROM and one
+# day before its first demo activity; no activity: up to JOINED_IDLE_UNTIL.
+JOINED_FROM = datetime.datetime(2026, 7, 25, 0, 0, tzinfo=ZoneInfo("Asia/Dushanbe"))
+JOINED_IDLE_UNTIL = datetime.datetime(2026, 9, 15, 21, 0, tzinfo=ZoneInfo("Asia/Dushanbe"))
 RECENT_REQUESTS = 8   # spread over the last RECENT_HOURS, ending pending / active / done
 RECENT_HOURS = 96
 
@@ -362,6 +379,7 @@ class Person:
     role: str
     lang: str = "ru"
     energy: float = 0.0
+    photo: bool = False             # volunteers: the profile has a photo
     home: tuple | None = None       # (lat, lng)
     address: str = ""
     phone: str = ""
@@ -386,6 +404,7 @@ class Planned:
     review: tuple | None            # (delay, stars, comment, tags)
     rng_seed: str
     target: str = "done"            # the last three days: pending / active / done
+    review_roll: float = 0.0
     volunteer: int | None = None
     accepted: datetime.datetime | None = None
     completed: datetime.datetime | None = None
@@ -416,19 +435,31 @@ def _finish_time(moment):
     return local
 
 
-def build_people(volunteer_ids, client_ids):
-    """Deterministic personas over the real account ids."""
+def build_people(volunteer_ids, client_ids, with_photo=frozenset()):
+    """Deterministic personas over the real account ids. ``with_photo``: the
+    volunteers whose profile has a photo — they get the activity."""
     rng = random.Random(f"{SEED}:people")
     people = {}
     order = list(volunteer_ids)
     rng.shuffle(order)
-    # Three tiers: a few very active volunteers, a middle group, most now and
-    # then; ~15 % never helped yet (see VOLUNTEER_TIERS).
     quiet = max(1, len(order) * 15 // 100) if len(order) > 4 else 0
-    for rank, pk in enumerate(order, start=1):
-        share = rank / max(1, len(order))
-        energy = 0.0 if rank > len(order) - quiet else next(e for top, e in VOLUNTEER_TIERS if share <= top)
-        people[pk] = Person(pk, "volunteer", energy=energy)
+    photo = [pk for pk in order if pk in with_photo]
+    if photo:
+        no_photo = [pk for pk in order if pk not in with_photo]
+        for rank, pk in enumerate(photo, start=1):
+            share = rank / len(photo)
+            people[pk] = Person(pk, "volunteer", energy=next(e for top, e in PHOTO_TIERS if share <= top),
+                                photo=True)
+        idle = min(quiet, len(no_photo))
+        for rank, pk in enumerate(no_photo, start=1):
+            people[pk] = Person(pk, "volunteer", energy=0.0 if rank > len(no_photo) - idle else NO_PHOTO_ENERGY)
+    else:
+        # Three tiers: a few very active volunteers, a middle group, most now
+        # and then; ~15 % never helped yet (see VOLUNTEER_TIERS).
+        for rank, pk in enumerate(order, start=1):
+            share = rank / max(1, len(order))
+            energy = 0.0 if rank > len(order) - quiet else next(e for top, e in VOLUNTEER_TIERS if share <= top)
+            people[pk] = Person(pk, "volunteer", energy=energy)
     corder = list(client_ids)
     rng.shuffle(corder)
     cquiet = max(1, len(corder) * 12 // 100) if len(corder) > 4 else 0
@@ -507,13 +538,14 @@ def build_plan(people, n, now, blocked=frozenset()):
         band = rng.random()
         duration = datetime.timedelta(hours=rng.uniform(1, 3) if band < 0.45 else
                                       rng.uniform(3, 8) if band < 0.8 else rng.uniform(16, 30))
-        review = None
-        if rng.random() < REVIEW_SHARE:
-            stars = _weighted(rng, STARS_WEIGHTS)
-            comment = "" if rng.random() < 0.2 else rng.choice(REVIEW_COMMENTS[stars][client.lang])
-            tags = (sorted(rng.sample(GOOD_TAGS, rng.randint(1, 2))) if stars == 5 else
-                    [rng.choice(GOOD_TAGS)] if stars == 4 and rng.random() < 0.5 else [])
-            review = (datetime.timedelta(hours=rng.uniform(0.5, 26)), stars, comment, tags)
+        # The review is drawn now; whether it is written depends on the
+        # volunteer (with / without a photo) — decided after the assignment.
+        review_roll = rng.random()
+        stars = _weighted(rng, STARS_WEIGHTS)
+        comment = "" if rng.random() < 0.2 else rng.choice(REVIEW_COMMENTS[stars][client.lang])
+        tags = (sorted(rng.sample(GOOD_TAGS, rng.randint(1, 2))) if stars == 5 else
+                [rng.choice(GOOD_TAGS)] if stars == 4 and rng.random() < 0.5 else [])
+        review = (datetime.timedelta(hours=rng.uniform(0.5, 26)), stars, comment, tags)
         lat, lng = client.home
         plan.append(Planned(
             seq=seq, client=client.pk, created=created, help_type=help_type, priority=priority,
@@ -521,7 +553,7 @@ def build_plan(people, n, now, blocked=frozenset()):
             address=client.address, phone=client.phone,
             lat=round(lat + rng.uniform(-0.0006, 0.0006), 6), lng=round(lng + rng.uniform(-0.0006, 0.0006), 6),
             accept_after=accept_after, duration=duration, cancel_after=cancel_after, review=review,
-            rng_seed=f"{SEED}:req:{seq}", target=target,
+            rng_seed=f"{SEED}:req:{seq}", target=target, review_roll=review_roll,
         ))
 
     # Assignment in time order: a volunteer takes a request only while free
@@ -529,6 +561,7 @@ def build_plan(people, n, now, blocked=frozenset()):
     volunteers = [p for p in people.values() if p.role == "volunteer" and p.energy > 0 and p.pk not in blocked]
     busy_until = {v.pk: WINDOW_START for v in volunteers}
     taken = Counter()
+    any_photo = any(v.photo for v in volunteers)
     heap = [(_daytime(r.created + r.accept_after), r.seq) for r in plan]
     heapq.heapify(heap)
     by_seq = {r.seq: r for r in plan}
@@ -543,13 +576,19 @@ def build_plan(people, n, now, blocked=frozenset()):
             continue
         if at > now or not volunteers:
             continue
-        free = [v for v in volunteers if busy_until[v.pk] <= at]
+        able = [v for v in volunteers if v.photo or not any_photo or taken[v.pk] < NO_PHOTO_MAX_TASKS]
+        free = [v for v in able if busy_until[v.pk] <= at]
         if not free:
-            heapq.heappush(heap, (_daytime(min(busy_until.values()) + datetime.timedelta(minutes=15)), seq))
+            # Retry once the next volunteer who may still take one is free;
+            # nobody left at all → the request stays pending.
+            later = [busy_until[v.pk] for v in able if busy_until[v.pk] > at]
+            if later:
+                heapq.heappush(heap, (_daytime(min(later) + datetime.timedelta(minutes=15)), seq))
             continue
         # A volunteer's first request comes sooner (FIRST_TASK_BOOST): most of
         # them have helped at least once, the very active ones still lead.
-        chosen = arng.choices(free, weights=[v.energy * (FIRST_TASK_BOOST if not taken[v.pk] else 1.0)
+        boost_until = lambda v: PHOTO_BOOST_UNTIL if v.photo else 1  # noqa: E731
+        chosen = arng.choices(free, weights=[v.energy * (FIRST_TASK_BOOST if taken[v.pk] < boost_until(v) else 1.0)
                                              for v in free])[0]
         taken[chosen.pk] += 1
         task.volunteer, task.accepted = chosen.pk, at
@@ -558,8 +597,38 @@ def build_plan(people, n, now, blocked=frozenset()):
             task.completed = _finish_time(now + datetime.timedelta(hours=arng.uniform(1, 20)))
         busy_until[chosen.pk] = task.completed
     for task in plan:
+        if task.volunteer is not None:
+            share = REVIEW_SHARE
+            if any_photo:
+                share = REVIEW_SHARE_PHOTO if people[task.volunteer].photo else REVIEW_SHARE_NO_PHOTO
+            if task.review_roll >= share:
+                task.review = None
+        else:
+            task.review = None
         task.events = plan_task_events(task)
     return plan
+
+
+def plan_joined(plan, user_ids, now):
+    """{user id: registration moment}: random between JOINED_FROM and one day
+    before the account's first demo activity (a client's first request, a
+    volunteer's first accept); no activity: up to JOINED_IDLE_UNTIL."""
+    first = {}
+    for r in plan:
+        if r.created <= now:
+            first[r.client] = min(first.get(r.client, r.created), r.created)
+        if r.volunteer is not None and r.accepted is not None and r.accepted <= now:
+            first[r.volunteer] = min(first.get(r.volunteer, r.accepted), r.accepted)
+    out = {}
+    for uid in sorted(user_ids):
+        jr = random.Random(f"{SEED}:joined:{uid}")
+        until = first[uid] - datetime.timedelta(days=1) if uid in first else min(JOINED_IDLE_UNTIL, now)
+        span = max(0.0, (until - JOINED_FROM).total_seconds())
+        day = (JOINED_FROM + datetime.timedelta(seconds=jr.uniform(0, span))).astimezone(TZ)
+        # A daytime moment (09:00–21:00 local) that is still not after ``until``.
+        moment = day.replace(hour=jr.randint(9, 20), minute=jr.randrange(0, 60, 5), second=0, microsecond=0)
+        out[uid] = min(moment, until) if moment > until else moment
+    return out
 
 
 def plan_task_events(task):
@@ -634,12 +703,13 @@ class ExternalSendAttempt(Exception):
 
 
 @contextmanager
-def quiet(allowed_ids, stats):
+def quiet(allowed_ids, stats, joined=None):
     """Swap the delivery layer: ``notify()`` writes the in-app rows for demo
     accounts only (same keys / params / dedupe as the real one), WebSocket
     publishing is a no-op, and every road out of the server (e-mail, Telegram,
     Celery, HTTP) is a tripwire that records the attempt — the run then rolls
-    back."""
+    back. ``joined`` ({user id: registration}, filled later is fine): nobody
+    gets a notification dated before their registration."""
     from myapp import notifications
     from myapp.models import Notification
     from myapp.realtime import publish
@@ -666,8 +736,11 @@ def quiet(allowed_ids, stats):
         if type not in notify_service.NOTIFICATION_TYPES:
             raise ValueError(f"unknown notification type: {type}")
         users = notify_service._resolve(recipients)
-        keep = [u for u in users if u.pk in allowed]
-        stats["notify_dropped"] += len(users) - len(keep)
+        moment = timezone.now()
+        demo = [u for u in users if u.pk in allowed]
+        keep = [u for u in demo if not joined or joined.get(u.pk, moment) <= moment]
+        stats["notify_dropped"] += len(users) - len(demo)
+        stats["notify_before_joined"] += len(demo) - len(keep)
         if keep:
             stored = notify_service.safe_params(params)
             title_key, body_key = notify_texts.inapp_keys(type, variant)
@@ -792,6 +865,8 @@ def compare(before, after, demo_ids):
                 user_id = row[names.index("user_id")]
                 if user_id in demo_ids and changed <= ALLOWED_PROFILE_CHANGES:
                     continue
+            if label == USERS_LABEL and pk in demo_ids and changed <= ALLOWED_USER_CHANGES:
+                continue
             problems.append(f"{label} #{pk}: existing row changed ({', '.join(sorted(changed))})")
     return problems, created
 
@@ -817,6 +892,8 @@ def compare_purge(before, after, listed, demo_ids):
             changed = {n for n, a, b in zip(names, row, now_row) if a != b}
             if label == "accounts.Profile" and row[names.index("user_id")] in demo_ids and \
                     changed <= ALLOWED_PROFILE_CHANGES:
+                continue
+            if label == USERS_LABEL and pk in demo_ids and changed <= ALLOWED_USER_CHANGES:
                 continue
             problems.append(f"{label} #{pk}: existing row changed ({', '.join(sorted(changed))})")
     return problems
@@ -940,19 +1017,32 @@ class Command(BaseCommand):
         volunteers = [u for u in demo if u.pk in self.demo_ids and u.is_volunteer]
         clients = [u for u in demo if u.pk in self.demo_ids and u.is_client]
         users = {u.pk: u for u in demo if u.pk in self.demo_ids}
-        self.stats = {"notify_rows": 0, "notify_dropped": 0, "ws_suppressed": 0, "external_attempts": [],
+        self.stats = {"notify_rows": 0, "notify_dropped": 0, "notify_before_joined": 0, "ws_suppressed": 0, "external_attempts": [],
                       "refused": Counter()}
         user_count_before = User.objects.count()
 
         try:
-            with quiet(self.demo_ids, self.stats), info_logs_off(), transaction.atomic():
+            self.joined = {}
+            with quiet(self.demo_ids, self.stats, self.joined), info_logs_off(), transaction.atomic():
                 if connection.vendor == "postgresql":
                     with connection.cursor() as cur:
                         cur.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
                 before = snapshot()
                 profiles_before = self._profile_fields()
-                people = build_people([u.pk for u in volunteers], [u.pk for u in clients])
+                from accounts.models import Profile
+                with_photo = frozenset(Profile.objects.filter(user_id__in=[u.pk for u in volunteers])
+                                       .exclude(image="").exclude(image__isnull=True).values_list("user_id", flat=True))
+                people = build_people([u.pk for u in volunteers], [u.pk for u in clients], with_photo)
                 plan = build_plan(people, n, self.real_now)
+                # Registration dates before the first demo activity (old values -> manifest).
+                joined_before = dict(User.objects.filter(pk__in=self.demo_ids).values_list("pk", "date_joined"))
+                self.joined.update(plan_joined(plan, self.demo_ids, self.real_now))
+                for uid, moment in self.joined.items():
+                    User.objects.filter(pk=uid).update(date_joined=moment)
+                fresh = {u.pk: u for u in User.objects.filter(pk__in=self.demo_ids)}
+                users = {pk: fresh[pk] for pk in users}
+                volunteers = [fresh[u.pk] for u in volunteers]
+                self.with_photo = with_photo
                 self.clock = _Clock(lambda: self.real_now)
                 with mock.patch("django.utils.timezone.now", self.clock):
                     rows = self._replay(plan, users)
@@ -969,6 +1059,9 @@ class Command(BaseCommand):
                     raise CommandError("Rolled back — the post-run check failed:\n  " + "\n  ".join(problems[:40]))
                 profiles_after = self._profile_fields()
                 manifest = self._manifest(created, profiles_before, profiles_after, n, excluded)
+                manifest["date_joined"] = {str(uid): {"before": joined_before[uid].isoformat(),
+                                                      "after": self.joined[uid].isoformat()}
+                                           for uid in sorted(self.joined)}
                 self._report(created, plan, users, excluded, user_count_before)
                 if dry:
                     raise _DryRun()
@@ -1186,12 +1279,17 @@ class Command(BaseCommand):
         notes = Notification.objects.filter(pk__in=created.get("myapp.Notification", []))
         out(f"In-app notifications (DB rows only): {notes.count()} — "
             + ", ".join(f"{k} {v}" for k, v in Counter(notes.values_list("type", flat=True)).most_common()))
-        out(f"  not written for protected accounts: {self.stats['notify_dropped']}; WebSocket events suppressed: "
+        out(f"  not written: for protected accounts {self.stats['notify_dropped']}, dated before the recipient's "
+            f"registration {self.stats['notify_before_joined']}; WebSocket events suppressed: "
             f"{self.stats['ws_suppressed']}; external sends attempted: {len(self.stats['external_attempts'])}")
         badges = UserAchievement.objects.filter(pk__in=created.get("myapp.UserAchievement", [])).select_related("achievement")
         out(f"Achievements awarded from the data: {badges.count()} — "
             + ", ".join(f"{k} {v}" for k, v in Counter(b.achievement.code for b in badges).most_common()))
         out(f"Daily activity rows: {len(created.get('myapp.UserDailyActivity', []))}")
+        joined = sorted(self.joined.values())
+        if joined:
+            out(f"Registration dates moved: {len(joined)} accounts, {joined[0].astimezone(TZ):%Y-%m-%d} … "
+                f"{joined[-1].astimezone(TZ):%Y-%m-%d} (each ≥ 1 day before its first demo activity)")
         if self.stats["refused"]:
             out(self.style.WARNING("Steps a service refused (skipped): " + ", ".join(
                 f"{k} {v}" for k, v in self.stats["refused"].items())))
@@ -1199,8 +1297,13 @@ class Command(BaseCommand):
         # Rating from the created data (the same ordering the public page uses).
         from myapp.services import rating
         top = list(rating.ranked_queryset()[:10])
-        out("Rating top 10 (computed, all accounts): " + "; ".join(
-            f"#{u.pk} {u.completed}✓ score {u.score}" for u in top))
+        out(f"Demo volunteers with a profile photo: {len(self.with_photo)} of {volunteers}")
+        out("Rating top 10 (computed, all accounts):")
+        for place, u in enumerate(top, start=1):
+            mark = "photo " if u.has_photo else "no photo"
+            who = "demo" if u.pk in self.demo_ids else "not demo"
+            out(f"  {place:>2}. #{u.pk:<4} {u.username[:26]:26} {u.completed:>2} done  score {u.score:>3}  "
+                f"{mark}  {who}")
 
         done = Counter(t.volunteer_id for t in tasks if t.status == "completed")
         accepted = Counter(t.volunteer_id for t in tasks if t.volunteer_id)
@@ -1246,7 +1349,7 @@ class Command(BaseCommand):
         current_demo = set(demo_accounts().values_list("pk", flat=True))
         rows = manifest["rows"]
         self.demo_ids = demo_ids
-        stats = {"notify_rows": 0, "notify_dropped": 0, "ws_suppressed": 0, "external_attempts": [],
+        stats = {"notify_rows": 0, "notify_dropped": 0, "notify_before_joined": 0, "ws_suppressed": 0, "external_attempts": [],
                  "refused": Counter()}
         user_count = User.objects.count()
         try:
@@ -1300,6 +1403,17 @@ class Command(BaseCommand):
                         continue
                     added = int(a.get("rating") or 0) - int(b.get("rating") or 0)
                     Profile.objects.filter(pk=profile.pk).update(rating=max(0, profile.rating - added))
+                restored, drifted = 0, []
+                for uid, change in manifest.get("date_joined", {}).items():
+                    done = User.objects.filter(
+                        pk=int(uid), date_joined=datetime.datetime.fromisoformat(change["after"])
+                    ).update(date_joined=datetime.datetime.fromisoformat(change["before"]))
+                    restored += done
+                    if not done:
+                        drifted.append(int(uid))
+                if manifest.get("date_joined"):
+                    self.stdout.write(f"  date_joined restored: {restored}" + (
+                        f"; changed since the run, left as is: {drifted}" if drifted else ""))
                 for uid in sorted(demo_ids & current_demo):
                     user = User.objects.get(pk=uid)
                     if user.is_volunteer:

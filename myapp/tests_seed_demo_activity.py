@@ -118,9 +118,16 @@ class SeedDemoActivityTests(TestCase):
     # ---------------------------------------------------------------- run
 
     def test_run_writes_only_for_demo_accounts(self):
-        users_before = list(Users.objects.order_by("pk").values())
+        users_before = {u["id"]: u for u in Users.objects.values()}
         self.run_cmd(confirm=True)
-        self.assertEqual(list(Users.objects.order_by("pk").values()), users_before)  # no account created / changed
+        users_after = {u["id"]: u for u in Users.objects.values()}
+        self.assertEqual(set(users_after), set(users_before))  # no account created / deleted
+        for pk, row in users_after.items():
+            changed = {k for k, v in row.items() if users_before[pk][k] != v}
+            if pk in self.protected_ids:
+                self.assertEqual(changed, set(), pk)
+            else:
+                self.assertLessEqual(changed, {"date_joined"}, pk)  # logins, e-mails, roles … untouched
         self.assertTrue(self.manifest.exists())
 
         tasks = self.seed_rows(HelpRequest)
@@ -166,6 +173,45 @@ class SeedDemoActivityTests(TestCase):
                 self.assertTrue(start <= value <= AS_OF_DT, (model.__name__, value))
         for day in self.seed_rows(UserDailyActivity).values_list("date", flat=True):
             self.assertTrue(start.date() <= day <= AS_OF_DT.date())
+
+    def test_registration_moves_before_the_first_demo_activity(self):
+        self.run_cmd(confirm=True)
+        tasks = list(self.seed_rows(HelpRequest))
+        first = {}
+        for t in tasks:
+            first[t.client_id] = min(first.get(t.client_id, t.created_at), t.created_at)
+            if t.accepted_at:
+                first[t.volunteer_id] = min(first.get(t.volunteer_id, t.accepted_at), t.accepted_at)
+        manifest = json.loads(self.manifest.read_text())
+        self.assertEqual({int(k) for k in manifest["date_joined"]}, self.demo_ids)
+        for user in Users.objects.filter(pk__in=self.demo_ids):
+            self.assertGreaterEqual(user.date_joined, seed.JOINED_FROM)
+            if user.pk in first:
+                self.assertLessEqual(user.date_joined, first[user.pk] - datetime.timedelta(days=1), user.pk)
+            else:
+                self.assertLessEqual(user.date_joined, seed.JOINED_IDLE_UNTIL)
+        for n in self.seed_rows(Notification).select_related("recipient"):
+            self.assertGreaterEqual(n.created_at, n.recipient.date_joined)  # nothing before registration
+        self.busy_demo.refresh_from_db()
+        self.assertEqual(self.busy_demo.date_joined, Users.objects.get(pk=self.busy_demo.pk).date_joined)
+        self.assertNotIn(str(self.busy_demo.pk), manifest["date_joined"])
+
+    def test_volunteers_with_a_photo_carry_the_activity(self):
+        from myapp.services import rating
+
+        photo = self.demo_volunteers[:3]
+        for user in photo:
+            Profile.objects.filter(user=user).update(image=f"avatars/{user.pk}.jpg")
+        self.run_cmd(confirm=True)
+        done = {u.pk: HelpRequest.objects.filter(status="completed", volunteer=u, is_demo=True).count()
+                for u in self.demo_volunteers}
+        reviews = {u.pk: TaskReview.objects.filter(volunteer=u, is_demo=True).count() for u in self.demo_volunteers}
+        no_photo = [u for u in self.demo_volunteers if u not in photo]
+        self.assertGreater(min(done[u.pk] for u in photo), max(done[u.pk] for u in no_photo))
+        self.assertTrue(all(done[u.pk] <= seed.NO_PHOTO_MAX_TASKS for u in no_photo))
+        self.assertGreater(sum(reviews[u.pk] for u in photo), sum(reviews[u.pk] for u in no_photo))
+        top3 = [u.pk for u in rating.ranked_queryset()[:3]]
+        self.assertEqual(set(top3), {u.pk for u in photo})
 
     def test_cron_sweeps_will_not_alert_staff_about_demo_requests(self):
         self.run_cmd(confirm=True)
