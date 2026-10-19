@@ -196,22 +196,56 @@ class SeedDemoActivityTests(TestCase):
         self.assertEqual(self.busy_demo.date_joined, Users.objects.get(pk=self.busy_demo.pk).date_joined)
         self.assertNotIn(str(self.busy_demo.pk), manifest["date_joined"])
 
-    def test_volunteers_with_a_photo_carry_the_activity(self):
-        from myapp.services import rating
+    def test_photo_accounts_are_the_most_active_and_lead_the_rating(self):
+        from myapp.services import activity, rating
 
-        photo = self.demo_volunteers[:3]
-        for user in photo:
+        photo_vol = self.demo_volunteers[:3]
+        photo_cli = self.demo_clients[:2]
+        for user in (*photo_vol, *photo_cli):
             Profile.objects.filter(user=user).update(image=f"avatars/{user.pk}.jpg")
         self.run_cmd(confirm=True)
-        done = {u.pk: HelpRequest.objects.filter(status="completed", volunteer=u, is_demo=True).count()
-                for u in self.demo_volunteers}
-        reviews = {u.pk: TaskReview.objects.filter(volunteer=u, is_demo=True).count() for u in self.demo_volunteers}
-        no_photo = [u for u in self.demo_volunteers if u not in photo]
-        self.assertGreater(min(done[u.pk] for u in photo), max(done[u.pk] for u in no_photo))
+        demo = HelpRequest.objects.filter(is_demo=True)
+        done = {u.pk: demo.filter(status="completed", volunteer=u).count() for u in self.demo_volunteers}
+        reviews = {u.pk: TaskReview.objects.filter(volunteer=u, is_demo=True) for u in self.demo_volunteers}
+        no_photo = [u for u in self.demo_volunteers if u not in photo_vol]
+        self.assertGreaterEqual(min(done[u.pk] for u in photo_vol), seed.PHOTO_BOOST_UNTIL)
         self.assertTrue(all(done[u.pk] <= seed.NO_PHOTO_MAX_TASKS for u in no_photo))
-        self.assertGreater(sum(reviews[u.pk] for u in photo), sum(reviews[u.pk] for u in no_photo))
-        top3 = [u.pk for u in rating.ranked_queryset()[:3]]
-        self.assertEqual(set(top3), {u.pk for u in photo})
+        self.assertGreater(min(reviews[u.pk].count() for u in photo_vol), max(reviews[u.pk].count() for u in no_photo))
+        self.assertFalse(TaskReview.objects.filter(volunteer__in=photo_vol, stars__lt=4).exists())
+        # places 1…N: exactly the photo volunteers (no one without a photo in between)
+        ranked = list(rating.ranked_queryset())
+        self.assertEqual({u.pk for u in ranked[:len(photo_vol)]}, {u.pk for u in photo_vol})
+        badges = {u.pk: UserAchievement.objects.filter(user=u).count() for u in self.demo_volunteers}
+        self.assertGreater(min(badges[u.pk] for u in photo_vol), max(badges[u.pk] for u in no_photo))
+        # clients with a photo ask more and write more
+        asked = {u.pk: demo.filter(client=u).count() for u in self.demo_clients}
+        wrote = {u.pk: ChatMessage.objects.filter(sender=u).count() for u in self.demo_clients}
+        others = [u for u in self.demo_clients if u not in photo_cli]
+        self.assertGreater(min(asked[u.pk] for u in photo_cli), max(asked[u.pk] for u in others))
+        self.assertGreater(min(wrote[u.pk] for u in photo_cli), max(wrote[u.pk] for u in others))
+        # shares of active days by group
+        shares = self._shares()
+        for user, band in ((u, seed.PHOTO_SHARES[("volunteer", True)]) for u in photo_vol):
+            self.assertTrue(band[0] - 0.02 <= shares[user.pk][1] <= band[1] + 0.02, (user.pk, shares[user.pk]))
+        for user in photo_cli:
+            band = seed.PHOTO_SHARES[("client", True)]
+            self.assertTrue(band[0] - 0.02 <= shares[user.pk][1] <= band[1] + 0.08, (user.pk, shares[user.pk]))
+        for user in no_photo:
+            self.assertLessEqual(shares[user.pk][1], seed.PHOTO_SHARES[("volunteer", False)][1] + 0.05, user.pk)
+        # the darkest squares of a photo volunteer are in the current month
+        today = AS_OF_DT.astimezone(seed.TZ).date()
+        for user in photo_vol:
+            counts = activity.daily_counts(user, today)
+            totals = {d: sum(k.values()) for d, k in counts.items()}
+            best = max(totals.values())
+            self.assertTrue(any(n == best and (d.year, d.month) == (today.year, today.month) for d, n in totals.items()),
+                            user.pk)
+
+    def test_without_photos_nothing_is_capped(self):
+        self.run_cmd(confirm=True)
+        done = [HelpRequest.objects.filter(is_demo=True, status="completed", volunteer=u).count()
+                for u in self.demo_volunteers]
+        self.assertGreater(max(done), seed.NO_PHOTO_MAX_TASKS)   # the plain tiers apply
 
     def _shares(self):
         manifest = json.loads(self.manifest.read_text())
@@ -323,7 +357,7 @@ class SeedDemoActivityTests(TestCase):
         text = out.getvalue()
         self.assertIn("Purge:", text)
         self.assertIn("Help requests:", text)        # the fresh run's report
-        self.assertIn("Rating top 10", text)
+        self.assertIn("Rating top 15", text)
         self.assertEqual(comparable(seed.snapshot()), before)
         self.assertEqual(self.manifest.read_text(), manifest)
 

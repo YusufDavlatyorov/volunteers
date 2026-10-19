@@ -622,7 +622,11 @@ account created; it moves their `date_joined` to before their first demo activit
 `--i-confirm-demo-accounts` + `DEMO_MODE`; services replayed with the clock patched, in-app rows only,
 e-mail / Telegram / Celery / HTTP tripwires; whole-database before/after check; ids (+ old
 `date_joined`, profile points) in `demo_seed_manifest.json` (gitignored) → `--purge` / `--reset`.
-Volunteers with a profile photo get most of the activity (rating formula unchanged).
+Once demo accounts have profile photos they carry the activity (rating formula unchanged): photo
+volunteers ≥ `PHOTO_BOOST_UNTIL` requests, 4–5★ reviews, 45–70 % active days, darkest squares in the
+current month, and ranks 1…N in the rating (`_rating_check` rolls the run back otherwise); without a
+photo ≤ `NO_PHOTO_MAX_TASKS`, 3–25 %; photo clients ask and write more, 35–55 % (`PHOTO_SHARES`). With
+no photo in a role, the older tiers apply.
 `UserDailyActivity` site-visit days bring each account's share of active days since max(1 Aug,
 registration) into `ACTIVITY_TIERS` (≥ 4 requests 30–70 %, 2–3 → 10–30 %, else 3–10 %; event days are
 never removed); `--fill-activity` tops them up on an existing run (ids appended to the manifest). Tests:

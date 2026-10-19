@@ -256,6 +256,9 @@ CHAT = {
         "en_route": [("v", "Выхожу, буду минут через 20."), ("c", "Жду.")],
         "arrived": ["Я у подъезда.", "На месте, звоню в домофон."],
         "done": [("v", "Всё готово. Хорошего вам дня!"), ("c", "Спасибо большое, дай Бог здоровья!")],
+        "client_extra": [[("c", "Если можно, возьмите ещё одну лепёшку."), ("v", "Хорошо, возьму.")],
+                         [("c", "Я у соседки, подождите пять минут, пожалуйста."), ("v", "Конечно, подожду.")],
+                         [("c", "Спасибо, что пишете — так спокойнее."), ("v", "Пожалуйста! Пишите, если что-то нужно.")]],
     },
     "tj": {
         "greet": ["Ассалому алайкум! Дархости шумо дар назди ман, ба наздикӣ меоям.",
@@ -272,6 +275,9 @@ CHAT = {
         "en_route": [("v", "Баромадам, баъд аз 20 дақиқа мерасам."), ("c", "Интизорам.")],
         "arrived": ["Ман дар назди подъезд ҳастам.", "Расидам, домофонро пахш мекунам."],
         "done": [("v", "Ҳама тайёр. Рӯзи хуш!"), ("c", "Ташаккури зиёд, Худо саломатӣ диҳад!")],
+        "client_extra": [[("c", "Агар мумкин бошад, боз як нон гиред."), ("v", "Хуб, мегирам.")],
+                         [("c", "Ман дар хонаи ҳамсоя ҳастам, лутфан панҷ дақиқа интизор шавед."), ("v", "Албатта, интизор мешавам.")],
+                         [("c", "Раҳмат, ки менависед — ҳамин тавр ором ҳастам."), ("v", "Марҳамат! Агар чизе лозим бошад, нависед.")]],
     },
     "en": {
         "greet": ["Hello! I've got your request, I'll be with you soon.",
@@ -288,6 +294,9 @@ CHAT = {
         "en_route": [("v", "On my way, about 20 minutes."), ("c", "Waiting for you.")],
         "arrived": ["I'm at your entrance.", "I'm here, ringing the intercom."],
         "done": [("v", "All done. Have a lovely day!"), ("c", "Thank you so much, God bless you!")],
+        "client_extra": [[("c", "If you can, please grab one more flatbread."), ("v", "Sure, will do.")],
+                         [("c", "I'm at my neighbour's, could you wait five minutes, please?"), ("v", "Of course, I'll wait.")],
+                         [("c", "Thank you for keeping me posted, it's reassuring."), ("v", "You're welcome! Message me if you need anything.")]],
     },
 }
 
@@ -323,13 +332,20 @@ FIRST_TASK_BOOST = 2.5
 PHOTO_TIERS = ((0.25, 2.5), (1.0, 1.0))
 NO_PHOTO_ENERGY = 0.08
 NO_PHOTO_MAX_TASKS = 1
-PHOTO_BOOST_UNTIL = 2      # photo volunteers: the boost lasts for their first 2 requests
+PHOTO_BOOST_UNTIL = 3      # photo volunteers: the boost lasts for their first 3 requests
 REVIEW_SHARE_PHOTO = 0.9
 REVIEW_SHARE_NO_PHOTO = 0.45
 # Days with any activity (requests, chats, … or just a visit to the site) as a
 # share of the account's days since max(WINDOW_START, registration), by how
 # much it helped / asked: (min completed or created requests, (low, high)).
 ACTIVITY_TIERS = ((4, (0.30, 0.70)), (2, (0.10, 0.30)), (0, (0.03, 0.10)))
+# Once profile photos exist (owner 2026-10-19): photo accounts are the most
+# active on the site, the rest clearly less — per role, shares of active days.
+PHOTO_SHARES = {("volunteer", True): (0.45, 0.70), ("volunteer", False): (0.03, 0.25),
+                ("client", True): (0.35, 0.55), ("client", False): (0.03, 0.25)}
+PHOTO_CLIENT_ENERGY = 1.0
+NO_PHOTO_CLIENT_ENERGY = 0.12
+OCTOBER_VISIT_ACTIONS = (3, 7)   # photo volunteers: October visits weigh more (darkest squares)
 # Registration of a demo account: a random moment between JOINED_FROM and one
 # day before its first demo activity; no activity: up to JOINED_IDLE_UNTIL.
 JOINED_FROM = datetime.datetime(2026, 7, 25, 0, 0, tzinfo=ZoneInfo("Asia/Dushanbe"))
@@ -354,7 +370,10 @@ def all_texts():
     for lang in CHAT.values():
         for key, value in lang.items():
             for item in value:
-                out["chat"].append((key, item[1] if isinstance(item, tuple) else item))
+                if isinstance(item, list):  # client_extra: a list of exchanges
+                    out["chat"] += [(key, line[1]) for line in item]
+                else:
+                    out["chat"].append((key, item[1] if isinstance(item, tuple) else item))
     for by_lang in REVIEW_COMMENTS.values():
         for texts in by_lang.values():
             out["review"] += texts
@@ -410,6 +429,7 @@ class Planned:
     rng_seed: str
     target: str = "done"            # the last three days: pending / active / done
     review_roll: float = 0.0
+    client_photo: bool = False
     volunteer: int | None = None
     accepted: datetime.datetime | None = None
     completed: datetime.datetime | None = None
@@ -442,7 +462,8 @@ def _finish_time(moment):
 
 def build_people(volunteer_ids, client_ids, with_photo=frozenset()):
     """Deterministic personas over the real account ids. ``with_photo``: the
-    volunteers whose profile has a photo — they get the activity."""
+    accounts (volunteers and clients) whose profile has a photo — they carry
+    the activity of their role."""
     rng = random.Random(f"{SEED}:people")
     people = {}
     order = list(volunteer_ids)
@@ -467,6 +488,9 @@ def build_people(volunteer_ids, client_ids, with_photo=frozenset()):
             people[pk] = Person(pk, "volunteer", energy=energy)
     corder = list(client_ids)
     rng.shuffle(corder)
+    client_photo = any(pk in with_photo for pk in corder)
+    if client_photo:  # photo clients first, so the quiet ones come from the rest
+        corder = [pk for pk in corder if pk in with_photo] + [pk for pk in corder if pk not in with_photo]
     cquiet = max(1, len(corder) * 12 // 100) if len(corder) > 4 else 0
     districts = list(DISTRICTS)
     for rank, pk in enumerate(corder, start=1):
@@ -479,8 +503,13 @@ def build_people(volunteer_ids, client_ids, with_photo=frozenset()):
         address = {"ru": f"{street[0]}, д. {house}, кв. {flat}",
                    "tj": f"{street[1]}, хонаи {house}, ҳуҷраи {flat}",
                    "en": f"{street[2]}, bld {house}, apt {flat}"}[lang]
+        if client_photo:
+            energy = (PHOTO_CLIENT_ENERGY if pk in with_photo else
+                      0.0 if rank > len(corder) - cquiet else NO_PHOTO_CLIENT_ENERGY)
+        else:
+            energy = 0.0 if rank > len(corder) - cquiet else rank ** -0.55
         people[pk] = Person(
-            pk, "client", lang=lang, energy=0.0 if rank > len(corder) - cquiet else rank ** -0.55,
+            pk, "client", lang=lang, energy=energy, photo=pk in with_photo,
             home=(round(lat + cr.uniform(-0.009, 0.009), 6), round(lng + cr.uniform(-0.009, 0.009), 6)),
             address=address,
             # "+992 00 …": the 00 prefix is not assigned to any operator in
@@ -558,7 +587,7 @@ def build_plan(people, n, now, blocked=frozenset()):
             address=client.address, phone=client.phone,
             lat=round(lat + rng.uniform(-0.0006, 0.0006), 6), lng=round(lng + rng.uniform(-0.0006, 0.0006), 6),
             accept_after=accept_after, duration=duration, cancel_after=cancel_after, review=review,
-            rng_seed=f"{SEED}:req:{seq}", target=target, review_roll=review_roll,
+            rng_seed=f"{SEED}:req:{seq}", target=target, review_roll=review_roll, client_photo=client.photo,
         ))
 
     # Assignment in time order: a volunteer takes a request only while free
@@ -608,6 +637,13 @@ def build_plan(people, n, now, blocked=frozenset()):
                 share = REVIEW_SHARE_PHOTO if people[task.volunteer].photo else REVIEW_SHARE_NO_PHOTO
             if task.review_roll >= share:
                 task.review = None
+            elif any_photo and people[task.volunteer].photo and task.review[1] < 4:
+                # A photo volunteer's reviews are 4–5 stars (they lead the rating).
+                rr = random.Random(task.rng_seed + ":review")
+                stars = 4 if rr.random() < 0.5 else 5
+                comment = rr.choice(REVIEW_COMMENTS[stars][task.lang])
+                tags = sorted(rr.sample(GOOD_TAGS, rr.randint(1, 2)))
+                task.review = (task.review[0], stars, comment, tags)
         else:
             task.review = None
         task.events = plan_task_events(task)
@@ -679,9 +715,15 @@ def plan_task_events(task):
     if task.help_type in ("grocery", "medical") and rng.random() < 0.12:
         (_, v_text), (_, c_text) = texts["money"]
         chat += [(done - 6 * mins, "v", v_text), (done - 4 * mins, "c", c_text)]
-    if rng.random() < 0.55:
+    if rng.random() < (0.9 if task.client_photo else 0.55):
         (_, v_text), (_, c_text) = texts["done"]
         chat += [(done - 3 * mins, "v", v_text), (done - 2 * mins, "c", c_text)]
+    if task.client_photo:
+        # A client with a photo writes more: one or two extra exchanges.
+        for k, exchange in enumerate(rng.sample(texts["client_extra"], rng.randint(1, 2))):
+            t = acc + (done - acc) * (0.3 + 0.3 * k) + rng.randint(0, 5) * mins
+            (_, c_text), (_, v_text) = exchange
+            chat += [(t, "c", c_text), (t + rng.randint(1, 4) * mins, "v", v_text)]
     for i, (t, who, text) in enumerate(sorted(c for c in chat if acc < c[0] < done)):
         ev.append((t, 6, "chat", (who, text, i)))
     ev.append((done, 0, "complete", None))
@@ -690,20 +732,21 @@ def plan_task_events(task):
     return ev
 
 
-def plan_visits(event_days, windows, done, today):
+def plan_visits(event_days, windows, bands, today, heavy=frozenset()):
     """{user: {day: actions}} — extra "visited the site" days so the share of
-    active days lands in the account's ``ACTIVITY_TIERS`` band. ``event_days``:
-    {user: set of days that already have activity}; ``windows``: {user: first
-    day}; ``done``: {user: completed (volunteer) / created (client) requests}.
-    Deterministic per user; more visits towards ``today`` (same growth as the
-    requests); a day that already has activity is never chosen."""
+    active days lands in the account's band. ``event_days``: {user: set of days
+    that already have activity}; ``windows``: {user: first day}; ``bands``:
+    {user: (low, high)} share of active days; ``heavy``: users whose visits in
+    the current month weigh more (``OCTOBER_VISIT_ACTIONS``). Deterministic
+    per user; more visits towards ``today`` (same growth as the requests); a
+    day that already has activity is never chosen."""
     out = {}
     for uid in sorted(windows):
         first = windows[uid]
         if first > today:
             continue
         days = [first + datetime.timedelta(days=i) for i in range((today - first).days + 1)]
-        low, high = next(band for threshold, band in ACTIVITY_TIERS if done.get(uid, 0) >= threshold)
+        low, high = bands[uid]
         vr = random.Random(f"{SEED}:visits:{uid}")
         target = round(vr.uniform(low, high) * len(days))
         have = {d for d in event_days.get(uid, ()) if first <= d <= today}
@@ -717,8 +760,29 @@ def plan_visits(event_days, windows, done, today):
         while len(chosen) < need:  # weighted sampling without replacement
             pick = vr.choices(free, weights=weights)[0]
             chosen.add(pick)
-        out[uid] = {d: vr.randint(1, 3) for d in sorted(chosen)}
+        out[uid] = {d: (vr.randint(*OCTOBER_VISIT_ACTIONS) if uid in heavy and (d.year, d.month) == (today.year, today.month)
+                        else vr.randint(1, 3)) for d in sorted(chosen)}
     return out
+
+
+def activity_bands(users, photo, done):
+    """{user: (low, high)}: ``PHOTO_SHARES`` for a role once any account of that
+    role has a photo, else ``ACTIVITY_TIERS`` by ``done``. ``users``: {id: is_volunteer}."""
+    roles_with_photo = {("volunteer" if users[uid] else "client") for uid in photo if uid in users}
+    out = {}
+    for uid, is_volunteer in users.items():
+        role = "volunteer" if is_volunteer else "client"
+        if role in roles_with_photo:
+            out[uid] = PHOTO_SHARES[(role, uid in photo)]
+        else:
+            out[uid] = next(band for threshold, band in ACTIVITY_TIERS if done.get(uid, 0) >= threshold)
+    return out
+
+
+def demo_photo_ids(user_ids):
+    from accounts.models import Profile
+    return frozenset(Profile.objects.filter(user_id__in=user_ids).exclude(image="").exclude(image__isnull=True)
+                     .values_list("user_id", flat=True))
 
 
 # --------------------------------------------------------------------------- #
@@ -1086,8 +1150,7 @@ class Command(BaseCommand):
                 before = snapshot()
                 profiles_before = self._profile_fields()
                 from accounts.models import Profile
-                with_photo = frozenset(Profile.objects.filter(user_id__in=[u.pk for u in volunteers])
-                                       .exclude(image="").exclude(image__isnull=True).values_list("user_id", flat=True))
+                with_photo = demo_photo_ids([u.pk for u in (*volunteers, *clients)])
                 people = build_people([u.pk for u in volunteers], [u.pk for u in clients], with_photo)
                 plan = build_plan(people, n, self.real_now)
                 # Registration dates before the first demo activity (old values -> manifest).
@@ -1113,6 +1176,9 @@ class Command(BaseCommand):
                     problems.append("the number of accounts changed")
                 if problems:
                     raise CommandError("Rolled back — the post-run check failed:\n  " + "\n  ".join(problems[:40]))
+                problems = self._rating_check(users)
+                if problems:
+                    raise CommandError("Rolled back — the rating check failed:\n  " + "\n  ".join(problems))
                 profiles_after = self._profile_fields()
                 manifest = self._manifest(created, profiles_before, profiles_after, n, excluded)
                 manifest["date_joined"] = {str(uid): {"before": joined_before[uid].isoformat(),
@@ -1302,10 +1368,46 @@ class Command(BaseCommand):
         tasks = HelpRequest.objects.filter(pk__in=task_ids)
         done = Counter(tasks.filter(status="completed").values_list("volunteer_id", flat=True))
         done.update(tasks.values_list("client_id", flat=True))
+        roles = dict(User.objects.filter(pk__in=self.demo_ids).values_list("pk", "is_volunteer"))
+        photo = demo_photo_ids(self.demo_ids)
+        bands = activity_bands(roles, photo, done)
+        heavy = frozenset(uid for uid in photo if roles.get(uid))
+        planned = plan_visits(event_days, windows, bands, today, heavy)
+        # Photo volunteers: the darkest squares are in the current month — if an
+        # earlier day still has the most actions, one of this month's new visit
+        # days gets one more than that.
+        existing = defaultdict(dict)
+        for uid, day, n in UserDailyActivity.objects.filter(user_id__in=heavy).values_list("user_id", "date", "actions_count"):
+            existing[uid][day] = n
+        for uid in heavy:
+            days = {**existing[uid], **planned.get(uid, {})}
+            if not days:
+                continue
+            top = max(days.values())
+            this_month = {d: n for d, n in days.items() if (d.year, d.month) == (today.year, today.month)}
+            if this_month and max(this_month.values()) < top:
+                new_days = [d for d in planned.get(uid, {}) if (d.year, d.month) == (today.year, today.month)]
+                if new_days:
+                    planned[uid][max(new_days, key=lambda d: planned[uid][d])] = top + 1
         rows = [UserDailyActivity(user_id=uid, date=day, actions_count=n, is_demo=True, source="demo")
-                for uid, days in plan_visits(event_days, windows, done, today).items() for day, n in days.items()]
+                for uid, days in planned.items() for day, n in days.items()]
         UserDailyActivity.objects.bulk_create(rows, batch_size=500)
         return rows
+
+    def _rating_check(self, users):
+        """With photo volunteers: no volunteer without a photo (demo or not)
+        ranks above a demo volunteer with a photo — the formula is untouched,
+        the plan has to get there."""
+        from myapp.services import rating
+
+        photo_vol = {uid for uid in self.with_photo if users.get(uid) and users[uid].is_volunteer}
+        if not photo_vol:
+            return []
+        ranked = list(rating.ranked_queryset())
+        last_photo = max(i for i, u in enumerate(ranked) if u.pk in photo_vol)
+        intruders = [f"#{u.pk} (place {i + 1}, score {u.score}, no photo)"
+                     for i, u in enumerate(ranked[:last_photo + 1]) if not u.has_photo]
+        return [f"volunteers without a photo above a demo volunteer with one: {', '.join(intruders)}"] if intruders else []
 
     def _share_report(self, task_ids):
         """Share of active days per account since max(1 Aug, registration), by tier."""
@@ -1320,17 +1422,21 @@ class Command(BaseCommand):
         days = defaultdict(set)
         for uid, day in UserDailyActivity.objects.filter(user_id__in=self.demo_ids).values_list("user_id", "date"):
             days[uid].add(day)
+        photo = demo_photo_ids(self.demo_ids)
+        bands = activity_bands(roles, photo, done)
+        labels = {band: f"{'with' if photo_ else 'without'} a photo" for (role, photo_), band in PHOTO_SHARES.items()}
         groups = defaultdict(list)
         for uid in self.demo_ids:
             first = max(WINDOW_START.date(), joined[uid].astimezone(TZ).date())
             total = (today - first).days + 1
             share = len({d for d in days[uid] if first <= d <= today}) / total if total > 0 else 0
-            band = next(b for threshold, b in ACTIVITY_TIERS if done.get(uid, 0) >= threshold)
+            band = bands[uid]
             groups[("volunteer" if roles[uid] else "client", band)].append(share)
         self.shares = {}
         for (role, band), values in sorted(groups.items(), key=lambda kv: (kv[0][0], -kv[0][1][0])):
             values.sort()
-            self.stdout.write(f"  active-day share, {role}s in {int(band[0]*100)}–{int(band[1]*100)} %: "
+            who = f"{role}s {labels[band]}" if photo and band in labels else f"{role}s"
+            self.stdout.write(f"  active-day share, {who} (band {int(band[0]*100)}–{int(band[1]*100)} %): "
                               f"{len(values)} accounts, min {values[0]:.0%}, median {values[len(values)//2]:.0%}, "
                               f"max {values[-1]:.0%}")
             self.shares[(role, band)] = values
@@ -1469,9 +1575,12 @@ class Command(BaseCommand):
 
         # Rating from the created data (the same ordering the public page uses).
         from myapp.services import rating
-        top = list(rating.ranked_queryset()[:10])
-        out(f"Demo volunteers with a profile photo: {len(self.with_photo)} of {volunteers}")
-        out("Rating top 10 (computed, all accounts):")
+        top = list(rating.ranked_queryset()[:15])
+        photo_vol = sorted(uid for uid in self.with_photo if users.get(uid) and users[uid].is_volunteer)
+        photo_cli = sorted(uid for uid in self.with_photo if users.get(uid) and users[uid].is_client)
+        out(f"Demo accounts with a profile photo: volunteers {len(photo_vol)} of {volunteers} {photo_vol or ''}, "
+            f"clients {len(photo_cli)} of {clients} {photo_cli or ''}")
+        out("Rating top 15 (computed, all accounts):")
         for place, u in enumerate(top, start=1):
             mark = "photo " if u.has_photo else "no photo"
             who = "demo" if u.pk in self.demo_ids else "not demo"
