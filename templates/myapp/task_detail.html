@@ -427,47 +427,75 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     const freshness = (code) => (freshnessLabel[code] ? tr(freshnessLabel[code][0], freshnessLabel[code][1]) : '');
 
-    function showEmpty(text) {
+    function showEmpty(key, fallback) {
         statusEl.hidden = true;
         listEl.hidden = true;
         emptyEl.hidden = false;
-        if (text) emptyTextEl.textContent = text;
+        emptyTextEl.setAttribute('data-i18n', key);
+        emptyTextEl.textContent = tr(key, fallback);
     }
 
     const skillTag = {
-        match: '<span class="tag success" data-i18n="rec.skill_match">Skills match</span>',
-        mismatch: '<span class="tag muted" data-i18n="rec.skill_nomatch">Skills differ</span>',
-        none: '',
+        match: ['tag success', 'rec.skill_match', 'Skills match'],
+        mismatch: ['tag muted', 'rec.skill_nomatch', 'Skills differ'],
     };
+
+    // Text from the server (names, regions, reasons) goes in through
+    // textContent only — a volunteer's own full name must never become markup.
+    function el(tag, className, text, i18nKey) {
+        const node = document.createElement(tag);
+        if (className) node.className = className;
+        if (text != null) node.textContent = text;
+        if (i18nKey) node.setAttribute('data-i18n', i18nKey);
+        return node;
+    }
+
+    const PIN_SVG = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg>';
 
     function renderCard(item, rank) {
         const initial = (item.full_name || item.username || '?').trim().charAt(0).toUpperCase();
         const availabilityTag = item.availability === 'available' ? 'success' : 'muted';
-        const reasons = item.reasons.map((r) => `<li>${r}</li>`).join('');
-        const row = document.createElement('div');
-        row.className = 'card reveal applicant-row';
-        row.innerHTML = `
-            <div class="avatar avatar-fallback avatar-sm">${initial}</div>
-            <div class="applicant-body">
-                <span class="tag ${availabilityTag}">${item.availability_display}</span>
-                <span class="tag accent rec-score-tag">#${rank} · ${item.score}</span>
-                ${item.same_region ? '<span class="tag muted">' + item.region + '</span>' : ''}
-                ${skillTag[item.skill_match] || ''}
-                <h3>${item.full_name}</h3>
-                <p class="opportunity-location">
-                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg>
-                    ${item.distance_km} ${tr('unit.km', 'km')} · ~${Math.round(item.estimated_minutes)} ${tr('unit.min', 'min')} ·
-                    ${tr('rec.n_active', '{n} active', { n: item.active_task_count })} · ${freshness(item.location_freshness)}
-                </p>
-                <ul class="rec-reasons">${reasons}</ul>
-            </div>
-            <div class="button-row">
-                <button type="button" class="button primary rec-assign-btn" data-i18n="rec.assign">${tr('rec.assign', 'Assign')}</button>
-                <button type="button" class="button ghost rec-notify-btn" data-i18n="rec.notify">${tr('rec.notify', 'Notify')}</button>
-            </div>`;
+        // No .reveal here: these rows arrive after base.html's scroll-reveal
+        // observer has collected its targets, so a .reveal row would stay at
+        // opacity 0 forever (the "only the header shows" bug).
+        const row = el('div', 'card applicant-row');
+        const body = el('div', 'applicant-body');
+        const tags = [
+            el('span', 'tag ' + availabilityTag, item.availability_display),
+            el('span', 'tag accent rec-score-tag', `#${rank} · ${item.score}`),
+        ];
+        if (item.same_region && item.region) tags.push(el('span', 'tag muted', item.region));
+        const skill = skillTag[item.skill_match];
+        if (skill) tags.push(el('span', skill[0], tr(skill[1], skill[2]), skill[1]));
+        tags.forEach((tag) => body.append(tag, ' '));
+        body.append(el('h3', null, item.full_name));
 
-        const notifyBtn = row.querySelector('.rec-notify-btn');
-        const assignBtn = row.querySelector('.rec-assign-btn');
+        const meta = el('p', 'opportunity-location');
+        meta.innerHTML = PIN_SVG;
+        meta.append(' ' + [
+            `${item.distance_km} ${tr('unit.km', 'km')}`,
+            `~${Math.round(item.estimated_minutes)} ${tr('unit.min', 'min')}`,
+            tr('rec.n_active', '{n} active', { n: item.active_task_count }),
+            freshness(item.location_freshness),
+        ].filter(Boolean).join(' · '));
+        body.append(meta);
+
+        const reasons = el('ul', 'rec-reasons');
+        (item.reason_codes || []).forEach((code, i) => {
+            const key = 'rec.why.' + code;  // every REASON_TEXT code has one (tests_smart_matching)
+            const li = el('li', null, tr(key, item.reasons[i] || '', { n: item.active_task_count }), key);
+            li.setAttribute('data-i18n-args', JSON.stringify({ n: item.active_task_count }));
+            reasons.append(li);
+        });
+        body.append(reasons);
+
+        const actions = el('div', 'button-row');
+        const assignBtn = el('button', 'button primary rec-assign-btn', tr('rec.assign', 'Assign'), 'rec.assign');
+        const notifyBtn = el('button', 'button ghost rec-notify-btn', tr('rec.notify', 'Notify'), 'rec.notify');
+        assignBtn.type = 'button';
+        notifyBtn.type = 'button';
+        actions.append(assignBtn, ' ', notifyBtn);
+        row.append(el('div', 'avatar avatar-fallback avatar-sm', initial), body, actions);
 
         notifyBtn.addEventListener('click', () => {
             notifyBtn.disabled = true;
@@ -586,23 +614,32 @@ document.addEventListener('DOMContentLoaded', () => {
         block.hidden = false;
     }
 
+    // matching.EMPTY_* → why the shortlist is empty (EN fallbacks).
+    const emptyReason = {
+        no_task_location: ['rec.no_task_location', 'This request has no point on the map yet, so volunteers can’t be matched by distance.'],
+        no_volunteers: ['rec.empty.no_volunteers', 'There are no active volunteers on the platform yet.'],
+        all_unavailable: ['rec.empty.all_unavailable', 'All volunteers are offline or in “do not disturb” mode right now.'],
+        no_volunteer_location: ['rec.empty.no_volunteer_location', 'No available volunteer has a saved location, so nobody can be matched by distance.'],
+        load_failed: ['rec.empty.load_failed', 'Could not load the recommendations. Reload the page to try again.'],
+    };
+
     fetch(recommendUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
-        .then((r) => r.json())
+        .then((r) => {
+            if (!r.ok) throw new Error(String(r.status));
+            return r.json();
+        })
         .then((data) => {
             renderAway(data.away_volunteers);
-            if (!data.task_has_location) {
-                showEmpty(tr('rec.no_task_location', 'This request has no point on the map yet, so volunteers can’t be matched by distance.'));
-                return;
-            }
             if (!data.recommendations.length) {
-                showEmpty();
+                const code = data.empty_reason || (data.task_has_location ? '' : 'no_task_location');
+                showEmpty(...(emptyReason[code] || ['rec.empty_title', 'No suitable volunteers found nearby.']));
                 return;
             }
             statusEl.hidden = true;
             listEl.hidden = false;
             data.recommendations.forEach((item, index) => listEl.appendChild(renderCard(item, index + 1)));
         })
-        .catch(() => showEmpty());
+        .catch(() => showEmpty(...emptyReason.load_failed));
 })();
 </script>
 {% endif %}

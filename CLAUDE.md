@@ -922,7 +922,11 @@ and `ai_assistant.html` were left alone (test-coupled DOM ids / out of scope) �
   box with a client sign-up link when `next` is the request form.
 - **Forms**: `_field.html` ties hints/errors to the widget (`described_widget`: aria-describedby +
   aria-invalid). Hints/errors are ≥ 14 px. `.reveal` hides content only when JS runs
-  (`html.gc-reveal`, 3 s fail-safe) and never under `prefers-reduced-motion`.
+  (`html.gc-reveal`, 3 s fail-safe) and never under `prefers-reduced-motion`. **Never put
+  `.reveal` on an element JS adds after load** — base.html's observer collects its targets once,
+  so it stays at opacity 0 (the smart-matching card showed only its header on prod until hotfix
+  2026-10-19; `myapp/tests_smart_matching.py` locks it, and that card's empty state names the
+  filter that emptied it: `matching.no_candidates_reason`).
 - Staff `.data-table`s on phones: label beside value (floated into the cell padding).
 - New TJ strings of this pass: `docs/TJ_REVIEW_UX_2026-10-15.md` (for a native speaker's check).
 

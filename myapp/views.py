@@ -58,7 +58,7 @@ from .services.ai import build_user_context, confirm_action, run_conversation
 from .services.ai import actions as ai_actions
 from .services.ai.prompts import detect_lang
 from .services.geo import is_valid_coordinate
-from .services.matching import location_freshness_label, recommend_volunteers
+from .services.matching import location_freshness_label, no_candidates_reason, recommend_volunteers
 
 logger = logging.getLogger(__name__)
 
@@ -1294,6 +1294,7 @@ def task_recommendations_view(request, pk):
             "skill_match": item["skill_match"],
             "location_freshness": item["location_freshness"],
             "reasons": item["reasons"],
+            "reason_codes": item["reason_codes"],
         }
 
     away = [
@@ -1309,6 +1310,8 @@ def task_recommendations_view(request, pk):
     return JsonResponse({
         "task_has_location": task.has_location,
         "recommendations": [_serialize(item) for item in ranked],
+        # Which filter emptied the list (matching.EMPTY_*); None when it isn't.
+        "empty_reason": None if ranked else no_candidates_reason(task),
         # Do-not-disturb volunteers — never ranked; assignable only with an
         # explicit confirmation (task_assign_volunteer_view, confirm_away=1).
         "away_volunteers": away,
